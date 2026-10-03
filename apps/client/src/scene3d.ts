@@ -18,6 +18,8 @@ const TANK_SCALE = 1.6;
 const PIVOT_Y = 1.05;
 const BARREL_LEN = 2.6;
 const EXPLOSION_MS = 450;
+/** Cuánto dura el cartel de daño en el punto de impacto. [ms] */
+const IMPACT_LABEL_MS = 1000;
 /** Cuánto se queda la cámara mirando el impacto después de que llega el proyectil. [ms] */
 export const LINGER_MS = 1300;
 
@@ -54,6 +56,9 @@ export interface ShotModel {
   slot: number;
   /** Radio de explosión del arma disparada. [wu] */
   radius: number;
+  /** Dónde terminó el tiro y qué dice el cartel de impacto ("-40", "se fue"). Los dos vienen del server. */
+  impact: { x: number; y: number; z: number };
+  label: string;
 }
 
 /** Modo nafta: alcance alrededor del tanque y el destino bajo el cursor. */
@@ -112,6 +117,7 @@ export class World {
   private readonly shotLine: THREE.Line;
   private readonly shotBall: THREE.Mesh;
   private readonly blast: THREE.Mesh;
+  private readonly impactLabel: CSS2DObject;
   private readonly windArrow: THREE.Mesh;
   private readonly border: THREE.LineLoop;
 
@@ -207,6 +213,11 @@ export class World {
       new THREE.MeshBasicMaterial({ color: "#ffb347", transparent: true, opacity: 0.9 }),
     );
     this.scene.add(this.blast);
+    const impactEl = document.createElement("div");
+    impactEl.className = "impact-label";
+    this.impactLabel = new CSS2DObject(impactEl);
+    this.impactLabel.visible = false;
+    this.scene.add(this.impactLabel);
 
     // Flecha del viento, acostada en el piso. Apunta a +X antes de rotarla.
     const s = new THREE.Shape();
@@ -642,6 +653,7 @@ export class World {
     this.shotLine.visible = false;
     this.shotBall.visible = false;
     this.blast.visible = false;
+    this.impactLabel.visible = false;
     if (!s || s.path.length < 3) return null;
     const n = s.path.length / 3;
     const elapsed = now - s.start;
@@ -666,6 +678,15 @@ export class World {
       this.blast.scale.setScalar(s.radius * (0.35 + 0.9 * q));
       (this.blast.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - q);
       this.blast.visible = true;
+    }
+    // Cartel de daño: anclado al punto de impacto en el mundo, así sigue a la cámara.
+    if (p >= 1 && elapsed - s.durationMs < IMPACT_LABEL_MS) {
+      const q = (elapsed - s.durationMs) / IMPACT_LABEL_MS;
+      const el = this.impactLabel.element;
+      if (el.textContent !== s.label) el.textContent = s.label;
+      el.style.opacity = String(Math.min(1, (1 - q) * 3));
+      this.impactLabel.position.set(s.impact.x, s.impact.y + 3 + 4 * q, s.impact.z);
+      this.impactLabel.visible = true;
     }
     return at;
   }

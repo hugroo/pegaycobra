@@ -18,6 +18,7 @@ import {
   type ShopItemId,
   type Terrain,
 } from "@pegaycobra/sim";
+import { play, toggleMute } from "./audio";
 import { Minimap, type MiniModel } from "./minimap";
 import { LINGER_MS, SLOT_COLORS, World, type GhostModel, type MoveModel, type ShotModel, type TankModel } from "./scene3d";
 
@@ -253,16 +254,34 @@ function attach(r: Room<any>): void {
   });
   r.onMessage(
     "shot",
-    (m: { path: number[]; durationMs: number; shooterId: string; outcome: string; weapon: "babyMissile" | "missile" }) => {
+    (m: {
+      path: number[];
+      durationMs: number;
+      shooterId: string;
+      outcome: string;
+      weapon: "babyMissile" | "missile";
+      impact: { x: number; y: number; z: number };
+      damage: number;
+    }) => {
       const shooter = r.state.players.get(m.shooterId);
+      const lands = m.outcome === "ground" || m.outcome === "tank";
       shotAnim = {
         path: m.path,
         durationMs: m.durationMs,
         start: performance.now(),
         slot: shooter?.slot ?? 0,
-        explodes: m.outcome === "ground" || m.outcome === "tank",
+        explodes: lands,
         radius: (WEAPONS[m.weapon] ?? WEAPONS.babyMissile).explosionRadius,
+        impact: m.impact,
+        // El número es el del server; acá solo se redondea para mostrarlo.
+        label: lands ? (m.damage > 0 ? `-${Math.max(1, Math.round(m.damage))}` : "0") : "se fue",
       };
+      play("fire");
+      window.setTimeout(() => {
+        if (room !== r) return;
+        if (lands) play("boom");
+        if (m.damage > 0) play("hit");
+      }, m.durationMs);
       const n = m.path.length;
       lastImpact =
         n >= 3
@@ -688,6 +707,7 @@ window.addEventListener("keydown", (e) => {
   if (e.target instanceof HTMLInputElement && e.target.type !== "range") return;
   if (e.key === "+" || e.key === "=") return world?.zoom(1 / 1.15);
   if (e.key === "-") return world?.zoom(1.15);
+  if (e.key === "m" || e.key === "M") return showBanner(toggleMute() ? "Sonido cortado (M)" : "Sonido activado (M)", 1200);
   if (!myTurn()) return;
   if (e.target instanceof HTMLButtonElement) e.target.blur();
   const step = e.shiftKey ? 5 : 1;
@@ -791,6 +811,7 @@ function frame(now: number): void {
   if (turnKey !== lastTurnKey) {
     lastTurnKey = turnKey;
     if (s.phase === "aiming") {
+      if (mine) play("turn");
       ghostOff = false;
       moveMode = false;
       const tp = s.players.get(s.turnId);

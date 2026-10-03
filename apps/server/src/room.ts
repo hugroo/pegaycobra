@@ -30,6 +30,10 @@ export interface ShotBroadcast {
   /** [x0, y0, z0, x1, y1, z1, ...] en wu, redondeado a 0.01. */
   path: number[];
   durationMs: number;
+  /** Dónde terminó el tiro. [wu] */
+  impact: { x: number; y: number; z: number };
+  /** Daño total que hizo el tiro (explosión + caídas), ya resuelto por el sim. [hp] */
+  damage: number;
 }
 
 /** Mensaje "roundEnd": lo que cobró cada uno al terminar la ronda. */
@@ -123,6 +127,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       outcome: r.outcome,
       path: (r.path ?? []).map(round2),
       durationMs: shot.durationMs,
+      impact: { x: round2(r.x), y: round2(r.y), z: round2(r.z) },
+      damage: round2(shot.result.damage.reduce((sum, d) => sum + d.damage, 0)),
     };
     this.flush();
     this.broadcast("shot", payload);
