@@ -17,6 +17,8 @@
 //   - El Roller (roller.ts) y el Escudo: precios y efecto propios. El escudo absorbe el próximo
 //     tiro cuya explosión le iba a sacar vida al tanque y se gasta (turn3d.ts); no tapa la caída
 //     cuando le sacan el piso sin alcanzarlo.
+//   - El Napalm (napalm.ts): precio y efecto propios. Deja fuego hasta que termina la ronda; el
+//     escudo no lo apaga.
 
 import { INTEREST_RATE, MONEY_PER_ROUND, MONEY_WON_FOR_ROUND, TANK_MAX_LIFE } from "./constants";
 import { isAlive } from "./damage";
@@ -48,7 +50,7 @@ export const SURVIVOR_BONUS = MONEY_WON_FOR_ROUND + MONEY_WON_FOR_LIVES * PLAYER
  * Arma una ronda nueva sobre un terreno nuevo (como el original, que genera un paisaje por ronda):
  * terreno con GAME_TERRAIN_3D, viento sorteado de nuevo, tanques reubicados con vida llena.
  * La plata y el inventario de cada jugador pasan tal cual. Los que ya no están (`gone`) arrancan
- * muertos.
+ * muertos. El fuego de la ronda anterior no pasa: el estado nuevo no tiene `fires`.
  */
 export function startRound3D(seed: number, players: readonly Player[], gone: ReadonlySet<string> = new Set()): MatchState3D {
   const terrain = generateTerrain(seed, GAME_TERRAIN_3D);
@@ -102,7 +104,7 @@ export function endRoundPayouts(players: readonly Player[], survivors: ReadonlyS
 // Tienda
 // ---------------------------------------------------------------------------
 
-export type ShopItemId = "missile" | "roller" | "shield" | "parachute" | "fuel";
+export type ShopItemId = "missile" | "roller" | "napalm" | "shield" | "parachute" | "fuel";
 
 export interface ShopItem {
   id: ShopItemId;
@@ -134,6 +136,15 @@ export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze(
     price: WEAPONS.roller.cost,
     pack: WEAPONS.roller.bundleSize,
     description: `Toca el piso y rueda cuesta abajo hasta ${WEAPONS.roller.roll!.maxCells} celdas o hasta un tanque. Cráter chico.`,
+  },
+  napalm: {
+    id: "napalm",
+    name: "Napalm",
+    price: WEAPONS.napalm.cost,
+    pack: WEAPONS.napalm.bundleSize,
+    description:
+      `No explota ni abre cráter: deja fuego en un disco de radio ${WEAPONS.napalm.burn!.radius} el resto de la ronda. ` +
+      `El tanque que empieza su turno ahí pierde ${WEAPONS.napalm.burn!.damagePerTurn} de vida. El escudo no lo apaga.`,
   },
   shield: {
     id: "shield",

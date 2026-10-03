@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { createFlatTerrain, FUEL_MOVE_RANGE, INTEREST_RATE, MONEY_START, ROUND_MAX_TURNS, SHOP_ITEMS, SURVIVOR_BONUS } from "@pegaycobra/sim";
+import {
+  createFlatTerrain,
+  FUEL_MOVE_RANGE,
+  INTEREST_RATE,
+  MONEY_START,
+  ROUND_MAX_TURNS,
+  SCORE_PER_KILL,
+  SHOP_ITEMS,
+  SURVIVOR_BONUS,
+  WEAPONS,
+} from "@pegaycobra/sim";
 import { Game, parseBuyMessage, parseMoveMessage, SHOP_SECONDS } from "../src/game";
 
 function started(seed = 11, ids = ["A", "B"]) {
@@ -188,6 +198,124 @@ describe("Roller y Escudo en partida", () => {
     g.finishShot();
     expect(g.match!.tanks.find((t) => t.id === "B")!.life).toBeLessThan(100);
     expect(g.board.A!.points).toBeGreaterThan(0);
+  });
+});
+
+describe("Napalm en partida", () => {
+  const BURN = WEAPONS.napalm.burn!.damagePerTurn;
+  const give = (g: Game, id: string, items: object) => {
+    g.match = { ...g.match!, players: g.match!.players.map((p) => (p.id === id ? { ...p, inventory: { ...p.inventory, ...items } } : p)) };
+  };
+  const life = (g: Game, id: string) => g.match!.tanks.find((t) => t.id === id)!.life;
+  const setLife = (g: Game, id: string, hp: number) => {
+    g.match = { ...g.match!, tanks: g.match!.tanks.map((t) => (t.id === id ? { ...t, life: hp } : t)) };
+  };
+  /** El del turno lo deja vencer: no tira nadie. */
+  const pass = (g: Game) => {
+    for (let i = 0; i < 30; i++) g.tickSecond();
+  };
+
+  /** Piso plano, A en el centro, B donde cae yaw 90 / pitch 45 / power 600 y C lejos. Le toca a A, que tiene un Napalm. */
+  const SPOTS: Record<string, { x: number; z: number }> = { A: { x: 128, z: 128 }, B: { x: 128, z: 128 + 93 }, C: { x: 30, z: 30 } };
+  function flat(ids = ["A", "B"]) {
+    const g = started(11, ids);
+    const terrain = createFlatTerrain(257, 257, 10);
+    g.match = { ...g.match!, terrain, wind: { x: 0, z: 0 }, tanks: g.match!.tanks.map((t) => ({ ...t, ...SPOTS[t.id]!, y: 10 })) };
+    give(g, "A", { napalm: 1 });
+    expect(g.turnId).toBe("A");
+    return g;
+  }
+  const NAPALM = { yaw: 90, pitch: 45, power: 600, weapon: "napalm" };
+
+  it("la tienda lo vende de a 1", () => {
+    const g = started();
+    killAndPass(g, "B");
+    const before = money(g, "B");
+    expect(g.buy("B", { item: "napalm" })).toBe(true);
+    expect(inv(g, "B").napalm).toBe(1);
+    expect(money(g, "B")).toBe(before - SHOP_ITEMS.napalm.price);
+  });
+
+  it("sin Napalm el tiro se ignora", () => {
+    const g = flat();
+    give(g, "A", { napalm: 0 });
+    expect(g.fire("A", NAPALM)).toBeNull();
+    expect(g.phase).toBe("aiming");
+  });
+
+  it("el fuego queda cuando cae el tiro, el terreno sigue igual, y el que está adentro pierde vida al empezar cada turno sin que le tiren de nuevo", () => {
+    const g = flat();
+    const terrain = g.match!.terrain;
+    const heights = terrain.heights.slice();
+
+    const shot = g.fire("A", NAPALM)!;
+    expect(shot.weapon).toBe("napalm");
+    expect(inv(g, "A").napalm).toBe(0); // gastado mientras vuela
+    expect(g.match!.fires).toBeUndefined(); // todavía no cayó
+    g.finishShot();
+    expect(g.match!.fires).toHaveLength(1);
+    expect(g.match!.terrain).toBe(terrain);
+    expect(g.match!.terrain.heights).toEqual(heights);
+
+    // El tiro no le sacó nada; lo que le saca es empezar su turno parado ahí.
+    expect(shot.result.damage).toEqual([]);
+    expect(g.turnId).toBe("B");
+    expect(life(g, "B")).toBe(100 - BURN);
+    expect(g.board.A!.points).toBe(BURN); // los puntos son del que prendió el fuego
+    expect(g.takeBurns()).toMatchObject([{ targetId: "B", ownerId: "A", damage: BURN, killed: false }]);
+    expect(g.takeBurns()).toEqual([]); // la sala lo avisa una sola vez
+
+    pass(g); // B no tira
+    expect(g.turnId).toBe("A");
+    expect(life(g, "A")).toBe(100); // A está lejos del fuego
+    expect(g.takeBurns()).toEqual([]);
+    pass(g); // A tampoco: a B nadie le tiró de nuevo
+    expect(g.turnId).toBe("B");
+    expect(life(g, "B")).toBe(100 - 2 * BURN);
+    expect(g.board.A!.points).toBe(2 * BURN);
+    expect(g.match!.terrain.heights).toEqual(heights);
+  });
+
+  it("el que se mueve con nafta sale del fuego: en su turno siguiente no pierde vida", () => {
+    const g = flat();
+    give(g, "B", { fuel: 1 });
+    g.fire("A", NAPALM);
+    g.finishShot();
+    expect(life(g, "B")).toBe(100 - BURN);
+    expect(g.move("B", { moveTo: { x: SPOTS.B!.x - 12, z: SPOTS.B!.z } })).not.toBeNull();
+    pass(g);
+    pass(g);
+    expect(g.turnId).toBe("B");
+    expect(life(g, "B")).toBe(100 - BURN);
+    expect(g.takeBurns()).toHaveLength(1); // solo la primera
+    expect(g.match!.fires).toHaveLength(1); // el fuego sigue donde estaba
+  });
+
+  it("si el fuego mata al que le tocaba, juega el siguiente", () => {
+    const g = flat(["A", "B", "C"]);
+    setLife(g, "B", BURN - 5);
+    g.fire("A", NAPALM);
+    g.finishShot();
+    expect(life(g, "B")).toBe(0);
+    expect(g.phase).toBe("aiming");
+    expect(g.turnId).toBe("C");
+    expect(g.takeBurns()).toMatchObject([{ targetId: "B", ownerId: "A", killed: true }]);
+    expect(g.board.A).toMatchObject({ kills: 1, points: BURN - 5 + SCORE_PER_KILL });
+  });
+
+  it("si lo mata y queda uno solo, termina la ronda; la siguiente arranca sin fuego", () => {
+    const g = flat();
+    setLife(g, "B", BURN - 5);
+    g.fire("A", NAPALM);
+    g.finishShot();
+    expect(g.phase).toBe("shop");
+    expect(g.lastRound!.survivors).toEqual(["A"]);
+    expect(g.match!.fires).toHaveLength(1); // durante la tienda todavía es la ronda que terminó
+    g.setReady("A");
+    g.setReady("B");
+    expect(g.round).toBe(2);
+    expect(g.match!.fires).toBeUndefined();
+    expect(g.takeBurns()).toHaveLength(1);
   });
 });
 

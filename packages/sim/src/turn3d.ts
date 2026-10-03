@@ -4,12 +4,14 @@
 //   tiro (shot3d.ts; el Roller además rueda, roller.ts) → cráter en disco (terrain.ts)
 //   → daño de explosión (damage.ts), salvo a quien lo tapa un escudo
 //   → caídas y daño de caída → plata para quien disparó (economy.ts).
+// El Napalm no abre cráter ni explota: deja un fuego (napalm.ts) que quema al empezar cada turno.
 // Orígenes: Explosion.cpp, TargetDamageCalc.cpp, TargetDamage.cpp, TargetFalling.cpp, Wind.cpp.
 
 import { TANK_RADIUS } from "./constants";
 import { applyDamage, explosionDamage, fallDamage, isAlive, type Tank } from "./damage";
 import { canFire, clampMoney, consumeAmmo, moneyForDamage } from "./economy";
 import { TANK_START_HEIGHT_MAX, TANK_START_HEIGHT_MIN } from "./match";
+import { fireFromShot, inFire, type Fire } from "./napalm";
 import { simulateWeaponShot3D } from "./roller";
 import type { Shot3DResult, Wind } from "./shot3d";
 import {
@@ -31,6 +33,8 @@ export interface MatchState3D {
   readonly wind: Wind;
   readonly tanks: readonly Tank3D[];
   readonly players: readonly Player[];
+  /** Fuegos prendidos en la ronda (napalm.ts). Ausente = ninguno; una ronda nueva arranca sin fuego. */
+  readonly fires?: readonly Fire[];
 }
 
 export interface FireCommand3D {
@@ -62,6 +66,8 @@ export interface TurnResult3D {
   falls: FallEvent3D[];
   /** Tanques a los que la explosión les iba a hacer daño y el escudo lo absorbió (y se gastó). */
   blocked: string[];
+  /** El fuego que prendió este tiro (Napalm), ya agregado a state.fires. null si no prendió nada. */
+  fire: Fire | null;
 }
 
 /**
@@ -148,13 +154,16 @@ export function settleTank3D(
 
 /**
  * Resuelve un disparo 3D. Mismas validaciones que resolveTurn: jugador vivo, arma jugable
- * (Baby Missile, Missile, Roller) y con munición. No recibe daño ni impacto: los calcula.
+ * (Baby Missile, Missile, Roller, Napalm) y con munición. No recibe daño ni impacto: los calcula.
  *
  * Escudo (regla propia, campaign.ts): si la explosión (también la del Roller) le iba a sacar vida
  * a un tanque con escudo, el escudo absorbe ese tiro y se gasta. El cráter se abre igual y el
  * tanque cae a él, pero la caída de ese mismo tiro tampoco le saca vida: si no, con el cráter del
  * Missile el escudo no salvaría a nadie. Lo que el escudo no tapa es la caída sola: si le sacan el
  * piso sin que la explosión lo alcance, el escudo no se gasta y la caída duele como siempre.
+ *
+ * Napalm: donde termina el tiro queda un fuego (fireFromShot) y nada más. Sin cráter el terreno es
+ * el mismo objeto que entró, nadie cae, y como no hay explosión tampoco se gasta ningún escudo.
  */
 export function resolveTurn3D(
   state: MatchState3D,
@@ -196,6 +205,7 @@ export function resolveTurn3D(
   const damage: DamageEvent[] = [];
   const falls: FallEvent3D[] = [];
   const blocked: string[] = [];
+  let fire: Fire | null = null;
 
   const hurt = (i: number, amount: number, cause: DamageEvent["cause"]) => {
     const target = tanks[i]!;
@@ -213,7 +223,8 @@ export function resolveTurn3D(
   };
 
   if (shot.outcome === "ground" || shot.outcome === "tank") {
-    terrain = applyCraterTerrain(terrain, shot.x, shot.y, shot.z, weapon.craterRadius);
+    fire = fireFromShot(weapon, shot, shooterTank.id);
+    if (weapon.craterRadius > 0) terrain = applyCraterTerrain(terrain, shot.x, shot.y, shot.z, weapon.craterRadius);
     for (let i = 0; i < tanks.length; i++) {
       const t = tanks[i]!;
       if (!isAlive(t)) continue;
@@ -227,7 +238,9 @@ export function resolveTurn3D(
       }
       hurt(i, amount, "explosion");
     }
-    for (let i = 0; i < tanks.length; i++) {
+    // Sin cráter (Napalm) no hay a dónde caer: el terreno no se toca ni para aplanar.
+    const cratered = terrain !== state.terrain;
+    for (let i = 0; cratered && i < tanks.length; i++) {
       const s = settleTank3D(terrain, tanks[i]!);
       if (!s.fall) continue;
       terrain = s.terrain;
@@ -245,5 +258,49 @@ export function resolveTurn3D(
   // El inventario del que disparó puede haber cambiado arriba (su propio escudo).
   const shooterNow = players[shooterIdx]!;
   players[shooterIdx] = { ...shooterNow, money, inventory: consumeAmmo(shooterNow.inventory, weaponId) };
-  return { state: { ...state, terrain, tanks, players }, shot, damage, falls, blocked };
+  const next: MatchState3D = { ...state, terrain, tanks, players };
+  return { state: fire ? { ...next, fires: [...(state.fires ?? []), fire] } : next, shot, damage, falls, blocked, fire };
+}
+
+/** Lo que le sacó un fuego a un tanque al empezar su turno. */
+export interface BurnEvent extends DamageEvent {
+  cause: "burn";
+  /** Quién había prendido ese fuego: `money` y el puntaje son suyos. */
+  ownerId: string;
+}
+
+/**
+ * Empieza el turno de `playerId`: por cada fuego de la ronda en el que su tanque está parado
+ * (inFire), pierde `damagePerTurn`. Dos fuegos encimados queman dos veces. El que se movió con
+ * nafta y quedó afuera no pierde nada. El escudo no lo tapa ni se gasta: no es un tiro.
+ * La plata por el daño es del que prendió el fuego, con el armslevel del arma, igual que un tiro
+ * (si se quema con el suyo, la paga). Si no se quema, devuelve el mismo estado.
+ */
+export function burnTurn3D(state: MatchState3D, playerId: string): { state: MatchState3D; burns: BurnEvent[] } {
+  const burns: BurnEvent[] = [];
+  const ti = state.tanks.findIndex((t) => t.id === playerId);
+  if (ti < 0 || !state.fires) return { state, burns };
+
+  let tank = state.tanks[ti]!;
+  const players = state.players.slice();
+  for (const f of state.fires) {
+    if (!isAlive(tank)) break;
+    if (!inFire(f, tank)) continue;
+    const r = applyDamage(tank, f.damagePerTurn);
+    if (r.dealt <= 0) continue;
+    tank = r.tank;
+    const money = moneyForDamage({
+      damage: r.dealt,
+      killed: r.killed,
+      armsLevel: WEAPONS[f.weaponId].armsLevel,
+      friendly: f.ownerId === playerId,
+    });
+    const oi = players.findIndex((p) => p.id === f.ownerId);
+    if (oi >= 0) players[oi] = { ...players[oi]!, money: clampMoney(players[oi]!.money + money) };
+    burns.push({ targetId: playerId, cause: "burn", damage: r.dealt, killed: r.killed, money, ownerId: f.ownerId });
+  }
+  if (burns.length === 0) return { state, burns };
+  const tanks = state.tanks.slice();
+  tanks[ti] = tank;
+  return { state: { ...state, tanks, players }, burns };
 }

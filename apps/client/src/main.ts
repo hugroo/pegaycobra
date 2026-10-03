@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Pantallas (HTML), conexión con el server, entrada y loop de Three.js.
 // El cliente manda { yaw, pitch, power, weapon }, { moveTo }, { item }, "listo" y "fillBots". Nada más:
-// daño, impacto, plata y puntaje los decide el server.
+// daño, impacto, fuego, plata y puntaje los decide el server.
 
 import "./style.css";
 import { Client, type Room } from "@colyseus/sdk";
 import {
   cannotBuy,
+  fireFromShot,
   FUEL_MOVE_RANGE,
+  inFire,
   POWER_MAX,
   SHOP_ITEMS,
   simulateWeaponShot3D,
@@ -74,6 +76,8 @@ const ui = {
   wMissileN: $("w-missile-n"),
   wRoller: $<HTMLButtonElement>("w-roller"),
   wRollerN: $("w-roller-n"),
+  wNapalm: $<HTMLButtonElement>("w-napalm"),
+  wNapalmN: $("w-napalm-n"),
   fuelBtn: $<HTMLButtonElement>("btn-fuel"),
   fuelN: $("fuel-n"),
   yawOut: $("yaw-out"),
@@ -91,7 +95,7 @@ const minimap = new Minimap(ui.minimap);
 
 let room: Room<any> | null = null;
 /** Las armas que se pueden pedir en un "fire". */
-type Fireable = "babyMissile" | "missile" | "roller";
+type Fireable = "babyMissile" | "missile" | "roller" | "napalm";
 let aim = { yaw: 0, pitch: 45, power: 500 };
 let weapon: Fireable = "babyMissile";
 let moveMode = false;
@@ -270,16 +274,18 @@ function attach(r: Room<any>): void {
     }) => {
       const shooter = r.state.players.get(m.shooterId);
       const lands = m.outcome === "ground" || m.outcome === "tank";
+      const w = WEAPONS[m.weapon] ?? WEAPONS.babyMissile;
       shotAnim = {
         path: m.path,
         durationMs: m.durationMs,
         start: performance.now(),
         slot: shooter?.slot ?? 0,
         explodes: lands,
-        radius: (WEAPONS[m.weapon] ?? WEAPONS.babyMissile).explosionRadius,
+        // El Napalm no explota: el fogonazo tiene el tamaño del disco que queda prendido.
+        radius: w.burn?.radius ?? w.explosionRadius,
         impact: m.impact,
         // El número y el "bloqueado" son del server; acá solo se redondea para mostrarlo.
-        label: impactLabel(lands, m.damage, (m.blocked?.length ?? 0) > 0),
+        label: lands && w.burn ? "fuego" : impactLabel(lands, m.damage, (m.blocked?.length ?? 0) > 0),
       };
       play("fire");
       window.setTimeout(() => {
@@ -305,6 +311,13 @@ function attach(r: Room<any>): void {
   });
   r.onMessage("skip", () => {
     if (room === r) showBanner("Tiempo: turno perdido", 1500);
+  });
+  r.onMessage("burn", (m: { id: string; damage: number; killed: boolean }) => {
+    if (room !== r) return;
+    // Llega pegado al final de un tiro o a un turno perdido: se suma al cartel que esté, no lo pisa.
+    const text = `${r.state.players.get(m.id)?.name ?? "?"} se quema: -${Math.max(1, Math.round(m.damage))}`;
+    showBanner(ui.banner.hidden ? text : `${ui.banner.textContent} · ${text}`, 2200);
+    play("hit");
   });
   r.onMessage("roundEnd", (m: RoundEndMsg) => {
     lastRoundEnd = m;
@@ -397,6 +410,7 @@ function inventoryChips(p: any): HTMLSpanElement[] {
     chip("Baby ∞"),
     chip(`Missile ×${p.missiles}`, p.missiles <= 0),
     chip(`Roller ×${p.rollers}`, p.rollers <= 0),
+    chip(`Napalm ×${p.napalms}`, p.napalms <= 0),
     chip(p.shield > 0 ? "Escudo ✓" : "Escudo –", p.shield <= 0),
     chip(p.parachute > 0 ? "Paracaídas ✓" : "Paracaídas –", p.parachute <= 0),
     chip(`Nafta ×${p.fuel}`, p.fuel <= 0),
@@ -409,6 +423,7 @@ function renderHud(phase: string): void {
   const turnPlayer = s.players.get(s.turnId);
   const mine = phase === "aiming" && isMe(s.turnId);
   const mp = me();
+  const fires = firesOf(s);
 
   ui.hudRound.textContent = `${s.round}/${s.rounds}`;
   if (phase === "ended") {
@@ -454,8 +469,10 @@ function renderHud(phase: string): void {
       const extra = document.createElement("span");
       extra.className = "extra";
       extra.textContent =
-        `${p.points} pts · M×${p.missiles}${p.rollers > 0 ? ` · R×${p.rollers}` : ""}${p.shield > 0 ? " · escudo" : ""}` +
-        `${p.parachute > 0 ? " · ☂" : ""}${p.fuel > 0 ? ` · N×${p.fuel}` : ""}`;
+        `${p.points} pts · M×${p.missiles}${p.rollers > 0 ? ` · R×${p.rollers}` : ""}${p.napalms > 0 ? ` · Napalm×${p.napalms}` : ""}` +
+        `${p.shield > 0 ? " · escudo" : ""}${p.parachute > 0 ? " · ☂" : ""}${p.fuel > 0 ? ` · N×${p.fuel}` : ""}` +
+        // Parado en un fuego (inFire, la misma cuenta del server): va a perder vida al empezar su turno.
+        `${p.life > 0 && fires.some((f) => inFire(f, p)) ? " · en el fuego" : ""}`;
       li.append(dot, name, bar, life, extra);
       return li;
     }),
@@ -464,13 +481,18 @@ function renderHud(phase: string): void {
   // Barra de controles.
   const missiles = mp?.missiles ?? 0;
   const rollers = mp?.rollers ?? 0;
-  if ((weapon === "missile" && missiles <= 0) || (weapon === "roller" && rollers <= 0)) weapon = "babyMissile";
+  const napalms = mp?.napalms ?? 0;
+  if ((weapon === "missile" && missiles <= 0) || (weapon === "roller" && rollers <= 0) || (weapon === "napalm" && napalms <= 0)) {
+    weapon = "babyMissile";
+  }
   ui.wMissileN.textContent = `×${missiles}`;
   ui.wRollerN.textContent = `×${rollers}`;
+  ui.wNapalmN.textContent = `×${napalms}`;
   ui.wBaby.disabled = !mine;
   ui.wMissile.disabled = !mine || missiles <= 0;
   ui.wRoller.disabled = !mine || rollers <= 0;
-  for (const [btn, id] of [[ui.wBaby, "babyMissile"], [ui.wMissile, "missile"], [ui.wRoller, "roller"]] as const) {
+  ui.wNapalm.disabled = !mine || napalms <= 0;
+  for (const [btn, id] of [[ui.wBaby, "babyMissile"], [ui.wMissile, "missile"], [ui.wRoller, "roller"], [ui.wNapalm, "napalm"]] as const) {
     btn.classList.toggle("on", weapon === id);
     btn.setAttribute("aria-checked", String(weapon === id));
   }
@@ -532,9 +554,9 @@ function renderShop(phase: string): void {
   const asPlayer = {
     id: mp.id,
     money: mp.money,
-    inventory: { parachute: mp.parachute, fuel: mp.fuel, missile: mp.missiles, roller: mp.rollers, shield: mp.shield },
+    inventory: { parachute: mp.parachute, fuel: mp.fuel, missile: mp.missiles, roller: mp.rollers, napalm: mp.napalms, shield: mp.shield },
   };
-  const itemsKey = `${mp.money}|${mp.parachute}|${mp.fuel}|${mp.missiles}|${mp.rollers}|${mp.shield}`;
+  const itemsKey = `${mp.money}|${mp.parachute}|${mp.fuel}|${mp.missiles}|${mp.rollers}|${mp.napalms}|${mp.shield}`;
   if (ui.shopItems.dataset.key === itemsKey) return;
   ui.shopItems.dataset.key = itemsKey;
   ui.shopItems.replaceChildren(
@@ -620,12 +642,14 @@ function selectWeapon(w: Fireable): void {
   if (!myTurn()) return;
   if (w === "missile" && (me()?.missiles ?? 0) <= 0) return;
   if (w === "roller" && (me()?.rollers ?? 0) <= 0) return;
+  if (w === "napalm" && (me()?.napalms ?? 0) <= 0) return;
   weapon = w;
   onState();
 }
 ui.wBaby.addEventListener("click", () => selectWeapon("babyMissile"));
 ui.wMissile.addEventListener("click", () => selectWeapon("missile"));
 ui.wRoller.addEventListener("click", () => selectWeapon("roller"));
+ui.wNapalm.addEventListener("click", () => selectWeapon("napalm"));
 
 function toggleMoveMode(): void {
   if (!myTurn() || (me()?.fuel ?? 0) <= 0 || room?.state.moved) return;
@@ -765,6 +789,9 @@ window.addEventListener("keydown", (e) => {
     case "3":
       selectWeapon("roller");
       break;
+    case "4":
+      selectWeapon("napalm");
+      break;
     case "n":
     case "N":
       toggleMoveMode();
@@ -787,9 +814,15 @@ window.addEventListener("keydown", (e) => {
 // Loop
 // ---------------------------------------------------------------------------
 
+/** Los fuegos de la ronda, como llegan en el estado: discos { x, z, radius } en el piso. */
+function firesOf(s: any): { x: number; z: number; radius: number }[] {
+  return Array.from(s.fires ?? [], (f: any) => ({ x: f.x, z: f.z, radius: f.radius }));
+}
+
 /**
  * Fantasma: el mismo simulateWeaponShot3D que usa el server, corrido acá solo para dibujar. Con el
- * Roller el recorrido sigue por el piso hasta donde termina la rodada.
+ * Roller el recorrido sigue por el piso hasta donde termina la rodada. Con el Napalm el anillo es
+ * el disco que quedaría prendido, sacado del mismo fireFromShot que usa el server.
  * Se recalcula únicamente cuando cambia la puntería, el arma, el terreno o la posición.
  */
 let ghostKey = "";
@@ -808,12 +841,14 @@ function computeGhost(mine: TankModel | undefined, tanks: TankModel[], wind: { x
       { recordPath: true },
     );
     const lands = r.outcome === "ground" || r.outcome === "tank";
+    const fire = fireFromShot(w, r, mine.id);
     ghostCache = {
       path: r.path ?? [],
-      impact: lands ? { x: r.x, y: r.y, z: r.z } : null,
+      // El fuego queda en el piso aunque el tiro haya pegado en un tanque, más arriba.
+      impact: fire ? { x: fire.x, y: terrainHeightAt(terrain, fire.x, fire.z), z: fire.z } : lands ? { x: r.x, y: r.y, z: r.z } : null,
       gone: !lands,
       shooter: mine,
-      radius: w.explosionRadius,
+      radius: fire ? fire.radius : w.explosionRadius,
     };
   }
   if (ghostCache) ghostCache.shooter = mine;
@@ -861,11 +896,13 @@ function frame(now: number): void {
 
   const myTank = tanks.find((t) => t.isMe);
   const ghost = moveMode ? null : computeGhost(myTank, tanks, wind);
+  const fires = firesOf(s);
   world.render({
     tanks,
     ghost,
     shot: shotAnim,
     wind,
+    fires,
     move: moveMode && myTank ? { center: { x: myTank.x, z: myTank.z }, range: FUEL_MOVE_RANGE, hover: moveHover } : null,
     now,
   });
@@ -882,6 +919,7 @@ function frame(now: number): void {
     terrainVersion,
     tanks: tanks.map((t) => ({ x: t.x, z: t.z, slot: t.slot, alive: t.life > 0, isMe: t.isMe })),
     wind,
+    fires,
     ghost: ghost ? { path: ghost.path, lands: !ghost.gone, slot: ghost.shooter.slot } : null,
     ball,
     impact: lastImpact && now >= lastImpact.at ? lastImpact : null,

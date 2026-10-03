@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Mundo 3D con Three.js. Solo dibuja: el terreno llega del server (mensajes "terrain"), los
-// tanques y la vida del estado, la trayectoria real del mensaje "shot". La fantasma la calcula
-// main.ts con el sim y acá solo se dibuja.
+// tanques, la vida y los fuegos del estado, la trayectoria real del mensaje "shot". La fantasma la
+// calcula main.ts con el sim y acá solo se dibuja.
 //
 // Ejes: los mismos del sim. x y z son el piso, y es la altura; 1 unidad de Three = 1 wu.
 // yaw 0 = +X, 90 = +Z. En Three, rotar +θ alrededor de Y lleva +X hacia -Z, por eso rotation.y = -yaw.
@@ -22,6 +22,8 @@ const EXPLOSION_MS = 450;
 const IMPACT_LABEL_MS = 1000;
 /** Cuánto se queda la cámara mirando el impacto después de que llega el proyectil. [ms] */
 export const LINGER_MS = 1300;
+/** Llamas que se dibujan sobre cada fuego de Napalm. */
+const FLAMES_PER_FIRE = 11;
 
 export interface TankModel {
   id: string;
@@ -63,6 +65,13 @@ export interface ShotModel {
   label: string;
 }
 
+/** Un fuego de Napalm: disco en el piso. Viene del estado del server. [wu] */
+export interface FireModel {
+  x: number;
+  z: number;
+  radius: number;
+}
+
 /** Modo nafta: alcance alrededor del tanque y el destino bajo el cursor. */
 export interface MoveModel {
   center: { x: number; z: number };
@@ -75,6 +84,7 @@ export interface FrameModel {
   ghost: GhostModel | null;
   shot: ShotModel | null;
   wind: { x: number; z: number };
+  fires: FireModel[];
   move: MoveModel | null;
   now: number;
 }
@@ -111,6 +121,13 @@ export class World {
   private terrainMesh: THREE.Mesh | null = null;
   /** 0..1 por celda: cuánto quemó un cráter (solo visual). */
   private scorch = new Float32Array(0);
+  /** 0..1 por celda: cuánto la tiñe un fuego de Napalm (solo visual: el heightmap no cambia). */
+  private heat = new Float32Array(0);
+  /** Los fuegos ya pintados; si cambia, se repinta la mancha y se rearman las llamas. */
+  private fireKey = "";
+  private readonly flames = new THREE.Group();
+  private readonly flameGeo = new THREE.ConeGeometry(0.55, 1, 6).translate(0, 0.5, 0); // base en y = 0
+  private readonly flameMat = new THREE.MeshBasicMaterial({ color: "#ffb347", transparent: true, opacity: 0.85 });
   private readonly tanks = new Map<string, TankView>();
 
   private readonly ghostLine: THREE.Line;
@@ -161,6 +178,8 @@ export class World {
     );
     floor.position.set(128, -0.3, 128);
     this.scene.add(floor);
+
+    this.scene.add(this.flames);
 
     this.border = new THREE.LineLoop(
       new THREE.BufferGeometry(),
@@ -293,7 +312,7 @@ export class World {
     for (let z = Math.max(0, r.z0 - 1); z < z1; z++) {
       for (let x = Math.max(0, r.x0 - 1); x < x1; x++) {
         const i = x + z * t.width;
-        terrainColor(t, x, z, this.scorch[i] ?? 0, c);
+        terrainColor(t, x, z, this.scorch[i] ?? 0, this.heat[i] ?? 0, c);
         col.setXYZ(i, c.r, c.g, c.b);
       }
     }
@@ -309,6 +328,8 @@ export class World {
     }
     const { width: w, depth: d, heights } = t;
     this.scorch = new Float32Array(w * d);
+    this.heat = new Float32Array(w * d);
+    this.fireKey = ""; // el mesh nuevo nace sin mancha: drawFires la vuelve a pintar
     const positions = new Float32Array(w * d * 3);
     const colors = new Float32Array(w * d * 3);
     const c = new THREE.Color();
@@ -318,7 +339,7 @@ export class World {
         positions[i * 3] = x;
         positions[i * 3 + 1] = heights[i]!;
         positions[i * 3 + 2] = z;
-        terrainColor(t, x, z, 0, c);
+        terrainColor(t, x, z, 0, 0, c);
         colors[i * 3] = c.r;
         colors[i * 3 + 1] = c.g;
         colors[i * 3 + 2] = c.b;
@@ -358,6 +379,57 @@ export class World {
       new THREE.Vector3(mw, 0.2, md),
       new THREE.Vector3(0, 0.2, md),
     ]);
+  }
+
+  /**
+   * Fuego de Napalm: tiñe de naranja las celdas del disco (la mancha) y le pone llamas encima.
+   * El terreno es el mismo mesh con otro color; las alturas no se tocan.
+   */
+  private drawFires(fires: FireModel[], now: number): void {
+    const t = this.terrain;
+    if (!t || !this.terrainMesh) return;
+    const key = fires.map((f) => `${f.x},${f.z},${f.radius}`).join("|");
+    if (key !== this.fireKey) {
+      this.fireKey = key;
+      const before = this.heat;
+      this.heat = new Float32Array(t.width * t.depth);
+      this.flames.clear();
+      for (const f of fires) {
+        const r = Math.ceil(f.radius);
+        const x1 = Math.min(t.width - 1, Math.ceil(f.x) + r);
+        const z1 = Math.min(t.depth - 1, Math.ceil(f.z) + r);
+        for (let z = Math.max(0, Math.floor(f.z) - r); z <= z1; z++) {
+          for (let x = Math.max(0, Math.floor(f.x) - r); x <= x1; x++) {
+            const dist = Math.hypot(x - f.x, z - f.z);
+            if (dist > f.radius) continue;
+            const i = x + z * t.width;
+            this.heat[i] = Math.max(this.heat[i]!, 1 - 0.35 * (dist / f.radius));
+          }
+        }
+        // Llamas repartidas en espiral adentro del disco.
+        for (let k = 0; k < FLAMES_PER_FIRE; k++) {
+          const flame = new THREE.Mesh(this.flameGeo, this.flameMat);
+          const rr = f.radius * 0.92 * Math.sqrt((k + 0.5) / FLAMES_PER_FIRE);
+          flame.position.set(f.x + Math.cos(k * 2.4) * rr, 0, f.z + Math.sin(k * 2.4) * rr);
+          this.flames.add(flame);
+        }
+      }
+      // Se repintan solo las celdas cuyo fuego cambió (las que se prendieron o, en ronda nueva, se apagaron).
+      const col = this.terrainMesh.geometry.getAttribute("color") as THREE.BufferAttribute;
+      const c = new THREE.Color();
+      for (let i = 0; i < this.heat.length; i++) {
+        if (this.heat[i] === before[i]) continue;
+        terrainColor(t, i % t.width, Math.floor(i / t.width), this.scorch[i] ?? 0, this.heat[i]!, c);
+        col.setXYZ(i, c.r, c.g, c.b);
+      }
+      col.needsUpdate = true;
+    }
+    // Las llamas van apoyadas en el piso de ahora (si un cráter lo bajó, bajan con él) y titilan.
+    this.flames.children.forEach((flame, k) => {
+      flame.position.y = terrainHeightAt(t, flame.position.x, flame.position.z) - 0.1;
+      flame.scale.set(1, 1.7 + 0.8 * Math.sin(now / 110 + k * 1.9), 1);
+    });
+    this.flameMat.opacity = 0.75 + 0.15 * Math.sin(now / 70);
   }
 
   /** Punto del terreno bajo el cursor (o null). */
@@ -754,6 +826,7 @@ export class World {
     const ball = this.drawShot(f.shot, f.now);
     const turn = f.tanks.find((t) => t.isTurn);
     this.drawWind(f.wind, turn);
+    this.drawFires(f.fires, f.now);
     this.drawMove(f.move);
 
     // Cámara: sigue al proyectil, se queda un momento en el impacto (para ver el cráter) y
@@ -790,6 +863,7 @@ function slopeAt(t: Terrain, x: number, z: number): number {
 }
 
 const SCORCH = new THREE.Color("#1c1410");
+const FIRE = new THREE.Color("#ff5a14");
 const ROCK = new THREE.Color("#4a4038");
 /** Pendiente desde la que la ladera empieza a oscurecerse, y desde la que ya es roca pelada. */
 const SLOPE_FLAT = 0.15;
@@ -797,11 +871,13 @@ const SLOPE_STEEP = 1.1;
 /**
  * Color de una celda: la altura da el tono y la pendiente lo sombrea. Lo llano (valle, meseta,
  * cima) queda claro; la ladera se oscurece y vira a roca, así el cerro se separa del valle.
+ * Encima va el quemado de los cráteres y, arriba de todo, la mancha de un fuego de Napalm.
  */
-function terrainColor(t: Terrain, x: number, z: number, scorch: number, out: THREE.Color): void {
+function terrainColor(t: Terrain, x: number, z: number, scorch: number, heat: number, out: THREE.Color): void {
   heightColor(t.heights[x + z * t.width]!, out);
   const k = Math.min(1, Math.max(0, (slopeAt(t, x, z) - SLOPE_FLAT) / (SLOPE_STEEP - SLOPE_FLAT)));
   const steep = k * k * (3 - 2 * k);
   out.lerp(ROCK, 0.55 * steep).multiplyScalar(1.12 - 0.5 * steep);
   if (scorch > 0) out.lerp(SCORCH, 0.35 + 0.55 * scorch);
+  if (heat > 0) out.lerp(FIRE, heat);
 }

@@ -46,7 +46,7 @@ export interface FireCommand {
 
 export interface DamageEvent {
   targetId: string;
-  cause: "explosion" | "fall";
+  cause: "explosion" | "fall" | "burn";
   /** Daño quitado. [hp] */
   damage: number;
   killed: boolean;

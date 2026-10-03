@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Lógica de la partida, sin Colyseus: lobby, rondas, turnos, tienda, reloj, salidas y ganador.
-// Las reglas (tiro, cráter, daño, plata, tienda, nafta, puntaje) son de @pegaycobra/sim;
+// Las reglas (tiro, cráter, fuego, daño, plata, tienda, nafta, puntaje) son de @pegaycobra/sim;
 // acá solo se ordena el tiempo: quién juega, cuándo termina la ronda y cuándo abre la tienda.
 
 import {
+  burnTurn3D,
   buyItem,
   cannotBuy,
   emptyScoreboard,
@@ -21,6 +22,7 @@ import {
   startRound3D,
   STEP_SECONDS,
   validateMove,
+  type BurnEvent,
   type MatchState3D,
   type Player,
   type RoundPayout,
@@ -51,7 +53,7 @@ export interface Seat {
 }
 
 /** Armas que el cliente puede pedir. Baby Nuke y Nuke no existen para el juego. */
-const FIREABLE: readonly WeaponId[] = ["babyMissile", "missile", "roller"];
+const FIREABLE: readonly WeaponId[] = ["babyMissile", "missile", "roller", "napalm"];
 
 export interface FireMessage {
   yaw: number;
@@ -63,7 +65,7 @@ export interface FireMessage {
 /**
  * Del mensaje del cliente se leen solo yaw, pitch, power y weapon; cualquier otro campo (daño,
  * impacto, posición...) se ignora y no llega al sim. weapon puede faltar (= Baby Missile); si
- * nombra algo que no sea "babyMissile", "missile" o "roller", el mensaje entero se descarta.
+ * nombra algo que no sea "babyMissile", "missile", "roller" o "napalm", el mensaje entero se descarta.
  */
 export function parseFireMessage(raw: unknown): FireMessage | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
@@ -158,6 +160,8 @@ export class Game {
   readonly aims = new Map<string, Aim>();
   private readonly turnsTaken = new Map<string, number>();
   private pending: { result: TurnResult3D; shooterId: string } | null = null;
+  /** Lo que quemó el fuego desde la última vez que la sala lo leyó (takeBurns). */
+  private burned: BurnEvent[] = [];
   private baseSeed = 0;
 
   constructor(
@@ -264,8 +268,8 @@ export class Game {
     }
     this.pending = { result, shooterId: byId };
     // La munición se descuenta ya (todos ven el Missile gastado al disparar). El resto del
-    // resultado (daño, plata, cráter, escudos gastados) se aplica recién en finishShot, cuando
-    // cae el proyectil.
+    // resultado (daño, plata, cráter, fuego, escudos gastados) se aplica recién en finishShot,
+    // cuando cae el proyectil.
     const left = result.state.players.find((p) => p.id === byId)!.inventory[msg.weapon];
     this.match = {
       ...this.match,
@@ -353,14 +357,37 @@ export class Game {
   private afterTurn(): void {
     this.movedThisTurn = false;
     if (!this.match) return;
-    const next = roundOver(this.match) ? null : this.nextTurn();
-    if (!next) {
-      this.endRound();
-      return;
+    // Si al que le toca lo mata el fuego al empezar, el turno sigue de largo al próximo.
+    for (;;) {
+      const next = roundOver(this.match) ? null : this.nextTurn();
+      if (!next) {
+        this.endRound();
+        return;
+      }
+      this.turnId = next;
+      if (this.burn(next)) break;
     }
-    this.turnId = next;
     this.phase = "aiming";
     this.timeLeft = this.turnSeconds;
+  }
+
+  /**
+   * Fuego de la ronda (Napalm): el que empieza su turno parado en un disco pierde vida, y los
+   * puntos son del que lo prendió. Devuelve si sigue vivo para jugar el turno.
+   */
+  private burn(id: string): boolean {
+    const { state, burns } = burnTurn3D(this.match!, id);
+    this.match = state;
+    for (const b of burns) this.board = scoreTurn(this.board, b.ownerId, [b]);
+    this.burned.push(...burns);
+    return state.tanks.some((t) => t.id === id && t.life > 0);
+  }
+
+  /** Entrega (y vacía) lo que quemó el fuego: la sala lo manda como "burn". */
+  takeBurns(): BurnEvent[] {
+    const out = this.burned;
+    this.burned = [];
+    return out;
   }
 
   /** Siguiente asiento, en orden de llegada, vivo y con tiros disponibles en la ronda. */

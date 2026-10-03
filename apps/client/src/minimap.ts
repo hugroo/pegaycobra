@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Minimapa: vista cenital fija (x a la derecha, z hacia abajo) en un canvas 2D. Solo dibuja lo
-// que le pasa main.ts: el terreno en grises, los tanques, el viento, dónde cae la fantasma y
-// dónde cayó el último tiro real (el del mensaje "shot", igual en todas las pestañas).
+// que le pasa main.ts: el terreno en grises, los fuegos de Napalm, los tanques, el viento, dónde cae
+// la fantasma y dónde cayó el último tiro real (el del mensaje "shot", igual en todas las pestañas).
 
 import type { Terrain } from "@pegaycobra/sim";
 import { SLOT_COLORS } from "./scene3d";
@@ -20,6 +20,8 @@ export interface MiniModel {
   terrainVersion: number;
   tanks: MiniTank[];
   wind: { x: number; z: number };
+  /** Fuegos de Napalm prendidos en la ronda: discos en el piso. [wu] */
+  fires: { x: number; z: number; radius: number }[];
   /** Fantasma de mi turno: recorrido [x, y, z, ...] y si termina dentro del mapa. */
   ghost: { path: number[]; lands: boolean; slot: number } | null;
   /** Proyectil real en vuelo. */
@@ -29,6 +31,8 @@ export interface MiniModel {
 }
 
 const WIND_COLOR = "#9ad1ff";
+/** El punto de un tanque mide 4 px: el fuego se dibuja al menos así de grande, para que asome por debajo. [px] */
+const FIRE_MIN_PX = 6.5;
 
 export class Minimap {
   private readonly ctx: CanvasRenderingContext2D;
@@ -92,6 +96,18 @@ export class Minimap {
       ctx.lineTo(x - r, y + r);
       ctx.stroke();
     };
+
+    // Fuego: disco naranja a escala del mapa, debajo de todo lo demás.
+    for (const f of m.fires) {
+      const [x, y] = at(f.x, f.z);
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(FIRE_MIN_PX, f.radius * kx), 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 98, 20, 0.85)";
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "#ffd43b";
+      ctx.stroke();
+    }
 
     // Último tiro real: estrella amarilla donde explotó, o cruz en el borde por donde se fue.
     if (m.impact) {

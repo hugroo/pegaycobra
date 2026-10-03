@@ -22,9 +22,10 @@ export const PlayerState = schema(
     pitch: t.float32().default(45),
     /** Plata (solo para la tienda). [$] */
     money: t.uint32().default(0),
-    /** Inventario: Missiles, Rollers, escudo puesto, paracaídas activo para la ronda, cargas de nafta. */
+    /** Inventario: Missiles, Rollers, Napalm, escudo puesto, paracaídas activo para la ronda, cargas de nafta. */
     missiles: t.uint16().default(0),
     rollers: t.uint16().default(0),
+    napalms: t.uint16().default(0),
     shield: t.uint8().default(0),
     parachute: t.uint8().default(0),
     fuel: t.uint16().default(0),
@@ -38,6 +39,18 @@ export const PlayerState = schema(
   "PlayerState",
 );
 export type PlayerState = SchemaType<typeof PlayerState>;
+
+/** Un fuego de Napalm: disco en el piso, hasta que termina la ronda. No es terreno: el heightmap no cambia. */
+export const FireState = schema(
+  {
+    /** Centro (XZ) y radio. [wu] */
+    x: t.float32().default(0),
+    z: t.float32().default(0),
+    radius: t.float32().default(0),
+  },
+  "FireState",
+);
+export type FireState = SchemaType<typeof FireState>;
 
 export const GameState = schema(
   {
@@ -62,6 +75,8 @@ export const GameState = schema(
     /** Tamaño del heightmap en muestras. */
     mapWidth: t.uint16().default(0),
     mapDepth: t.uint16().default(0),
+    /** Fuegos prendidos en la ronda, en el orden en que cayeron. */
+    fires: t.array(FireState),
     /** Con phase "ended": el ganador si es uno solo ("" si empate). */
     winnerId: t.string().default(""),
     /** Con phase "ended": todos los que terminaron primeros. */

@@ -8,10 +8,12 @@
 //
 // El Roller es regla propia: el original tiene una familia de rollers (WeaponRoller.cpp), pero acá
 // los números y la rodada (roller.ts) se escribieron para este juego, no se portaron.
+// El Napalm también: el original lo tiene (WeaponNapalm.cpp, corre cuesta abajo y quema por tiempo);
+// acá es un disco fijo que quema por turno (napalm.ts), con números de este juego.
 
 import { INFINITE_AMMO } from "./constants";
 
-export type WeaponId = "babyMissile" | "missile" | "roller" | "babyNuke" | "nuke";
+export type WeaponId = "babyMissile" | "missile" | "roller" | "napalm" | "babyNuke" | "nuke";
 
 /** Arma que no explota donde cae: toca el piso y rueda cuesta abajo (roller.ts). */
 export interface RollSpec {
@@ -19,6 +21,14 @@ export interface RollSpec {
   readonly powerFactor: number;
   /** Lo máximo que rueda, medido sobre el piso (XZ). [celdas = wu] */
   readonly maxCells: number;
+}
+
+/** Arma que no explota: donde cae deja un disco de fuego hasta que termina la ronda (napalm.ts). */
+export interface BurnSpec {
+  /** Radio del disco de fuego, sobre el piso (XZ). [celdas = wu] */
+  readonly radius: number;
+  /** Vida que pierde un tanque parado en el disco, cada vez que empieza su turno. [hp / turno] */
+  readonly damagePerTurn: number;
 }
 
 export interface Weapon {
@@ -48,6 +58,8 @@ export interface Weapon {
   readonly gravityFactor: number;
   /** Solo el Roller: cómo rueda después de tocar el piso. */
   readonly roll?: RollSpec;
+  /** Solo el Napalm: el fuego que deja donde cae. */
+  readonly burn?: BurnSpec;
 }
 
 export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
@@ -94,6 +106,24 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     // de partida la bola se frena antes, en el fondo del valle (mediana ~25 celdas).
     roll: { powerFactor: 1, maxCells: 60 },
   },
+  napalm: {
+    id: "napalm",
+    name: "Napalm",
+    armsLevel: 7,
+    cost: 2000,
+    bundleSize: 1,
+    startingNumber: 0,
+    // No explota ni abre cráter: al caer no saca vida y el heightmap no cambia. Lo que lastima es
+    // el fuego, turno a turno.
+    explosionRadius: 0,
+    craterRadius: 0,
+    hurtAmount: 0,
+    windFactor: 1,
+    gravityFactor: 1,
+    // Disco chico (el Missile explota con radio 6): hay que caer cerca. 25 por turno son cuatro
+    // turnos para un tanque que no se mueve.
+    burn: { radius: 5, damagePerTurn: 25 },
+  },
   babyNuke: {
     id: "babyNuke",
     name: "Baby Nuke",
@@ -123,10 +153,10 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
 });
 
 /**
- * Armas que se pueden disparar: la Baby Missile (infinita, no se compra), y el Missile y el Roller
- * (se compran en la tienda, ver campaign.ts). Baby Nuke y Nuke existen solo como datos.
+ * Armas que se pueden disparar: la Baby Missile (infinita, no se compra), y el Missile, el Roller y
+ * el Napalm (se compran en la tienda, ver campaign.ts). Baby Nuke y Nuke existen solo como datos.
  */
-export const PLAYABLE_WEAPONS: readonly WeaponId[] = Object.freeze(["babyMissile", "missile", "roller"]);
+export const PLAYABLE_WEAPONS: readonly WeaponId[] = Object.freeze(["babyMissile", "missile", "roller", "napalm"]);
 
 export function isPlayable(id: WeaponId): boolean {
   return PLAYABLE_WEAPONS.includes(id);

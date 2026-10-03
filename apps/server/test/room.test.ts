@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
 import type { Server } from "@colyseus/core";
-import { SHOP_ITEMS, simulateShot3D, type Terrain } from "@pegaycobra/sim";
+import { fireFromShot, inFire, SHOP_ITEMS, simulateShot3D, simulateWeaponShot3D, WEAPONS, type Terrain } from "@pegaycobra/sim";
 import { createServer, ROOM_NAME } from "../src/server";
 import { GameRoom, type RoundEndBroadcast } from "../src/room";
 import { applyTerrainMessage, type TerrainMessage } from "../src/terrain-net";
@@ -170,6 +170,114 @@ describe("partida de 5 rondas por red", () => {
     await a.leave();
     await b.leave();
   }, 120_000);
+
+  it("Napalm: los dos clientes ven el fuego, el terreno no cambia y al que quedó adentro lo quema cada turno", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto" });
+    const ta = trackTerrain(a);
+    const tb = trackTerrain(b);
+    const burnsA: any[] = [];
+    const burnsB: any[] = [];
+    a.onMessage("burn", (m) => burnsA.push(m));
+    b.onMessage("burn", (m) => burnsB.push(m));
+    for (const r of [a, b]) for (const type of ["shot", "skip", "moved", "roundEnd"]) r.onMessage(type, () => {});
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    a.send("start");
+    await until(() => a.state.phase === "aiming" && tb.fulls === 1);
+
+    const BURN = WEAPONS.napalm.burn!.damagePerTurn;
+    const rooms: Record<string, Room<any>> = { [a.sessionId]: a, [b.sessionId]: b };
+    const seenBy = (r: Room<any>, id: string) => r.state.players.get(id);
+    /** El del turno manda `msg` (por defecto una Baby para atrás, lejos de todos) y espera a que termine el tiro. */
+    async function turn(id: string, msg?: object): Promise<void> {
+      await until(() => a.state.phase === "aiming" && a.state.turnId === id);
+      rooms[id]!.send("fire", msg ?? { yaw: seenBy(a, id).yaw + 180, pitch: 60, power: 250 });
+      await until(() => a.state.phase !== "aiming" || a.state.turnId !== id);
+      await until(() => a.state.phase !== "animating");
+    }
+
+    // Ronda 1: nadie le apunta a nadie, hasta que corta por tiros. En la tienda Ana compra un Napalm y Beto nafta.
+    while (a.state.phase !== "shop") await turn(a.state.turnId);
+    a.send("buy", { item: "napalm" });
+    b.send("buy", { item: "fuel" });
+    await until(() => seenBy(b, a.sessionId).napalms === 1 && seenBy(a, b.sessionId).fuel === 1);
+    a.send("ready");
+    b.send("ready");
+    await until(() => a.state.round === 2 && a.state.phase === "aiming" && ta.fulls === 2 && tb.fulls === 2);
+    expect(a.state.fires.length).toBe(0);
+
+    // Ronda 2: Beto tira para atrás y Ana busca, con el sim, un Napalm que deje a Beto bien adentro del disco.
+    await turn(b.sessionId);
+    const me = seenBy(a, a.sessionId);
+    const foe = seenBy(a, b.sessionId);
+    const tanks = [me, foe].map((p) => ({ id: p.id as string, x: p.x as number, y: p.y as number, z: p.z as number }));
+    const wind = { x: a.state.windX, z: a.state.windZ };
+    const base = (Math.atan2(foe.z - me.z, foe.x - me.x) * 180) / Math.PI;
+    let aim: { yaw: number; pitch: number; power: number } | null = null;
+    search: for (let pitch = 35; pitch <= 80; pitch += 5) {
+      for (let power = 300; power <= 1000; power += 5) {
+        for (let d = 0; d <= 12; d += 0.5) {
+          for (const yaw of [base + d, base - d]) {
+            const r = simulateWeaponShot3D(ta.terrain!, WEAPONS.napalm, { originX: me.x, originY: me.y, originZ: me.z, yaw, pitch, power, wind, shooterId: me.id }, tanks);
+            const f = fireFromShot(WEAPONS.napalm, r, me.id);
+            if (f && Math.hypot(f.x - foe.x, f.z - foe.z) <= f.radius - 2) {
+              aim = { yaw, pitch, power };
+              break search;
+            }
+          }
+        }
+      }
+    }
+    expect(aim).not.toBeNull();
+
+    const heights = tb.terrain!.heights.slice();
+    const patches = [ta.patches, tb.patches];
+    await turn(a.sessionId, { ...aim, weapon: "napalm" });
+
+    // El fuego está en el estado de los dos, en el mismo lugar, con Beto adentro.
+    await until(() => a.state.fires.length === 1 && b.state.fires.length === 1);
+    const fire = b.state.fires[0];
+    expect({ x: fire.x, z: fire.z, radius: fire.radius }).toEqual({ x: a.state.fires[0].x, z: a.state.fires[0].z, radius: a.state.fires[0].radius });
+    expect(fire.radius).toBe(WEAPONS.napalm.burn!.radius);
+    expect(inFire(fire, seenBy(b, b.sessionId))).toBe(true);
+    expect(seenBy(b, a.sessionId).napalms).toBe(0);
+    // No es un cráter: no viajó ningún parche de terreno y el heightmap es el de antes.
+    expect([ta.patches, tb.patches]).toEqual(patches);
+    expect(tb.terrain!.heights).toEqual(heights);
+    expect(ta.terrain!.heights).toEqual(heights);
+
+    // Le toca a Beto: pierde vida al empezar el turno, y lo ven los dos.
+    await until(() => burnsA.length === 1 && burnsB.length === 1);
+    expect(burnsB[0]).toEqual({ id: b.sessionId, damage: BURN, killed: false });
+    await until(() => seenBy(a, b.sessionId).life === 100 - BURN && seenBy(b, b.sessionId).life === 100 - BURN);
+    expect(seenBy(b, a.sessionId).points).toBe(BURN);
+
+    // Nadie le tira de nuevo: los dos tiran para atrás y, cuando le vuelve el turno, se quema otra vez.
+    await turn(b.sessionId);
+    await turn(a.sessionId);
+    await until(() => burnsA.length === 2 && burnsB.length === 2);
+    await until(() => seenBy(a, b.sessionId).life === 100 - 2 * BURN);
+
+    // Beto sale con nafta: el fuego se queda, pero ya no lo quema.
+    const from = seenBy(b, b.sessionId);
+    const dx = from.x - fire.x;
+    const dz = from.z - fire.z;
+    const far = (fire.radius + 3) / Math.max(1e-6, Math.hypot(dx, dz));
+    const to = Math.hypot(dx, dz) < 0.5 ? { x: fire.x + fire.radius + 3, z: fire.z } : { x: fire.x + dx * far, z: fire.z + dz * far };
+    b.send("move", { moveTo: to });
+    await until(() => !inFire(fire, seenBy(a, b.sessionId)));
+    await turn(b.sessionId);
+    await turn(a.sessionId);
+    await until(() => a.state.phase === "aiming" && a.state.turnId === b.sessionId);
+    await sleep(100);
+    expect(burnsB).toHaveLength(2);
+    expect(seenBy(a, b.sessionId).life).toBe(100 - 2 * BURN);
+    expect(b.state.fires.length).toBe(1);
+
+    await a.leave();
+    await b.leave();
+  }, 60_000);
 
   it("si uno se va en plena partida, el otro gana", async () => {
     const url = `ws://localhost:${PORT}`;

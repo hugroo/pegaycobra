@@ -4,14 +4,14 @@
 // Mensajes del cliente:  start · fillBots · fire { yaw, pitch, power, weapon }
 //                        move { moveTo: { x, z } } · buy { item } · ready
 // Los bots (bot.ts) no tienen conexión: la sala les pasa sus mensajes por los mismos métodos.
-// Mensajes del server:   terrain (binario) · shot · moved · skip · roundEnd
+// Mensajes del server:   terrain (binario) · shot · moved · skip · burn · roundEnd
 
 import { Room, type Client } from "@colyseus/core";
 import { createRng } from "@pegaycobra/sim";
 import { BOT_NAME, botShopPick, pickBotShot } from "./bot";
 import { Game, MAX_PLAYERS, MIN_PLAYERS } from "./game";
 import { generateCode } from "./codes";
-import { GameState, PlayerState } from "./schema";
+import { FireState, GameState, PlayerState } from "./schema";
 import { changedRect, fullTerrain, terrainRect } from "./terrain-net";
 
 /** Códigos en uso por salas vivas en este proceso. */
@@ -23,7 +23,7 @@ export interface ShotBroadcast {
   yaw: number;
   pitch: number;
   power: number;
-  /** "babyMissile" | "missile" | "roller" */
+  /** "babyMissile" | "missile" | "roller" | "napalm" */
   weapon: string;
   /** "ground" | "tank" | "offmap" | "timeout". Con "offmap" todos muestran "se fue". */
   outcome: string;
@@ -36,6 +36,14 @@ export interface ShotBroadcast {
   damage: number;
   /** Tanques cuyo escudo absorbió el tiro. Con alguno, el cartel dice "bloqueado". */
   blocked: string[];
+}
+
+/** Mensaje "burn": a un tanque le empezó el turno parado en el fuego. La vida nueva va en el estado. */
+export interface BurnBroadcast {
+  id: string;
+  /** [hp] */
+  damage: number;
+  killed: boolean;
 }
 
 /** Mensaje "roundEnd": lo que cobró cada uno al terminar la ronda. */
@@ -229,11 +237,16 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   /**
-   * Después de cada cambio: si terminó una ronda, manda el resumen; si empezó una, manda el
-   * terreno nuevo completo; después sincroniza el estado.
+   * Después de cada cambio: si el fuego quemó a alguien, lo avisa; si terminó una ronda, manda el
+   * resumen; si empezó una, manda el terreno nuevo completo; después sincroniza el estado.
    */
   private flush(): void {
     const g = this.game;
+    for (const b of g.takeBurns()) {
+      const msg: BurnBroadcast = { id: b.targetId, damage: round2(b.damage), killed: b.killed };
+      this.broadcast("burn", msg);
+      this.log(`${this.nameOf(b.targetId)} se quema -${b.damage.toFixed(1)}${b.killed ? " (muere)" : ""} [fuego de ${this.nameOf(b.ownerId)}]`);
+    }
     if (g.lastRound && g.lastRound !== this.sentRoundEnd) {
       this.sentRoundEnd = g.lastRound;
       const msg: RoundEndBroadcast = {
@@ -328,6 +341,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         p.money = player.money;
         p.missiles = Math.max(0, player.inventory.missile ?? 0);
         p.rollers = Math.max(0, player.inventory.roller ?? 0);
+        p.napalms = Math.max(0, player.inventory.napalm ?? 0);
         p.shield = player.inventory.shield ?? 0;
         p.parachute = player.inventory.parachute ?? 0;
         p.fuel = player.inventory.fuel ?? 0;
@@ -345,6 +359,17 @@ export class GameRoom extends Room<{ state: GameState }> {
       s.windZ = g.match.wind.z;
       s.mapWidth = g.match.terrain.width;
       s.mapDepth = g.match.terrain.depth;
+    }
+
+    // Fuegos: dentro de una ronda solo se agregan; si hay menos que antes, es una ronda nueva.
+    const fires = g.match?.fires ?? [];
+    if (s.fires.length > fires.length) s.fires.clear();
+    for (const f of fires.slice(s.fires.length)) {
+      const fs = new FireState();
+      fs.x = f.x;
+      fs.z = f.z;
+      fs.radius = f.radius;
+      s.fires.push(fs);
     }
   }
 }
