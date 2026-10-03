@@ -15,7 +15,7 @@ export type WeaponId = "babyMissile" | "missile" | "roller" | "babyNuke" | "nuke
 
 /** Arma que no explota donde cae: toca el piso y rueda cuesta abajo (roller.ts). */
 export interface RollSpec {
-  /** La potencia del tiro se multiplica por esto: sale corto, no hace un arco largo. [adimensional] */
+  /** La potencia del tiro se multiplica por esto. 1 = sale con la misma potencia que un Missile. [adimensional] */
   readonly powerFactor: number;
   /** Lo máximo que rueda, medido sobre el piso (XZ). [celdas = wu] */
   readonly maxCells: number;
@@ -89,7 +89,10 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     hurtAmount: 1,
     windFactor: 1,
     gravityFactor: 1,
-    roll: { powerFactor: 0.6, maxCells: 60 },
+    // Potencia entera: los tanques nacen a 130–185 celdas (placeTanks3D) y con 0.6 el tiro llegaba a
+    // ~93, así que no pasaba el cerro del medio. El tope de rodada casi no se toca: en los terrenos
+    // de partida la bola se frena antes, en el fondo del valle (mediana ~25 celdas).
+    roll: { powerFactor: 1, maxCells: 60 },
   },
   babyNuke: {
     id: "babyNuke",

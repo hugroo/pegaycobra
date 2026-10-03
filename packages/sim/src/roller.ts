@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Roller: el arma que no vuela igual. Sale con poca potencia, toca el piso y, en vez de explotar
+// Roller: el arma que no termina donde cae. Vuela como un Missile, toca el piso y, en vez de explotar
 // ahí, rueda cuesta abajo hasta que llega a un tanque, se queda sin pendiente o recorre su máximo
 // de celdas. Recién ahí explota.
 //

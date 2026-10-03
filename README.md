@@ -79,7 +79,7 @@ cuando el escudo se come un tiro, el cartel del impacto dice "bloqueado" en vez 
   | Ítem | Precio | Qué hace |
   |---|---|---|
   | Missile ×3 | $1.200 | Explosión de radio 6 (la Baby es 3.5). Se gasta uno por tiro |
-  | Roller ×2 | $1.500 | No hace un arco largo: sale con el 60% de la potencia, toca el piso y rueda cuesta abajo hasta 60 celdas o hasta un tanque, y ahí explota (radio 4.5, cráter chico). En lo llano explota donde cae. Si vuelve rodando hasta vos, te pega |
+  | Roller ×2 | $1.500 | Vuela con la misma potencia que un Missile, toca el piso y rueda cuesta abajo hasta 60 celdas o hasta un tanque, y ahí explota (radio 4.5, cráter chico). En lo llano explota donde cae. Si vuelve rodando hasta vos, te pega |
   | Escudo | $2.000 | Absorbe el próximo tiro cuya explosión te alcance (Baby, Missile o Roller) y se gasta. Uno por vez; si nadie te pega, lo seguís teniendo la ronda siguiente |
   | Paracaídas | $1.250 | La ronda siguiente, caer no te hace daño. Uno por ronda |
   | Nafta | $3.000 | Antes de tirar, mové el tanque hasta 20 celdas. Una vez por turno |
@@ -318,7 +318,7 @@ tanques son primitivas generadas.
   - **Roller propio.** El original tiene rollers (`WeaponRoller.cpp`) que ruedan como partícula
     con rebote. Acá la rodada es un descenso por el gradiente en pasos fijos de 0.12 celdas, sin
     inercia: se frena en el fondo de un valle o de un cráter aunque venga con envión. Precio,
-    radio, potencia al 60% y tope de 60 celdas son números de este juego (`WEAPONS.roller`).
+    radio, factor de potencia (1: sale con la potencia entera) y tope de 60 celdas son números de este juego (`WEAPONS.roller`).
   - **Escudo propio.** En el original el escudo es una esfera con energía que desvía o absorbe
     proyectiles. Acá es una carga: absorbe un tiro entero y se gasta (`resolveTurn3D`).
   - **La nafta mueve antes de tirar** y el turno sigue. En el original, mover reemplaza al tiro.

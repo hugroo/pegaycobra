@@ -133,7 +133,7 @@ export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze(
     name: "Roller",
     price: WEAPONS.roller.cost,
     pack: WEAPONS.roller.bundleSize,
-    description: `Sale corto, toca el piso y rueda cuesta abajo hasta ${WEAPONS.roller.roll!.maxCells} celdas o hasta un tanque. Cráter chico.`,
+    description: `Toca el piso y rueda cuesta abajo hasta ${WEAPONS.roller.roll!.maxCells} celdas o hasta un tanque. Cráter chico.`,
   },
   shield: {
     id: "shield",

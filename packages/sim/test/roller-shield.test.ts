@@ -42,7 +42,7 @@ function onHill(b = { x: 30, z: 30 }, players: Player[] = [withItems("A", { roll
   return { terrain, wind: { x: 0, z: 0 }, tanks: tanks3DAt(terrain, ["A", "B"], [{ x: 90, z: 128 }, b], TANK_MAX_LIFE), players };
 }
 
-const ROLL = { playerId: "A", yaw: 0, pitch: 45, power: 500, weaponId: "roller" } as const;
+const ROLL = { playerId: "A", yaw: 0, pitch: 45, power: 300, weaponId: "roller" } as const;
 
 describe("Roller", () => {
   it("en una ladera no explota donde pega: rueda y termina más abajo", () => {
@@ -91,15 +91,69 @@ describe("Roller", () => {
     expect(damage.find((d) => d.targetId === "B")!.cause).toBe("explosion");
   });
 
-  it("sale con poca potencia: con la misma puntería cae más corto que la Baby, y en lo llano no rueda", () => {
+  it("sale con la potencia que dice WEAPONS.roller, y en lo llano no rueda", () => {
     const flat = createFlatTerrain(257, 257, 10);
     const aim = { originX: 60, originY: 10, originZ: 128, yaw: 0, pitch: 45, power: 600, wind: { x: 0, z: 0 } };
-    const baby = simulateWeaponShot3D(flat, WEAPONS.babyMissile, aim);
+    const baby = simulateWeaponShot3D(flat, WEAPONS.babyMissile, { ...aim, power: aim.power * WEAPONS.roller.roll!.powerFactor });
     const roller = simulateWeaponShot3D(flat, WEAPONS.roller, aim);
     expect(roller.outcome).toBe("ground");
-    expect(roller.x - 60).toBeLessThan((baby.x - 60) / 2);
+    expect(roller.x).toBeCloseTo(baby.x, 6);
     expect(roller.x).toBe(roller.landed!.x);
     expect(baby.landed).toBeUndefined();
+  });
+
+  describe("a distancia de spawn, cerro de por medio", () => {
+    // placeTanks3D deja a los tanques a 130–185 celdas. Acá: A y B a 160, los dos a altura 10, y en
+    // el medio un cerro de 45 que cruza todo el mapa en Z. La cima queda a 100 de A; B, 60 más allá,
+    // al pie de la bajada.
+    const A = { x: 48, z: 128 };
+    const B = { x: A.x + 160, z: 128 };
+    const CREST = A.x + 100;
+    function ridge(): MatchState3D {
+      const t = createFlatTerrain(257, 257, 10);
+      for (let z = 0; z < 257; z++)
+        for (let x = 0; x < 257; x++) {
+          const up = (x - (CREST - 70)) / 70; // sube de 78 a 148
+          const down = (B.x + 5 - x) / (B.x + 5 - CREST); // baja de 148 a 213
+          t.heights[x + z * 257] = 10 + 45 * Math.max(0, Math.min(up, down));
+        }
+      return { terrain: t, wind: { x: 0, z: 0 }, tanks: tanks3DAt(t, ["A", "B"], [A, B], TANK_MAX_LIFE), players: [withItems("A", { roller: 2 }), fresh("B")] };
+    }
+    /** La cuenta de la fantasma del cliente (computeGhost): simulateWeaponShot3D con el arma, el tanque propio y los vivos. */
+    const ghost = (m: MatchState3D, weapon: typeof WEAPONS.roller, pitch: number, power: number) =>
+      simulateWeaponShot3D(
+        m.terrain,
+        weapon,
+        { originX: m.tanks[0]!.x, originY: m.tanks[0]!.y, originZ: m.tanks[0]!.z, yaw: 0, pitch, power, wind: m.wind, shooterId: "A" },
+        m.tanks,
+      );
+    /** Primera puntería (yaw 0) que cae pasando la cima, rueda y termina contra B. */
+    function findAim(m: MatchState3D, weapon: typeof WEAPONS.roller): { pitch: number; power: number } | null {
+      for (let pitch = 40; pitch <= 75; pitch += 5)
+        for (let power = 300; power <= 1000; power += 10) {
+          const r = ghost(m, weapon, pitch, power);
+          if (r.outcome === "tank" && r.tankId === "B" && r.landed && r.landed.x > CREST && r.x - r.landed.x > 10) return { pitch, power };
+        }
+      return null;
+    }
+
+    it("hay una puntería de Roller que pasa la cima, baja rodando y le pega al otro", () => {
+      const m = ridge();
+      const aim = findAim(m, WEAPONS.roller);
+      expect(aim).not.toBeNull();
+      // El server resuelve ese tiro con la misma cuenta: mismo final, mismo punto de caída.
+      const seen = ghost(m, WEAPONS.roller, aim!.pitch, aim!.power);
+      const { shot, state } = resolveTurn(m, { playerId: "A", yaw: 0, pitch: aim!.pitch, power: aim!.power, weaponId: "roller" });
+      expect(shot).toEqual(seen);
+      expect(shot.landed!.x).toBeGreaterThan(CREST);
+      expect(lifeOf(state, "B")).toBeLessThan(TANK_MAX_LIFE);
+      expect(lifeOf(state, "A")).toBe(TANK_MAX_LIFE);
+    });
+
+    it("con la potencia al 60% de antes no había ninguna", () => {
+      const weak = { ...WEAPONS.roller, roll: { ...WEAPONS.roller.roll!, powerFactor: 0.6 } };
+      expect(findAim(ridge(), weak)).toBeNull();
+    });
   });
 
   it("si vuelve rodando hasta el que tiró, le pega a él", () => {
@@ -110,7 +164,7 @@ describe("Roller", () => {
       tanks: tanks3DAt(terrain, ["A", "B"], [{ x: 150, z: 128 }, { x: 30, z: 30 }], TANK_MAX_LIFE),
       players: [withItems("A", { roller: 2 }), fresh("B")],
     };
-    const { shot, state } = resolveTurn(m, { playerId: "A", yaw: 180, pitch: 45, power: 350, weaponId: "roller" });
+    const { shot, state } = resolveTurn(m, { playerId: "A", yaw: 180, pitch: 45, power: 210, weaponId: "roller" });
     expect(shot.landed!.x).toBeLessThan(150 - TANK_RADIUS - ROLLER_RADIUS); // cayó cuesta arriba, sin tocarlo
     expect(shot.outcome).toBe("tank");
     expect(shot.tankId).toBe("A");
