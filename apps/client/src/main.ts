@@ -48,6 +48,7 @@ const ui = {
   lobbyWait: $("lobby-wait"),
   lobbyLeave: $<HTMLButtonElement>("btn-lobby-leave"),
   hudRound: $("hud-round"),
+  turnPill: $("turn-pill"),
   hudTurn: $("hud-turn"),
   hudTurnDot: $("hud-turn-dot"),
   hudTime: $("hud-time"),
@@ -57,14 +58,12 @@ const ui = {
   hudCode: $("hud-code"),
   hudPlayers: $("hud-players"),
   banner: $("banner"),
+  dock: $("dock"),
   shop: $("shop"),
   shopTitle: $("shop-title"),
-  shopTime: $("shop-time"),
   shopSummary: $("shop-summary"),
   shopMoney: $("shop-money"),
-  shopInv: $("shop-inv"),
   shopItems: $("shop-items"),
-  shopError: $("shop-error"),
   ready: $<HTMLButtonElement>("btn-ready"),
   overlay: $("overlay"),
   overlayTitle: $("overlay-title"),
@@ -367,6 +366,9 @@ function onState(): void {
   renderHud(phase);
   renderShop(phase);
   renderEnd(phase);
+  // Las flechas de rivales fuera de cámara no se meten debajo de lo que esté abierto abajo.
+  const open = !ui.dock.hidden ? ui.dock : !ui.shop.hidden ? ui.shop : null;
+  if (world) world.edgeBottomInset = open ? open.offsetHeight + 12 : 0;
 }
 
 function renderLobby(): void {
@@ -400,24 +402,19 @@ function renderLobby(): void {
     : "Esperando a que el anfitrión arranque…";
 }
 
-function chip(text: string, off = false): HTMLSpanElement {
+function chip(text: string): HTMLSpanElement {
   const el = document.createElement("span");
-  el.className = off ? "chip off" : "chip";
+  el.className = "chip";
   el.textContent = text;
   return el;
 }
 
-function inventoryChips(p: any): HTMLSpanElement[] {
-  return [
-    chip("Baby ∞"),
-    chip(`Missile ×${p.missiles}`, p.missiles <= 0),
-    chip(`Roller ×${p.rollers}`, p.rollers <= 0),
-    chip(`Napalm ×${p.napalms}`, p.napalms <= 0),
-    chip(`Nuke ×${p.nukes}`, p.nukes <= 0),
-    chip(p.shield > 0 ? "Escudo ✓" : "Escudo –", p.shield <= 0),
-    chip(p.parachute > 0 ? "Paracaídas ✓" : "Paracaídas –", p.parachute <= 0),
-    chip(`Nafta ×${p.fuel}`, p.fuel <= 0),
-  ];
+/** Lo que tenés y no está ya en los botones de arma o de nafta. */
+function gearChips(p: any): HTMLSpanElement[] {
+  const out: HTMLSpanElement[] = [];
+  if (p.shield > 0) out.push(chip("Escudo"));
+  if (p.parachute > 0) out.push(chip("Paracaídas"));
+  return out;
 }
 
 function renderHud(phase: string): void {
@@ -428,27 +425,31 @@ function renderHud(phase: string): void {
   const mp = me();
   const fires = firesOf(s);
 
+  // En tu turno aparece la barra de tiro; en el ajeno queda solo quién juega, el tiempo y el viento.
+  screens.game.classList.toggle("mine", mine);
+  screens.game.classList.toggle("shopping", phase === "shop");
+  ui.dock.hidden = !mine;
+  ui.turnPill.classList.toggle("mine", mine);
   ui.hudRound.textContent = `${s.round}/${s.rounds}`;
   if (phase === "ended") {
     ui.hudTurn.textContent = "Partida terminada";
-    ui.hudTurn.classList.remove("mine");
   } else if (phase === "shop") {
     ui.hudTurn.textContent = "Tienda";
-    ui.hudTurn.classList.remove("mine");
   } else {
     const who = turnPlayer ? turnPlayer.name : "…";
     ui.hudTurn.textContent = phase === "animating" ? `Disparo de ${who}` : mine ? "Tu turno" : `Turno de ${who}`;
-    ui.hudTurn.classList.toggle("mine", mine);
   }
-  ui.hudTurnDot.style.background =
-    (phase === "aiming" || phase === "animating") && turnPlayer ? (SLOT_COLORS[turnPlayer.slot] ?? "#888") : "transparent";
-  ui.hudTime.textContent = phase === "aiming" || phase === "shop" ? String(s.timeLeft) : "–";
+  const playing = (phase === "aiming" || phase === "animating") && turnPlayer;
+  ui.hudTurnDot.hidden = !playing;
+  if (playing) ui.hudTurnDot.style.background = SLOT_COLORS[turnPlayer.slot] ?? "#888";
+  ui.hudTime.parentElement!.hidden = phase !== "aiming" && phase !== "shop";
+  ui.hudTime.textContent = String(s.timeLeft);
   ui.hudTime.parentElement!.classList.toggle("low", phase === "aiming" && s.timeLeft <= 5);
   const speed = Math.hypot(s.windX ?? 0, s.windZ ?? 0);
   ui.hudWind.textContent = speed < 0.05 ? "calma" : speed.toFixed(1);
   if (mp) {
     ui.hudMoney.textContent = fmtMoney(mp.money);
-    ui.hudInv.replaceChildren(...inventoryChips(mp).slice(1));
+    ui.hudInv.replaceChildren(...gearChips(mp));
   }
 
   ui.hudPlayers.replaceChildren(
@@ -498,11 +499,11 @@ function renderHud(phase: string): void {
   ui.wRollerN.textContent = `×${rollers}`;
   ui.wNapalmN.textContent = `×${napalms}`;
   ui.wNukeN.textContent = `×${nukes}`;
-  ui.wBaby.disabled = !mine;
-  ui.wMissile.disabled = !mine || missiles <= 0;
-  ui.wRoller.disabled = !mine || rollers <= 0;
-  ui.wNapalm.disabled = !mine || napalms <= 0;
-  ui.wNuke.disabled = !mine || nukes <= 0;
+  // Un arma sin munición no ocupa lugar en la barra.
+  ui.wMissile.hidden = missiles <= 0;
+  ui.wRoller.hidden = rollers <= 0;
+  ui.wNapalm.hidden = napalms <= 0;
+  ui.wNuke.hidden = nukes <= 0;
   for (const [btn, id] of [[ui.wBaby, "babyMissile"], [ui.wMissile, "missile"], [ui.wRoller, "roller"], [ui.wNapalm, "napalm"], [ui.wNuke, "nuke"]] as const) {
     btn.classList.toggle("on", weapon === id);
     btn.setAttribute("aria-checked", String(weapon === id));
@@ -511,86 +512,107 @@ function renderHud(phase: string): void {
   ui.fuelN.textContent = `×${fuel}`;
   const canMove = mine && fuel > 0 && !s.moved;
   if (!canMove) moveMode = false;
+  ui.fuelBtn.hidden = fuel <= 0;
   ui.fuelBtn.disabled = !canMove;
   ui.fuelBtn.classList.toggle("on", moveMode);
-  ui.fire.disabled = !mine;
-  ui.power.disabled = !mine;
 }
+
+/** Qué hace cada cosa de la tienda, en una línea. La descripción larga del sim queda de tooltip. */
+const SHOP_LINE: Record<ShopItemId, string> = {
+  missile: `Explosión de radio ${WEAPONS.missile.explosionRadius}`,
+  roller: "Rueda cuesta abajo",
+  napalm: "Fuego toda la ronda",
+  nuke: "El escudo no lo frena",
+  shield: "Frena el próximo tiro",
+  parachute: "Caer no te hace daño",
+  fuel: "Mové el tanque",
+};
 
 function renderShop(phase: string): void {
   if (phase !== "shop") {
     ui.shop.hidden = true;
-    ui.shopError.textContent = "";
     return;
   }
   const s = room!.state;
   const mp = me();
   ui.shop.hidden = false;
-  ui.shopTitle.textContent = `Tienda · antes de la ronda ${s.round + 1}/${s.rounds}`;
-  ui.shopTime.textContent = String(s.timeLeft);
+  ui.shopTitle.textContent = `Antes de la ronda ${s.round + 1}/${s.rounds}`;
 
   // Resumen de la ronda y la plata de cada uno (la ven todos).
   const pay = new Map((lastRoundEnd?.payouts ?? []).map((p) => [p.id, p]));
   ui.shopSummary.replaceChildren(
     ...playersInOrder().map((p) => {
-      const row = document.createElement("div");
-      row.className = "row";
+      const who = document.createElement("span");
+      who.className = "who";
       const dot = document.createElement("span");
       dot.className = "dot";
       dot.style.background = SLOT_COLORS[p.slot] ?? "#ccc";
       const name = document.createElement("span");
-      const po = pay.get(p.id);
-      const survived = lastRoundEnd?.survivors.includes(p.id);
-      name.textContent = `${p.name}${isMe(p.id) ? " (vos)" : ""}${survived ? " · sobrevivió" : ""}`;
-      const gain = document.createElement("span");
-      gain.className = "hint";
-      gain.textContent = po ? `+${fmtMoney(po.survivor)} vivo · +${fmtMoney(po.interest)} interés` : "";
+      name.textContent = isMe(p.id) ? "Vos" : p.name;
       const money = document.createElement("b");
       money.textContent = fmtMoney(p.money);
-      const ready = document.createElement("span");
-      ready.className = "ready";
-      ready.textContent = p.ready ? "listo" : "";
-      row.append(dot, name, gain, money, ready);
-      return row;
+      who.append(dot, name, money);
+      const po = pay.get(p.id);
+      if (po) {
+        const gain = document.createElement("span");
+        gain.className = "gain";
+        gain.textContent = `+${fmtMoney(po.survivor + po.interest)}`;
+        who.title = `${lastRoundEnd?.survivors.includes(p.id) ? "Sobrevivió · " : ""}+${fmtMoney(po.survivor)} vivo · +${fmtMoney(po.interest)} interés`;
+        who.append(gain);
+      }
+      if (p.ready) {
+        const ready = document.createElement("span");
+        ready.className = "ready";
+        ready.textContent = "listo";
+        who.append(ready);
+      }
+      return who;
     }),
   );
   if (!mp) return;
   ui.shopMoney.textContent = fmtMoney(mp.money);
-  ui.shopInv.replaceChildren(...inventoryChips(mp).slice(1));
   ui.ready.disabled = !!mp.ready;
-  ui.ready.textContent = mp.ready ? "Esperando a los demás…" : "Listo";
+  ui.ready.textContent = mp.ready ? "Esperando…" : "Listo";
 
-  // Ítems: la validación de plata es la misma del server (cannotBuy del sim). Se redibujan solo
-  // si cambió la plata o el inventario, así un clic no cae sobre un botón recién reemplazado.
-  const asPlayer = {
-    id: mp.id,
-    money: mp.money,
-    inventory: { parachute: mp.parachute, fuel: mp.fuel, missile: mp.missiles, roller: mp.rollers, napalm: mp.napalms, nuke: mp.nukes, shield: mp.shield },
-  };
+  // Cartas: la validación de plata es la misma del server (cannotBuy del sim). Se redibujan solo
+  // si cambió la plata o el inventario, así un clic no cae sobre una carta recién reemplazada.
+  const inventory = { parachute: mp.parachute, fuel: mp.fuel, missile: mp.missiles, roller: mp.rollers, napalm: mp.napalms, nuke: mp.nukes, shield: mp.shield };
+  const asPlayer = { id: mp.id, money: mp.money, inventory };
   const itemsKey = `${mp.money}|${mp.parachute}|${mp.fuel}|${mp.missiles}|${mp.rollers}|${mp.napalms}|${mp.nukes}|${mp.shield}`;
   if (ui.shopItems.dataset.key === itemsKey) return;
   ui.shopItems.dataset.key = itemsKey;
   ui.shopItems.replaceChildren(
     ...(Object.keys(SHOP_ITEMS) as ShopItemId[]).map((id) => {
       const it = SHOP_ITEMS[id];
-      const box = document.createElement("div");
-      box.className = "item";
-      const title = document.createElement("b");
-      title.textContent = it.pack > 1 ? `${it.name} ×${it.pack}` : it.name;
+      const why = cannotBuy(asPlayer, id);
+      const card = document.createElement("button");
+      card.className = "item";
+      card.disabled = why !== null;
+      card.title = why ? `${it.description} (${why})` : it.description;
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = it.name;
+      if (it.pack > 1) {
+        const pack = document.createElement("small");
+        pack.textContent = `×${it.pack}`;
+        name.append(pack);
+      }
       const desc = document.createElement("span");
       desc.className = "desc";
-      desc.textContent = it.description;
-      const btn = document.createElement("button");
-      const why = cannotBuy(asPlayer, id);
-      btn.textContent = `Comprar ${fmtMoney(it.price)}`;
-      btn.disabled = why !== null;
-      btn.title = why ?? "";
-      btn.addEventListener("click", () => {
-        room?.send("buy", { item: id });
-        ui.shopError.textContent = "";
-      });
-      box.append(title, desc, btn);
-      return box;
+      desc.textContent = SHOP_LINE[id];
+      const foot = document.createElement("span");
+      foot.className = "foot";
+      const price = document.createElement("span");
+      price.className = "price";
+      price.textContent = fmtMoney(it.price);
+      const have = document.createElement("span");
+      have.className = "have";
+      // El motivo completo (el del sim) va en el tooltip; en la carta, dos palabras.
+      have.textContent = why ? (mp.money < it.price ? "no alcanza" : "ya tenés") : inventory[id] > 0 ? `tenés ${inventory[id]}` : "";
+      foot.append(price, have);
+      card.append(name, desc, foot);
+      card.addEventListener("click", () => room?.send("buy", { item: id }));
+      return card;
     }),
   );
 }

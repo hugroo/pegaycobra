@@ -46,7 +46,7 @@ incógnito). En uno: escribí tu nombre y tocá *Crear sala*. Te da un código d
 otro: escribí el código y tocá *Entrar*. Cuando hay 2 o más, el anfitrión (el que creó la sala)
 toca *Arrancar*.
 
-Controles (una sola barra abajo):
+Controles (la barra de abajo aparece solo en tu turno; un arma sin munición no se muestra):
 
 | Qué | Cómo |
 |---|---|
@@ -58,10 +58,12 @@ Controles (una sola barra abajo):
 | Mover la cámara | Arrastrar con el botón derecho (fuera de tu turno, también el izquierdo) |
 | Zoom | Shift + rueda, + / −, o la rueda cuando no es tu turno |
 
-Tenés 30 s por turno; si no tirás, perdés el turno. El HUD muestra la ronda (2/5), de quién es
-el turno, los segundos, el viento, tu plata, tu inventario y la sala; la dirección del viento es
-la flecha celeste en el piso, al lado del tanque del turno. El panel de la izquierda muestra la
-vida, los puntos, los Missiles, los Rollers y el escudo de cada jugador. Si un tiro sale del mapa,
+Tenés 30 s por turno; si no tirás, perdés el turno. El HUD flota sobre el cerro. Arriba, siempre:
+de quién es el turno (en ocre cuando es el tuyo), los segundos y el viento; la dirección del viento
+es la flecha celeste en el piso, al lado del tanque del turno. Abajo, solo en tu turno: arma,
+nafta, potencia, *Tirar*, tu plata y lo que tenés puesto (escudo, paracaídas). El panel de la
+izquierda muestra la ronda (2/5), la sala y la vida de cada jugador; en tu turno y en la tienda
+suma los puntos, los Missiles, los Rollers y el escudo de cada uno. Si un tiro sale del mapa,
 todas las pestañas muestran "¡Se fue!". Un tanque con escudo se ve dentro de una burbuja celeste;
 cuando el escudo se come un tiro, el cartel del impacto dice "bloqueado" en vez del daño (con el
 Nuke no: el escudo no lo frena y el cartel dice el daño).
@@ -77,7 +79,8 @@ sale el cartel "se quema: -25".
 - **Al terminar la ronda se cobra:** cada tanque que sigue vivo recibe $10.000, y después todos
   reciben 15% de interés sobre la plata que tienen. Lo que gastaste en la tienda ya no está, así
   que no da interés. El daño y los kills se cobran en el momento del tiro.
-- **Tienda de 20 s entre rondas**, visible para todos, con la plata de cada uno. Cierra antes si
+- **Tienda de 20 s entre rondas**, visible para todos, con la plata de cada uno: una fila de
+  cartas abajo (precio y qué hace cada cosa), sin tapar el mapa. Cierra antes si
   todos tocan *Listo*. No se puede comprar más de lo que alcanza.
 
   | Ítem | Precio | Qué hace |

@@ -36,45 +36,70 @@
       </div>
     </section>
 
-    <!-- Pantalla 3: partida -->
+    <!-- Pantalla 3: partida. El cerro ocupa todo; lo demás flota encima y aparece cuando hace falta. -->
     <section id="screen-game" class="screen game" hidden>
-      <header class="hud">
-        <div class="hud-round"><span class="lbl">Ronda</span> <span id="hud-round">1/5</span></div>
-        <div class="hud-turn-wrap">
-          <span id="hud-turn-dot" class="turn-dot"></span>
-          <div id="hud-turn" class="hud-turn"></div>
-          <div class="hud-time"><span id="hud-time">30</span><small>s</small></div>
-        </div>
-        <div class="hud-wind" title="La flecha celeste en el piso y en el minimapa marca hacia dónde sopla">
-          <span class="lbl">Viento</span>
-          <span id="hud-wind">0</span>
-        </div>
-        <div class="hud-mine">
-          <span class="money" id="hud-money">$0</span>
-          <span id="hud-inv" class="inv"></span>
-        </div>
-        <div class="hud-small"><span class="lbl">Sala</span> <span id="hud-code"></span></div>
-      </header>
       <div class="field">
         <div id="viewport" class="viewport"></div>
-        <ul id="hud-players" class="hud-players"></ul>
+
+        <!-- Siempre: de quién es el turno, el tiempo y el viento -->
+        <div class="top">
+          <div id="turn-pill" class="pill turn-pill">
+            <span id="hud-turn-dot" class="turn-dot"></span>
+            <span id="hud-turn" class="hud-turn"></span>
+            <span class="hud-time"><span id="hud-time">30</span><small>s</small></span>
+          </div>
+          <div class="pill hud-wind" title="La flecha celeste en el piso y en el minimapa marca hacia dónde sopla">
+            <span class="lbl">Viento</span>
+            <span id="hud-wind">0</span>
+          </div>
+        </div>
+        <div class="corner">
+          <div class="meta">Ronda <b id="hud-round">1/5</b> · Sala <b id="hud-code"></b></div>
+          <ul id="hud-players" class="hud-players"></ul>
+        </div>
         <canvas id="minimap" class="minimap" aria-label="Minimapa"></canvas>
         <div id="banner" class="banner" hidden></div>
 
-        <!-- Tienda entre rondas: la ven todos, cada uno compra con su plata -->
-        <div id="shop" class="overlay" hidden>
-          <div class="card shop-card">
-            <div class="shop-head">
-              <h2 id="shop-title">Tienda</h2>
-              <div class="shop-time"><span id="shop-time">20</span><small>s</small></div>
-            </div>
-            <div id="shop-summary" class="summary"></div>
-            <div class="shop-money">Tu plata: <b id="shop-money">$0</b> · <span id="shop-inv" class="inv"></span></div>
-            <div id="shop-items" class="items"></div>
-            <p id="shop-error" class="error" role="alert"></p>
-            <button id="btn-ready" class="primary">Listo</button>
-            <p class="hint">La próxima ronda arranca cuando todos tocan Listo o se termina el tiempo.</p>
+        <!-- Solo en tu turno: lo que se usa para tirar -->
+        <div id="dock" class="dock" hidden>
+          <div class="dock-meta">
+            <span class="money" id="hud-money">$0</span>
+            <span id="hud-inv" class="inv"></span>
+            <span class="keys">
+              Arrastrá para apuntar · rueda: potencia · N: nafta · Espacio: tirar · botón derecho: cámara · Shift + rueda: zoom
+            </span>
           </div>
+          <div class="dock-main">
+            <div class="weapons" role="radiogroup" aria-label="Arma">
+              <button id="w-baby" class="weapon on" role="radio" aria-checked="true"><kbd>1</kbd>Baby <small>∞</small></button>
+              <button id="w-missile" class="weapon" role="radio" aria-checked="false"><kbd>2</kbd>Missile <small id="w-missile-n">×0</small></button>
+              <button id="w-roller" class="weapon" role="radio" aria-checked="false" title="Toca el piso y rueda cuesta abajo"><kbd>3</kbd>Roller <small id="w-roller-n">×0</small></button>
+              <button id="w-napalm" class="weapon" role="radio" aria-checked="false" title="No explota: deja fuego hasta que termina la ronda"><kbd>4</kbd>Napalm <small id="w-napalm-n">×0</small></button>
+              <button id="w-nuke" class="weapon" role="radio" aria-checked="false" title="Un Missile enorme: el escudo no lo frena"><kbd>5</kbd>Nuke <small id="w-nuke-n">×0</small></button>
+            </div>
+            <button id="btn-fuel" class="fuel" title="Mové el tanque antes de tirar: después, clic en el piso"><kbd>N</kbd>Nafta <small id="fuel-n">×0</small></button>
+            <div class="angles">
+              <div class="ctl"><span class="lbl">Giro</span> <output id="yaw-out">0°</output></div>
+              <div class="ctl"><span class="lbl">Elevación</span> <output id="pitch-out">45°</output></div>
+            </div>
+            <div class="ctl power">
+              <span class="lbl">Potencia</span>
+              <input id="power" type="range" min="0" max="1000" step="5" value="500" />
+              <output id="power-out">500</output>
+            </div>
+            <button id="btn-fire" class="primary fire">Tirar</button>
+          </div>
+        </div>
+
+        <!-- Tienda entre rondas: una fila de cartas abajo; el cerro sigue a la vista -->
+        <div id="shop" class="tray" hidden>
+          <div class="tray-head">
+            <h2 id="shop-title">Tienda</h2>
+            <div id="shop-summary" class="summary"></div>
+            <span class="money" id="shop-money">$0</span>
+            <button id="btn-ready" class="primary">Listo</button>
+          </div>
+          <div id="shop-items" class="items"></div>
         </div>
 
         <!-- Fin de partida: tabla de puntos -->
@@ -90,28 +115,6 @@
           </div>
         </div>
       </div>
-      <footer class="controls">
-        <div class="weapons" role="radiogroup" aria-label="Arma">
-          <button id="w-baby" class="weapon on" role="radio" aria-checked="true">Baby Missile <small>∞</small></button>
-          <button id="w-missile" class="weapon" role="radio" aria-checked="false">Missile <small id="w-missile-n">×0</small></button>
-          <button id="w-roller" class="weapon" role="radio" aria-checked="false" title="Toca el piso y rueda cuesta abajo">Roller <small id="w-roller-n">×0</small></button>
-          <button id="w-napalm" class="weapon" role="radio" aria-checked="false" title="No explota: deja fuego hasta que termina la ronda">Napalm <small id="w-napalm-n">×0</small></button>
-          <button id="w-nuke" class="weapon" role="radio" aria-checked="false" title="Un Missile enorme: el escudo no lo frena">Nuke <small id="w-nuke-n">×0</small></button>
-        </div>
-        <button id="btn-fuel" class="fuel" title="Mové el tanque antes de tirar">Nafta <small id="fuel-n">×0</small></button>
-        <div class="ctl"><span class="lbl">Giro</span> <output id="yaw-out">0°</output></div>
-        <div class="ctl"><span class="lbl">Elevación</span> <output id="pitch-out">45°</output></div>
-        <div class="ctl power">
-          <span class="lbl">Potencia</span>
-          <input id="power" type="range" min="0" max="1000" step="5" value="500" />
-          <output id="power-out">500</output>
-        </div>
-        <button id="btn-fire" class="primary fire">Tirar</button>
-        <div class="keys">
-          Arrastrá con el botón izquierdo para girar y elevar el cañón · rueda o barra: potencia ·
-          1 / 2 / 3 / 4 / 5: arma · N: nafta (clic en el piso) · Espacio tira · botón derecho: cámara · Shift + rueda: zoom
-        </div>
-      </footer>
     </section>
 
     <script type="module" src="/src/main.ts"></script>

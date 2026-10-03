@@ -155,6 +155,8 @@ export class World {
   private viewDist = 75;
   private viewPhi = rad(32);
   private thetaGoal: number | null = null;
+  /** Alto de lo que el HUD tapa abajo (barra de tiro o tienda): las flechas de rivales quedan por encima. [px] */
+  edgeBottomInset = 0;
 
   constructor(private readonly host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -683,7 +685,8 @@ export class World {
       if (Math.abs(nx) < 1e-3 && Math.abs(ny) < 1e-3) ny = -1;
       const dx = nx * (w / 2);
       const dy = -ny * (h / 2);
-      const k = Math.min((w / 2 - 70) / Math.max(1e-3, Math.abs(dx)), (h / 2 - 38) / Math.max(1e-3, Math.abs(dy)));
+      const room = h / 2 - 38 - (dy > 0 ? this.edgeBottomInset : 0);
+      const k = Math.min((w / 2 - 70) / Math.max(1e-3, Math.abs(dx)), Math.max(1, room) / Math.max(1e-3, Math.abs(dy)));
       v.edgeEl.style.transform = `translate(${w / 2 + dx * k}px, ${h / 2 + dy * k}px) translate(-50%, -50%)`;
       v.edgeArrow.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
       v.edgeText.textContent = dist ? `${m.name} · ${dist}` : m.name;

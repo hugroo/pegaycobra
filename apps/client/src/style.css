@@ -1,215 +1,252 @@
 :root {
-  --bg: #12161f;
-  --panel: #1b2130;
-  --panel-2: #232b3d;
-  --text: #e8ecf3;
-  --muted: #8f9ab0;
-  --accent: #f2b33d;
-  --accent-ink: #1a1305;
-  --danger: #ff6b6b;
-  --line: #2e384d;
-  --p0: #ff6b6b;
-  --p1: #4dabf7;
-  --p2: #69db7c;
-  --p3: #f783ac;
+  --bg: #15120e;
+  --ink: #f4eee3;
+  --muted: #b5aa95;
+  /* Superficies: vidrio oscuro y cálido sobre el cerro, nunca gris de formulario. */
+  --glass: rgba(24, 20, 15, 0.8);
+  --glass-2: rgba(255, 240, 215, 0.08);
+  --glass-3: rgba(255, 240, 215, 0.16);
+  --line: rgba(255, 236, 200, 0.16);
+  /* El sur: ocre para lo que se toca, turquesa de lago para lo que se lee. */
+  --ocre: #e2a43b;
+  --ocre-ink: #21170a;
+  --turq: #4fcabf;
+  --danger: #ff7a66;
+  --radius: 14px;
   color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
-  background: var(--bg);
-  color: var(--text);
-  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: radial-gradient(120% 90% at 50% 0%, #2a2114 0%, var(--bg) 60%);
+  color: var(--ink);
+  font: 500 16px/1.4 "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 [hidden] { display: none !important; }
 
 .screen { min-height: 100%; display: grid; place-items: center; padding: 16px; }
 .card {
-  background: var(--panel);
+  background: var(--glass);
   border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 24px;
-  width: min(380px, 100%);
+  border-radius: 20px;
+  padding: 28px;
+  width: min(400px, 100%);
   display: grid;
-  gap: 12px;
+  gap: 14px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
 }
-h1 { margin: 0; font-size: 30px; letter-spacing: 0.5px; }
-h2 { margin: 0; font-size: 26px; text-align: center; }
+h1 { margin: 0; font-size: 34px; font-weight: 800; letter-spacing: -0.5px; }
+h1::after { content: ""; display: block; width: 56px; height: 4px; margin-top: 10px; border-radius: 2px; background: var(--ocre); }
+h2 { margin: 0; font-size: 26px; font-weight: 800; text-align: center; }
 .sub { margin: 0; color: var(--muted); }
-.hint { margin: 0; color: var(--muted); font-size: 13px; }
-.or { color: var(--muted); font-size: 13px; text-align: center; }
+.hint { margin: 0; color: var(--muted); font-size: 14px; }
+.or { color: var(--muted); font-size: 14px; text-align: center; }
 .row { display: flex; gap: 8px; }
-.row input { flex: 1; min-width: 0; text-transform: uppercase; letter-spacing: 4px; font-weight: 700; text-align: center; }
-label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
+.row input { flex: 1; min-width: 0; text-transform: uppercase; letter-spacing: 4px; font-weight: 800; text-align: center; }
+label { display: grid; gap: 6px; color: var(--muted); font-size: 14px; }
 
 input {
-  background: var(--panel-2);
+  background: var(--glass-2);
   border: 1px solid var(--line);
-  color: var(--text);
-  border-radius: 8px;
-  padding: 10px 12px;
+  color: var(--ink);
+  border-radius: 12px;
+  padding: 12px 14px;
+  min-height: 48px;
   font: inherit;
 }
-input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input:focus-visible, button:focus-visible { outline: 2px solid var(--turq); outline-offset: 2px; }
 
 button {
   font: inherit;
-  font-weight: 600;
-  border-radius: 8px;
-  padding: 10px 16px;
+  font-weight: 700;
+  border-radius: 12px;
+  padding: 12px 18px;
+  min-height: 48px;
   border: 1px solid var(--line);
-  background: var(--panel-2);
-  color: var(--text);
+  background: var(--glass-2);
+  color: var(--ink);
   cursor: pointer;
+  transition: background 0.12s, transform 0.06s;
 }
-button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+button:hover:not(:disabled) { background: var(--glass-3); }
+button:active:not(:disabled) { transform: translateY(1px); }
+button.primary { background: var(--ocre); color: var(--ocre-ink); border-color: transparent; font-weight: 800; }
+button.primary:hover:not(:disabled) { background: #f0b450; }
 button.ghost { background: transparent; }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 .error { margin: 0; color: var(--danger); min-height: 1.4em; font-size: 14px; }
 
-.code { font-size: 48px; font-weight: 800; letter-spacing: 10px; text-align: center; color: var(--accent); }
+.code { font-size: 52px; font-weight: 800; letter-spacing: 10px; text-align: center; color: var(--ocre); }
 .players { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .players li {
   display: flex; align-items: center; gap: 10px;
-  background: var(--panel-2); border-radius: 8px; padding: 8px 10px;
+  background: var(--glass-2); border-radius: 12px; padding: 10px 12px;
 }
-.dot { width: 12px; height: 12px; border-radius: 3px; flex: none; }
-.tag { margin-left: auto; font-size: 12px; color: var(--muted); }
+.dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.tag { margin-left: auto; font-size: 13px; color: var(--muted); }
+.lbl { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; }
 
-/* Partida */
-.screen.game { display: flex; flex-direction: column; align-items: stretch; padding: 0; height: 100%; }
-.hud {
-  display: flex; flex-wrap: wrap; gap: 8px 28px; align-items: center;
-  padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
-}
-.hud-turn-wrap { display: flex; align-items: center; gap: 12px; margin-right: auto; min-width: 0; }
-.turn-dot { width: 18px; height: 18px; border-radius: 5px; flex: none; background: var(--muted); }
-.hud-turn { font-weight: 800; font-size: clamp(20px, 3.2vw, 30px); line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hud-turn.mine { color: var(--accent); }
-.hud-time { font-size: 15px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.hud-time small { margin-left: 2px; font-size: 12px; }
-.hud-time.low { color: var(--danger); font-weight: 700; }
-.hud-wind { display: flex; align-items: center; gap: 10px; font-size: clamp(20px, 3vw, 28px); font-weight: 800; font-variant-numeric: tabular-nums; }
-.wind-arrow { display: inline-block; color: #9ad1ff; min-width: 1.5em; text-align: center; }
-.hud-small { font-size: 12px; color: var(--muted); }
-.hud-small span:last-child { color: var(--text); font-weight: 600; letter-spacing: 1px; }
-.lbl { color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; }
-.field { position: relative; flex: 1; min-height: 0; background: #0f1c2e; overflow: hidden; }
+/* ---------------------------------------------------------------------------
+   Partida: el cerro ocupa toda la pantalla y el HUD flota encima.
+   --------------------------------------------------------------------------- */
+.screen.game { display: block; place-items: stretch; padding: 0; height: 100%; }
+.field { position: relative; height: 100%; background: #0f1c2e; overflow: hidden; }
 .viewport { position: absolute; inset: 0; touch-action: none; cursor: crosshair; }
 .viewport canvas { display: block; }
 .viewport.dragging { cursor: grabbing; }
+
+/* Lo que vive en el mundo: carteles de tanque, flechas de rivales, fantasma y daño. */
 .labels { position: absolute; inset: 0; pointer-events: none; }
 .tank-label {
-  display: grid; gap: 3px; justify-items: center; font-size: 12px; font-weight: 600;
-  color: #eef1f6; text-shadow: 0 1px 2px #000; white-space: nowrap; transform: translateY(-6px);
+  display: grid; gap: 3px; justify-items: center; font-size: 13px; font-weight: 700;
+  color: #f4eee3; text-shadow: 0 1px 2px #000; white-space: nowrap; transform: translateY(-6px);
 }
-.tank-label i { display: block; width: 40px; height: 5px; background: #333c50; border-radius: 3px; overflow: hidden; }
+.tank-label i { display: block; width: 44px; height: 5px; background: rgba(0, 0, 0, 0.55); border-radius: 3px; overflow: hidden; }
 .tank-label b { display: block; height: 100%; }
-.tank-label small { font-size: 11px; font-weight: 600; color: #c9d2e3; }
+.tank-label small { font-size: 12px; font-weight: 600; color: #ddd3c0; }
 .tank-label small:empty { display: none; }
-.tank-label.turn { font-size: 15px; font-weight: 800; }
-.tank-label.dead { color: #7c8494; }
+.tank-label.turn { font-size: 16px; font-weight: 800; }
+.tank-label.dead { color: #8d8576; }
 .tank-label.dead i { display: none; }
 /* Rival fuera de cámara: flecha pegada al borde de la vista, con nombre y distancia. */
 .edge-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .edge-marker {
   position: absolute; top: 0; left: 0; display: grid; gap: 2px; justify-items: center;
-  font-size: 12px; font-weight: 700; white-space: nowrap; text-shadow: 0 1px 2px #000, 0 0 4px #000;
+  font-size: 13px; font-weight: 700; white-space: nowrap; text-shadow: 0 1px 2px #000, 0 0 4px #000;
 }
 .edge-marker i {
   width: 0; height: 0; border-style: solid; border-width: 9px 0 9px 18px;
   border-color: transparent transparent transparent currentColor; filter: drop-shadow(0 1px 2px #000);
 }
-.edge-marker span { color: #eef1f6; }
+.edge-marker span { color: #f4eee3; }
 .ghost-gone {
-  font-size: 12px; font-weight: 700; color: #fff; background: rgba(18, 22, 31, 0.72);
-  border: 1px dashed rgba(255, 255, 255, 0.6); border-radius: 6px; padding: 1px 6px; white-space: nowrap;
+  font-size: 13px; font-weight: 700; color: #fff; background: var(--glass);
+  border: 1px dashed rgba(255, 255, 255, 0.6); border-radius: 8px; padding: 1px 8px; white-space: nowrap;
 }
 .impact-label {
-  font-size: 26px; font-weight: 800; color: #ffd43b; white-space: nowrap; font-variant-numeric: tabular-nums;
+  font-size: 28px; font-weight: 800; color: #ffd76a; white-space: nowrap;
   text-shadow: 0 0 4px #000, 0 2px 6px rgba(0, 0, 0, 0.9);
 }
-.minimap {
-  position: absolute; top: 12px; right: 12px; z-index: 2; pointer-events: none;
-  width: clamp(120px, 26vmin, 190px); aspect-ratio: 1; border-radius: 8px;
-  border: 1px solid var(--line); background: #0b0f16; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+
+/* Arriba, siempre: quién juega, cuánto le queda, y el viento. */
+.top {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2;
+  display: flex; gap: 8px; align-items: stretch; pointer-events: none; max-width: calc(100% - 24px);
 }
-.hud-round { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.hud-mine { display: flex; align-items: center; gap: 10px; font-size: 14px; }
-.money { font-weight: 800; color: #8ce99a; font-variant-numeric: tabular-nums; }
-.inv { display: inline-flex; flex-wrap: wrap; gap: 6px; }
-.chip {
-  font-size: 12px; padding: 2px 7px; border-radius: 999px; background: var(--panel-2);
-  border: 1px solid var(--line); white-space: nowrap;
+.pill {
+  display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(8px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); white-space: nowrap;
 }
-.chip.off { opacity: 0.45; }
-.weapons { display: flex; gap: 4px; }
-.weapon, .fuel { padding: 8px 10px; font-size: 13px; }
-.weapon small, .fuel small { color: var(--muted); font-weight: 600; }
-.weapon.on { background: #3a3220; border-color: var(--accent); color: var(--accent); }
-.fuel.on { background: #3a3220; border-color: var(--accent); color: var(--accent); }
-.shop-card { width: min(560px, 100%); }
-.shop-head { display: flex; align-items: baseline; justify-content: space-between; }
-.shop-time { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.shop-time small { font-size: 13px; color: var(--muted); margin-left: 2px; }
-.summary { display: grid; gap: 4px; font-size: 13px; }
-.summary .row { display: grid; grid-template-columns: 12px 1fr auto auto auto; gap: 10px; align-items: center; }
-.summary .row b { font-variant-numeric: tabular-nums; }
-.summary .row .ready { color: #8ce99a; font-size: 12px; }
-.shop-money { font-size: 14px; }
-.items { display: grid; gap: 8px; }
-.item {
-  display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
-}
-.item .desc { grid-column: 1; font-size: 12px; color: var(--muted); }
-.item button { grid-row: 1 / span 2; grid-column: 2; min-width: 110px; }
-.end-card { width: min(560px, 100%); }
-.scores { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
-.scores th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 4px 6px; }
-.scores td { padding: 6px; border-top: 1px solid var(--line); }
-.scores tr.win td { color: var(--accent); font-weight: 800; }
-.hud-players li { grid-template-columns: 10px auto 60px 26px; }
-.hud-players .extra { grid-column: 2 / -1; color: var(--muted); font-size: 11px; white-space: nowrap; }
-/* Partida: encabezado y barra en un renglón cada uno, para dejarle alto a la vista 3D. */
-.screen.game .hud { flex-wrap: nowrap; gap: 8px 18px; padding: 8px 14px; overflow-x: auto; }
-.screen.game .hud > * { flex: none; }
-.screen.game .hud-turn-wrap { flex: 1 1 auto; min-width: 0; margin-right: 0; }
-.screen.game .hud-turn { font-size: clamp(18px, 2.4vw, 28px); }
-.screen.game .hud-wind { font-size: clamp(18px, 2.2vw, 26px); }
-.screen.game .controls { gap: 8px 12px; padding: 8px 14px; }
-.screen.game .controls .power { min-width: 150px; }
-.screen.game .controls .fire { min-width: 96px; }
-.screen.game .controls .keys { width: 100%; font-size: 11px; }
-.banner {
-  position: absolute; top: 18%; left: 50%; transform: translateX(-50%);
-  font-size: clamp(28px, 5vw, 48px); font-weight: 900; color: #ffcf5a;
-  text-shadow: 0 3px 12px rgba(0, 0, 0, 0.7); pointer-events: none;
-}
-.hud-players {
-  position: absolute; top: 12px; left: 12px; margin: 0; padding: 0; list-style: none; z-index: 2;
-  display: grid; gap: 4px; pointer-events: none;
-}
+.turn-dot { width: 16px; height: 16px; border-radius: 50%; flex: none; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35); }
+.hud-turn { font-weight: 800; font-size: clamp(20px, 2.4vw, 28px); line-height: 1.1; overflow: hidden; text-overflow: ellipsis; }
+.hud-time { font-size: clamp(20px, 2.4vw, 28px); font-weight: 800; min-width: 2.2em; text-align: right; opacity: 0.85; }
+.hud-time small { margin-left: 1px; font-size: 14px; font-weight: 700; }
+.hud-time.low { color: var(--danger); opacity: 1; }
+.turn-pill.mine { background: var(--ocre); color: var(--ocre-ink); border-color: transparent; }
+.turn-pill.mine .turn-dot { box-shadow: 0 0 0 2px var(--ocre-ink); }
+.turn-pill.mine .hud-time.low { color: #9c1c0c; }
+.hud-wind { font-size: clamp(18px, 2vw, 24px); font-weight: 800; color: var(--turq); gap: 8px; }
+
+/* Esquinas: jugadores a la izquierda, minimapa a la derecha. */
+.corner { position: absolute; top: 12px; left: 12px; z-index: 2; display: grid; gap: 6px; pointer-events: none; }
+.meta { font-size: 13px; color: #e6dcc8; text-shadow: 0 1px 3px #000; }
+.meta b { font-weight: 800; letter-spacing: 0.5px; }
+.hud-players { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
 .hud-players li {
-  display: grid; grid-template-columns: 10px auto 60px 26px; gap: 6px; align-items: center;
-  background: rgba(18, 22, 31, 0.72); border-radius: 6px; padding: 3px 8px; font-size: 12px;
+  display: grid; grid-template-columns: 10px auto 60px 26px; gap: 4px 8px; align-items: center;
+  background: var(--glass); border-radius: 10px; padding: 5px 10px; font-size: 13px; font-weight: 600;
 }
 .hud-players .dot { width: 10px; height: 10px; }
-.hud-players li.turn { outline: 1px solid var(--accent); }
+.hud-players li.turn { box-shadow: inset 3px 0 0 var(--ocre); }
 .hud-players li.dead { opacity: 0.45; text-decoration: line-through; }
-.bar { height: 6px; background: #333c50; border-radius: 3px; overflow: hidden; }
-.bar > i { display: block; height: 100%; background: var(--p2); }
-.overlay { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; background: rgba(10, 12, 18, 0.6); }
-
-.controls {
-  display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center;
-  padding: 10px 16px; background: var(--panel); border-top: 1px solid var(--line);
+/* El detalle de cada rival (puntos, munición, escudo) solo cuando te toca decidir. */
+.hud-players .extra { grid-column: 2 / -1; color: var(--muted); font-size: 12px; white-space: nowrap; display: none; }
+.screen.game.mine .hud-players .extra, .screen.game.shopping .hud-players .extra { display: block; }
+.bar { height: 6px; background: rgba(0, 0, 0, 0.5); border-radius: 3px; overflow: hidden; }
+.bar > i { display: block; height: 100%; }
+.minimap {
+  position: absolute; top: 12px; right: 12px; z-index: 2; pointer-events: none;
+  width: clamp(120px, 24vmin, 180px); aspect-ratio: 1; border-radius: var(--radius);
+  border: 1px solid var(--line); background: #0b0f16; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 }
+
+/* Avisos cortos ("¡Se fue!", "usó nafta"): debajo del turno, lejos del cartel de daño del mundo. */
+.banner {
+  position: absolute; top: 76px; left: 50%; transform: translateX(-50%); z-index: 2;
+  padding: 6px 16px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line);
+  font-size: 18px; font-weight: 700; color: var(--ink); white-space: nowrap; pointer-events: none;
+}
+
+.money { font-weight: 800; font-size: 20px; color: var(--turq); }
+.inv { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+  background: var(--glass-2); border: 1px solid var(--line); white-space: nowrap;
+}
+kbd {
+  font: inherit; font-size: 11px; font-weight: 800; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; margin-right: 8px;
+}
+
+/* Abajo, solo en tu turno: arma, potencia, Tirar, plata e inventario. */
+.dock, .tray {
+  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 2;
+  width: min(1180px, calc(100% - 24px)); display: grid; gap: 10px; padding: 12px 14px;
+  background: var(--glass); border: 1px solid var(--line); border-radius: 20px;
+  backdrop-filter: blur(8px); box-shadow: 0 10px 34px rgba(0, 0, 0, 0.45);
+}
+.dock-meta { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.keys { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.dock-main { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.weapons { display: flex; gap: 6px; }
+.weapon small, .fuel small { color: var(--muted); font-weight: 700; margin-left: 2px; }
+.weapon.on, .fuel.on { background: rgba(226, 164, 59, 0.18); border-color: var(--ocre); color: var(--ocre); }
+.weapon.on small, .fuel.on small, .weapon.on kbd, .fuel.on kbd { color: inherit; border-color: currentColor; }
+.angles { display: flex; gap: 14px; }
 .ctl { display: flex; gap: 8px; align-items: center; }
-.ctl output { font-variant-numeric: tabular-nums; min-width: 3.2em; font-weight: 700; }
-.power { flex: 1; min-width: 200px; }
-.power input { flex: 1; padding: 0; accent-color: var(--accent); }
-.fire { min-width: 110px; }
-.keys { color: var(--muted); font-size: 12px; width: 100%; }
-@media (min-width: 900px) { .keys { width: auto; } }
+.ctl output { min-width: 2.6em; font-weight: 800; font-size: 18px; }
+.power { flex: 1; min-width: 220px; }
+.power input { flex: 1; min-height: 0; height: 28px; padding: 0; background: none; border: 0; accent-color: var(--ocre); }
+.fire { min-width: 150px; min-height: 56px; font-size: 20px; letter-spacing: 0.3px; }
+
+/* Tienda: una fila de cartas abajo. El cerro queda a la vista. */
+.tray-head { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.tray-head h2 { font-size: 20px; text-align: left; white-space: nowrap; }
+.summary { display: flex; gap: 6px; flex: 1; min-width: 0; overflow: hidden; font-size: 13px; }
+.summary .who {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  background: var(--glass-2); white-space: nowrap; font-weight: 600;
+}
+.summary .who b { font-weight: 800; }
+.summary .who .gain { color: var(--muted); }
+.summary .who .ready { color: var(--turq); font-weight: 800; }
+.tray-head button { min-width: 130px; white-space: nowrap; }
+.items { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(124px, 1fr); gap: 8px; overflow-x: auto; scrollbar-width: thin; }
+.item {
+  display: grid; gap: 4px; align-content: start; justify-items: start; text-align: left;
+  padding: 10px 12px; min-height: 0; min-width: 0; overflow: hidden; font-weight: 500;
+}
+.item .name { font-weight: 800; font-size: 16px; white-space: nowrap; }
+.item .name small { color: var(--muted); font-weight: 700; margin-left: 4px; }
+.item .desc { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.item .foot { min-width: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; width: 100%; }
+.item .price { font-weight: 800; font-size: 17px; color: var(--ocre); }
+.item .have { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.item:hover:not(:disabled) { border-color: var(--ocre); }
+.item:disabled .price { color: var(--muted); }
+
+/* Fin de partida */
+.overlay { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; background: rgba(12, 10, 7, 0.55); }
+.end-card { width: min(580px, 100%); }
+.scores { width: 100%; border-collapse: collapse; font-size: 15px; }
+.scores th { text-align: left; color: var(--muted); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; padding: 4px 6px; }
+.scores td { padding: 8px 6px; border-top: 1px solid var(--line); }
+.scores tr.win td { color: var(--ocre); font-weight: 800; }
+
+@media (max-width: 900px) {
+  .keys { display: none; }
+  .hud-wind .lbl { display: none; }
+}
