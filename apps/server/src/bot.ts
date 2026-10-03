@@ -11,10 +11,11 @@ import {
   explosionDamage,
   isAlive,
   POWER_MAX,
-  simulateShot3D,
+  simulateWeaponShot3D,
   WEAPONS,
   type MatchState3D,
   type Player,
+  type ShopItemId,
   type WeaponId,
 } from "@pegaycobra/sim";
 
@@ -48,7 +49,8 @@ export function botCandidates(match: MatchState3D, botId: string, rng: () => num
   const inventory = match.players.find((p) => p.id === botId)?.inventory;
   if (!me || !inventory || foes.length === 0) return [];
 
-  const weapon: WeaponId = canFire(inventory, "missile") ? "missile" : "babyMissile";
+  // Tira lo que compró: Missile si tiene, si no Roller, si no la Baby. Apunta igual con cualquiera.
+  const weapon: WeaponId = canFire(inventory, "missile") ? "missile" : canFire(inventory, "roller") ? "roller" : "babyMissile";
   const w = WEAPONS[weapon];
   const nearest = foes.reduce((a, b) => (Math.hypot(a.x - me.x, a.z - me.z) <= Math.hypot(b.x - me.x, b.z - me.z) ? a : b));
   const bearing = (Math.atan2(nearest.z - me.z, nearest.x - me.x) * 180) / Math.PI;
@@ -59,20 +61,10 @@ export function botCandidates(match: MatchState3D, botId: string, rng: () => num
     const pitch = PITCH_MIN + rng() * (PITCH_MAX - PITCH_MIN);
     // La potencia va por franjas, así las muestras cubren de corto a largo.
     const power = POWER_MIN + ((i + rng()) / BOT_SAMPLES) * (POWER_MAX - POWER_MIN);
-    const r = simulateShot3D(
+    const r = simulateWeaponShot3D(
       match.terrain,
-      {
-        originX: me.x,
-        originY: me.y,
-        originZ: me.z,
-        yaw,
-        pitch,
-        power,
-        wind: match.wind,
-        windFactor: w.windFactor,
-        gravityFactor: w.gravityFactor,
-        shooterId: botId,
-      },
+      w,
+      { originX: me.x, originY: me.y, originZ: me.z, yaw, pitch, power, wind: match.wind, shooterId: botId },
       alive,
     );
     const miss = Math.min(...foes.map((f) => collisionDistance3D(f, r.x, r.y, r.z)));
@@ -98,7 +90,12 @@ export function pickBotShot(match: MatchState3D, botId: string, rng: () => numbe
   return best;
 }
 
-/** En la tienda: un pack de Missiles si no le queda ninguno y le alcanza. Paracaídas y nafta, no. */
-export function botWantsMissile(player: Player): boolean {
-  return (player.inventory.missile ?? 0) <= 0 && cannotBuy(player, "missile") === null;
+/**
+ * En la tienda: si no le queda ningún Missile compra un pack, de Missile o de Roller a cara o
+ * cruz, si le alcanza. Escudo, paracaídas y nafta, no. null = no compra nada.
+ */
+export function botShopPick(player: Player, rng: () => number): ShopItemId | null {
+  if ((player.inventory.missile ?? 0) > 0) return null;
+  const item: ShopItemId = rng() < 0.5 ? "roller" : "missile";
+  return cannotBuy(player, item) === null ? item : null;
 }

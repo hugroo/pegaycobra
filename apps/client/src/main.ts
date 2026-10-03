@@ -10,7 +10,7 @@ import {
   FUEL_MOVE_RANGE,
   POWER_MAX,
   SHOP_ITEMS,
-  simulateShot3D,
+  simulateWeaponShot3D,
   terrainHeightAt,
   validateMove,
   WEAPONS,
@@ -72,6 +72,8 @@ const ui = {
   wBaby: $<HTMLButtonElement>("w-baby"),
   wMissile: $<HTMLButtonElement>("w-missile"),
   wMissileN: $("w-missile-n"),
+  wRoller: $<HTMLButtonElement>("w-roller"),
+  wRollerN: $("w-roller-n"),
   fuelBtn: $<HTMLButtonElement>("btn-fuel"),
   fuelN: $("fuel-n"),
   yawOut: $("yaw-out"),
@@ -88,8 +90,10 @@ let world: World | null = null; // se crea al entrar a la primera partida (WebGL
 const minimap = new Minimap(ui.minimap);
 
 let room: Room<any> | null = null;
+/** Las armas que se pueden pedir en un "fire". */
+type Fireable = "babyMissile" | "missile" | "roller";
 let aim = { yaw: 0, pitch: 45, power: 500 };
-let weapon: "babyMissile" | "missile" = "babyMissile";
+let weapon: Fireable = "babyMissile";
 let moveMode = false;
 let moveHover: MoveModel["hover"] = null;
 let terrain: Terrain | null = null;
@@ -259,9 +263,10 @@ function attach(r: Room<any>): void {
       durationMs: number;
       shooterId: string;
       outcome: string;
-      weapon: "babyMissile" | "missile";
+      weapon: Fireable;
       impact: { x: number; y: number; z: number };
       damage: number;
+      blocked: string[];
     }) => {
       const shooter = r.state.players.get(m.shooterId);
       const lands = m.outcome === "ground" || m.outcome === "tank";
@@ -273,8 +278,8 @@ function attach(r: Room<any>): void {
         explodes: lands,
         radius: (WEAPONS[m.weapon] ?? WEAPONS.babyMissile).explosionRadius,
         impact: m.impact,
-        // El número es el del server; acá solo se redondea para mostrarlo.
-        label: lands ? (m.damage > 0 ? `-${Math.max(1, Math.round(m.damage))}` : "0") : "se fue",
+        // El número y el "bloqueado" son del server; acá solo se redondea para mostrarlo.
+        label: impactLabel(lands, m.damage, (m.blocked?.length ?? 0) > 0),
       };
       play("fire");
       window.setTimeout(() => {
@@ -287,7 +292,7 @@ function attach(r: Room<any>): void {
         n >= 3
           ? { x: m.path[n - 3]!, z: m.path[n - 1]!, lands: shotAnim.explodes, slot: shotAnim.slot, at: shotAnim.start + m.durationMs }
           : null;
-      if (m.weapon === "missile") showBanner(`${shooter?.name ?? "?"} tira un Missile`, 1400);
+      if (m.weapon !== "babyMissile") showBanner(`${shooter?.name ?? "?"} tira un ${WEAPONS[m.weapon]?.name ?? m.weapon}`, 1400);
       if (m.outcome === "offmap" || m.outcome === "timeout") {
         // Todas las pestañas reciben el mismo "shot": todas muestran que se fue.
         window.setTimeout(() => room === r && showBanner("¡Se fue!", 2500), m.durationMs);
@@ -311,6 +316,14 @@ function attach(r: Room<any>): void {
     if (!leavingOnPurpose) ui.homeError.textContent = "Se cortó la conexión con la sala.";
   });
   onState();
+}
+
+/** Cartel en el punto de impacto: "se fue", el daño, o "bloqueado" si un escudo se comió el tiro. */
+function impactLabel(lands: boolean, damage: number, blocked: boolean): string {
+  if (!lands) return "se fue";
+  const hurt = damage > 0 ? `-${Math.max(1, Math.round(damage))}` : "0";
+  if (!blocked) return hurt;
+  return damage > 0 ? `bloqueado · ${hurt}` : "bloqueado"; // con daño: además lastimó a otro tanque
 }
 
 const isMe = (id: string) => room?.sessionId === id;
@@ -383,6 +396,8 @@ function inventoryChips(p: any): HTMLSpanElement[] {
   return [
     chip("Baby ∞"),
     chip(`Missile ×${p.missiles}`, p.missiles <= 0),
+    chip(`Roller ×${p.rollers}`, p.rollers <= 0),
+    chip(p.shield > 0 ? "Escudo ✓" : "Escudo –", p.shield <= 0),
     chip(p.parachute > 0 ? "Paracaídas ✓" : "Paracaídas –", p.parachute <= 0),
     chip(`Nafta ×${p.fuel}`, p.fuel <= 0),
   ];
@@ -438,7 +453,9 @@ function renderHud(phase: string): void {
       life.textContent = String(Math.ceil(Math.max(0, p.life)));
       const extra = document.createElement("span");
       extra.className = "extra";
-      extra.textContent = `${p.points} pts · M×${p.missiles}${p.parachute > 0 ? " · ☂" : ""}${p.fuel > 0 ? ` · N×${p.fuel}` : ""}`;
+      extra.textContent =
+        `${p.points} pts · M×${p.missiles}${p.rollers > 0 ? ` · R×${p.rollers}` : ""}${p.shield > 0 ? " · escudo" : ""}` +
+        `${p.parachute > 0 ? " · ☂" : ""}${p.fuel > 0 ? ` · N×${p.fuel}` : ""}`;
       li.append(dot, name, bar, life, extra);
       return li;
     }),
@@ -446,14 +463,17 @@ function renderHud(phase: string): void {
 
   // Barra de controles.
   const missiles = mp?.missiles ?? 0;
-  if (weapon === "missile" && missiles <= 0) weapon = "babyMissile";
+  const rollers = mp?.rollers ?? 0;
+  if ((weapon === "missile" && missiles <= 0) || (weapon === "roller" && rollers <= 0)) weapon = "babyMissile";
   ui.wMissileN.textContent = `×${missiles}`;
-  ui.wMissile.disabled = !mine || missiles <= 0;
+  ui.wRollerN.textContent = `×${rollers}`;
   ui.wBaby.disabled = !mine;
-  ui.wBaby.classList.toggle("on", weapon === "babyMissile");
-  ui.wMissile.classList.toggle("on", weapon === "missile");
-  ui.wBaby.setAttribute("aria-checked", String(weapon === "babyMissile"));
-  ui.wMissile.setAttribute("aria-checked", String(weapon === "missile"));
+  ui.wMissile.disabled = !mine || missiles <= 0;
+  ui.wRoller.disabled = !mine || rollers <= 0;
+  for (const [btn, id] of [[ui.wBaby, "babyMissile"], [ui.wMissile, "missile"], [ui.wRoller, "roller"]] as const) {
+    btn.classList.toggle("on", weapon === id);
+    btn.setAttribute("aria-checked", String(weapon === id));
+  }
   const fuel = mp?.fuel ?? 0;
   ui.fuelN.textContent = `×${fuel}`;
   const canMove = mine && fuel > 0 && !s.moved;
@@ -509,8 +529,12 @@ function renderShop(phase: string): void {
 
   // Ítems: la validación de plata es la misma del server (cannotBuy del sim). Se redibujan solo
   // si cambió la plata o el inventario, así un clic no cae sobre un botón recién reemplazado.
-  const asPlayer = { id: mp.id, money: mp.money, inventory: { parachute: mp.parachute, fuel: mp.fuel, missile: mp.missiles } };
-  const itemsKey = `${mp.money}|${mp.parachute}|${mp.fuel}|${mp.missiles}`;
+  const asPlayer = {
+    id: mp.id,
+    money: mp.money,
+    inventory: { parachute: mp.parachute, fuel: mp.fuel, missile: mp.missiles, roller: mp.rollers, shield: mp.shield },
+  };
+  const itemsKey = `${mp.money}|${mp.parachute}|${mp.fuel}|${mp.missiles}|${mp.rollers}|${mp.shield}`;
   if (ui.shopItems.dataset.key === itemsKey) return;
   ui.shopItems.dataset.key = itemsKey;
   ui.shopItems.replaceChildren(
@@ -592,14 +616,16 @@ function setAim(next: Partial<typeof aim>): void {
 }
 setAim(aim);
 
-function selectWeapon(w: "babyMissile" | "missile"): void {
+function selectWeapon(w: Fireable): void {
   if (!myTurn()) return;
   if (w === "missile" && (me()?.missiles ?? 0) <= 0) return;
+  if (w === "roller" && (me()?.rollers ?? 0) <= 0) return;
   weapon = w;
   onState();
 }
 ui.wBaby.addEventListener("click", () => selectWeapon("babyMissile"));
 ui.wMissile.addEventListener("click", () => selectWeapon("missile"));
+ui.wRoller.addEventListener("click", () => selectWeapon("roller"));
 
 function toggleMoveMode(): void {
   if (!myTurn() || (me()?.fuel ?? 0) <= 0 || room?.state.moved) return;
@@ -736,6 +762,9 @@ window.addEventListener("keydown", (e) => {
     case "2":
       selectWeapon("missile");
       break;
+    case "3":
+      selectWeapon("roller");
+      break;
     case "n":
     case "N":
       toggleMoveMode();
@@ -759,7 +788,8 @@ window.addEventListener("keydown", (e) => {
 // ---------------------------------------------------------------------------
 
 /**
- * Fantasma: el mismo simulateShot3D que usa el server, corrido acá solo para dibujar.
+ * Fantasma: el mismo simulateWeaponShot3D que usa el server, corrido acá solo para dibujar. Con el
+ * Roller el recorrido sigue por el piso hasta donde termina la rodada.
  * Se recalcula únicamente cuando cambia la puntería, el arma, el terreno o la posición.
  */
 let ghostKey = "";
@@ -770,20 +800,10 @@ function computeGhost(mine: TankModel | undefined, tanks: TankModel[], wind: { x
   const key = `${aim.yaw}|${aim.pitch}|${aim.power}|${weapon}|${mine.x}|${mine.y}|${mine.z}|${wind.x}|${wind.z}|${terrainVersion}`;
   if (key !== ghostKey) {
     ghostKey = key;
-    const r = simulateShot3D(
+    const r = simulateWeaponShot3D(
       terrain,
-      {
-        originX: mine.x,
-        originY: mine.y,
-        originZ: mine.z,
-        yaw: aim.yaw,
-        pitch: aim.pitch,
-        power: aim.power,
-        wind,
-        windFactor: w.windFactor,
-        gravityFactor: w.gravityFactor,
-        shooterId: mine.id,
-      },
+      w,
+      { originX: mine.x, originY: mine.y, originZ: mine.z, yaw: aim.yaw, pitch: aim.pitch, power: aim.power, wind, shooterId: mine.id },
       tanks.filter((t) => t.life > 0),
       { recordPath: true },
     );
@@ -830,6 +850,7 @@ function frame(now: number): void {
     y: p.y,
     z: p.z,
     life: p.life,
+    shield: p.shield > 0,
     yaw: mine && isMe(p.id) ? aim.yaw : p.yaw,
     pitch: mine && isMe(p.id) ? aim.pitch : p.pitch,
     isTurn: (s.phase === "aiming" || s.phase === "animating") && p.id === s.turnId,

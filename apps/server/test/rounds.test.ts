@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FUEL_MOVE_RANGE, INTEREST_RATE, MONEY_START, ROUND_MAX_TURNS, SHOP_ITEMS, SURVIVOR_BONUS } from "@pegaycobra/sim";
+import { createFlatTerrain, FUEL_MOVE_RANGE, INTEREST_RATE, MONEY_START, ROUND_MAX_TURNS, SHOP_ITEMS, SURVIVOR_BONUS } from "@pegaycobra/sim";
 import { Game, parseBuyMessage, parseMoveMessage, SHOP_SECONDS } from "../src/game";
 
 function started(seed = 11, ids = ["A", "B"]) {
@@ -128,6 +128,66 @@ describe("Missile en partida", () => {
     g.finishShot();
     expect(inv(g, shooter).missile).toBe(2);
     expect(inv(g, shooter).babyMissile).toBe(-1);
+  });
+});
+
+describe("Roller y Escudo en partida", () => {
+  const give = (g: Game, id: string, items: object) => {
+    g.match = { ...g.match!, players: g.match!.players.map((p) => (p.id === id ? { ...p, inventory: { ...p.inventory, ...items } } : p)) };
+  };
+
+  it("la tienda vende Roller de a 2 y un solo Escudo", () => {
+    const g = started();
+    killAndPass(g, "B");
+    const before = money(g, "B");
+    expect(g.buy("B", { item: "roller" })).toBe(true);
+    expect(inv(g, "B").roller).toBe(2);
+    expect(g.buy("B", { item: "shield" })).toBe(true);
+    expect(g.buy("B", { item: "shield" })).toBe(false); // ya tiene uno
+    expect(inv(g, "B").shield).toBe(1);
+    expect(money(g, "B")).toBe(before - SHOP_ITEMS.roller.price - SHOP_ITEMS.shield.price);
+  });
+
+  it("sin Rollers el tiro se ignora; con Rollers se gasta uno y el tiro incluye la rodada", () => {
+    const g = started();
+    const shooter = g.turnId!;
+    const aim = { yaw: g.aims.get(shooter)!.yaw, pitch: 60, power: 500, weapon: "roller" };
+    expect(g.fire(shooter, aim)).toBeNull();
+    give(g, shooter, { roller: 2 });
+    const shot = g.fire(shooter, aim)!;
+    expect(shot.weapon).toBe("roller");
+    expect(inv(g, shooter).roller).toBe(1);
+    const r = shot.result.shot;
+    expect(r.landed).toBeDefined();
+    expect(r.y).toBeLessThanOrEqual(r.landed!.y);
+    expect(r.path!.length / 3).toBe(r.ticks + 1); // un punto por tick: la animación dura vuelo + rodada
+  });
+
+  it("el escudo se ve puesto hasta que llega el tiro; ahí lo come, se gasta y no hay daño ni puntos", () => {
+    const g = started();
+    // Piso plano, A en el centro y B donde cae yaw 90 / pitch 45 / power 600.
+    const terrain = createFlatTerrain(257, 257, 10);
+    const at = (id: string, z: number) => ({ ...g.match!.tanks.find((t) => t.id === id)!, x: 128, y: 10, z });
+    g.match = { ...g.match!, terrain, wind: { x: 0, z: 0 }, tanks: [at("A", 128), at("B", 128 + 93)] };
+    give(g, "A", { missile: 3 });
+    give(g, "B", { shield: 1 });
+    const hit = { yaw: 90, pitch: 45, power: 600, weapon: "missile" };
+
+    const first = g.fire("A", hit)!;
+    expect(first.result.blocked).toEqual(["B"]);
+    expect(inv(g, "B").shield).toBe(1); // todavía vuela
+    g.finishShot();
+    expect(inv(g, "B").shield).toBe(0);
+    expect(g.match!.tanks.find((t) => t.id === "B")!.life).toBe(100);
+    expect(g.board.A!.points).toBe(0);
+    expect(g.phase).toBe("aiming");
+
+    for (let i = 0; i < 30; i++) g.tickSecond(); // B deja pasar su turno
+    const second = g.fire("A", hit)!;
+    expect(second.result.blocked).toEqual([]);
+    g.finishShot();
+    expect(g.match!.tanks.find((t) => t.id === "B")!.life).toBeLessThan(100);
+    expect(g.board.A!.points).toBeGreaterThan(0);
   });
 });
 

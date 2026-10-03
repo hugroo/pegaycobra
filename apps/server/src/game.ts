@@ -51,7 +51,7 @@ export interface Seat {
 }
 
 /** Armas que el cliente puede pedir. Baby Nuke y Nuke no existen para el juego. */
-const FIREABLE: readonly WeaponId[] = ["babyMissile", "missile"];
+const FIREABLE: readonly WeaponId[] = ["babyMissile", "missile", "roller"];
 
 export interface FireMessage {
   yaw: number;
@@ -63,7 +63,7 @@ export interface FireMessage {
 /**
  * Del mensaje del cliente se leen solo yaw, pitch, power y weapon; cualquier otro campo (daño,
  * impacto, posición...) se ignora y no llega al sim. weapon puede faltar (= Baby Missile); si
- * nombra algo que no sea "babyMissile" o "missile", el mensaje entero se descarta.
+ * nombra algo que no sea "babyMissile", "missile" o "roller", el mensaje entero se descarta.
  */
 export function parseFireMessage(raw: unknown): FireMessage | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
@@ -264,9 +264,13 @@ export class Game {
     }
     this.pending = { result, shooterId: byId };
     // La munición se descuenta ya (todos ven el Missile gastado al disparar). El resto del
-    // resultado (daño, plata, cráter) se aplica recién en finishShot, cuando cae el proyectil.
-    const spent = result.state.players.find((p) => p.id === byId)!.inventory;
-    this.match = { ...this.match, players: this.match.players.map((p) => (p.id === byId ? { ...p, inventory: spent } : p)) };
+    // resultado (daño, plata, cráter, escudos gastados) se aplica recién en finishShot, cuando
+    // cae el proyectil.
+    const left = result.state.players.find((p) => p.id === byId)!.inventory[msg.weapon];
+    this.match = {
+      ...this.match,
+      players: this.match.players.map((p) => (p.id === byId ? { ...p, inventory: { ...p.inventory, [msg.weapon]: left } } : p)),
+    };
     this.phase = "animating";
     this.turnsTaken.set(byId, (this.turnsTaken.get(byId) ?? 0) + 1);
     this.aims.set(byId, { yaw: ((msg.yaw % 360) + 360) % 360, pitch: Math.min(90, Math.max(0, msg.pitch)) });

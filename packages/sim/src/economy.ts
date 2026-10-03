@@ -58,8 +58,8 @@ export function endOfRoundMoney(money: number): number {
   return clampMoney(m + Math.trunc(m * INTEREST_RATE) + MONEY_PER_ROUND);
 }
 
-/** Lo que puede haber en el inventario: armas y los dos accesorios de la tienda (campaign.ts). */
-export type InventoryKey = WeaponId | "parachute" | "fuel";
+/** Lo que puede haber en el inventario: armas y los accesorios de la tienda (campaign.ts). */
+export type InventoryKey = WeaponId | "parachute" | "fuel" | "shield";
 
 /** Cantidad por ítem. Armas: INFINITE_AMMO (-1) = infinita. Ausente = 0. */
 export type Inventory = Readonly<Partial<Record<InventoryKey, number>>>;

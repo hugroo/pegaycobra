@@ -65,6 +65,8 @@ export interface Shot3DResult {
   tankId?: string;
   /** [x0, y0, z0, x1, y1, z1, ...] un trío por tick, desde la boca del cañón. [wu] */
   path?: number[];
+  /** Solo Roller: dónde tocó el piso antes de rodar. (x, y, z) del resultado es donde terminó. [wu] */
+  landed?: { x: number; y: number; z: number };
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));

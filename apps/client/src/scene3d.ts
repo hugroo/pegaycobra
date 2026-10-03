@@ -31,6 +31,8 @@ export interface TankModel {
   y: number;
   z: number;
   life: number;
+  /** Tiene un escudo puesto: se dibuja la burbuja. */
+  shield: boolean;
   yaw: number;
   pitch: number;
   isTurn: boolean;
@@ -92,6 +94,8 @@ interface TankView {
   edgeArrow: HTMLElement;
   edgeText: HTMLElement;
   marker: THREE.Mesh;
+  /** Burbuja del escudo. */
+  shield: THREE.Mesh;
   slot: number;
 }
 
@@ -481,6 +485,15 @@ export class World {
     marker.position.y = 5.2;
     root.add(marker);
 
+    // Escudo: burbuja translúcida alrededor del tanque. Solo visual; la regla está en el sim.
+    const shield = new THREE.Mesh(
+      new THREE.SphereGeometry(2.5, 28, 18),
+      new THREE.MeshBasicMaterial({ color: "#9ad1ff", transparent: true, opacity: 0.25, depthWrite: false }),
+    );
+    shield.position.y = 0.9;
+    shield.visible = false;
+    root.add(shield);
+
     const labelEl = document.createElement("div");
     labelEl.className = "tank-label";
     const nameEl = document.createElement("span");
@@ -504,7 +517,7 @@ export class World {
     this.edgeLayer.appendChild(edgeEl);
 
     this.scene.add(root);
-    v = { root, yawG, pitchG, bodyMat, label, labelEl, nameEl, distEl, barEl, edgeEl, edgeArrow, edgeText, marker, slot: m.slot };
+    v = { root, yawG, pitchG, bodyMat, label, labelEl, nameEl, distEl, barEl, edgeEl, edgeArrow, edgeText, marker, shield, slot: m.slot };
     this.tanks.set(m.id, v);
     return v;
   }
@@ -523,6 +536,8 @@ export class World {
       v.marker.visible = alive && m.isTurn;
       v.marker.position.y = 5.2 + Math.sin(now / 220) * 0.25;
       v.marker.rotation.y = now / 600;
+      v.shield.visible = alive && m.shield;
+      (v.shield.material as THREE.MeshBasicMaterial).opacity = 0.22 + 0.06 * Math.sin(now / 350);
       v.nameEl.textContent = (alive ? m.name : `${m.name} ✕`) + (m.isMe ? " (vos)" : "");
       v.barEl.style.width = `${Math.max(0, Math.min(100, m.life))}%`;
       v.labelEl.classList.toggle("turn", m.isTurn && alive);

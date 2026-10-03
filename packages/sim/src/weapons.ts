@@ -5,11 +5,21 @@
 //   src/common/weapons/WeaponProjectile.cpp (windFactor/gravityFactor = 1)
 //   src/common/weapons/WeaponExplosion.cpp  (deformsize = size si no se declara)
 //
-// El MVP solo dispara la Baby Missile; las otras tres quedan documentadas para la tienda.
+//
+// El Roller es regla propia: el original tiene una familia de rollers (WeaponRoller.cpp), pero acá
+// los números y la rodada (roller.ts) se escribieron para este juego, no se portaron.
 
 import { INFINITE_AMMO } from "./constants";
 
-export type WeaponId = "babyMissile" | "missile" | "babyNuke" | "nuke";
+export type WeaponId = "babyMissile" | "missile" | "roller" | "babyNuke" | "nuke";
+
+/** Arma que no explota donde cae: toca el piso y rueda cuesta abajo (roller.ts). */
+export interface RollSpec {
+  /** La potencia del tiro se multiplica por esto: sale corto, no hace un arco largo. [adimensional] */
+  readonly powerFactor: number;
+  /** Lo máximo que rueda, medido sobre el piso (XZ). [celdas = wu] */
+  readonly maxCells: number;
+}
 
 export interface Weapon {
   readonly id: WeaponId;
@@ -36,6 +46,8 @@ export interface Weapon {
   readonly windFactor: number;
   /** WeaponProjectile <gravityfactor>. [adimensional] */
   readonly gravityFactor: number;
+  /** Solo el Roller: cómo rueda después de tocar el piso. */
+  readonly roll?: RollSpec;
 }
 
 export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
@@ -64,6 +76,20 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     hurtAmount: 1,
     windFactor: 1,
     gravityFactor: 1,
+  },
+  roller: {
+    id: "roller",
+    name: "Roller",
+    armsLevel: 8,
+    cost: 1500,
+    bundleSize: 2,
+    startingNumber: 0,
+    explosionRadius: 4.5,
+    craterRadius: 2, // cráter chico: lo que lastima es llegar al tanque, no el hoyo
+    hurtAmount: 1,
+    windFactor: 1,
+    gravityFactor: 1,
+    roll: { powerFactor: 0.6, maxCells: 60 },
   },
   babyNuke: {
     id: "babyNuke",
@@ -94,10 +120,10 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
 });
 
 /**
- * Armas que se pueden disparar: la Baby Missile (infinita, no se compra) y el Missile (se compra
- * en la tienda, ver campaign.ts). Baby Nuke y Nuke existen solo como datos.
+ * Armas que se pueden disparar: la Baby Missile (infinita, no se compra), y el Missile y el Roller
+ * (se compran en la tienda, ver campaign.ts). Baby Nuke y Nuke existen solo como datos.
  */
-export const PLAYABLE_WEAPONS: readonly WeaponId[] = Object.freeze(["babyMissile", "missile"]);
+export const PLAYABLE_WEAPONS: readonly WeaponId[] = Object.freeze(["babyMissile", "missile", "roller"]);
 
 export function isPlayable(id: WeaponId): boolean {
   return PLAYABLE_WEAPONS.includes(id);

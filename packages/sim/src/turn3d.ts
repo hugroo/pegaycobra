@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Partida en 3D: viento vectorial, ubicación de tanques, caída y resolución de un disparo.
 // Mismas reglas que turn.ts (perfil), sobre el terreno width × depth:
-//   tiro (shot3d.ts) → cráter en disco (terrain.ts) → daño de explosión (damage.ts)
+//   tiro (shot3d.ts; el Roller además rueda, roller.ts) → cráter en disco (terrain.ts)
+//   → daño de explosión (damage.ts), salvo a quien lo tapa un escudo
 //   → caídas y daño de caída → plata para quien disparó (economy.ts).
 // Orígenes: Explosion.cpp, TargetDamageCalc.cpp, TargetDamage.cpp, TargetFalling.cpp, Wind.cpp.
 
@@ -9,7 +10,8 @@ import { TANK_RADIUS } from "./constants";
 import { applyDamage, explosionDamage, fallDamage, isAlive, type Tank } from "./damage";
 import { canFire, clampMoney, consumeAmmo, moneyForDamage } from "./economy";
 import { TANK_START_HEIGHT_MAX, TANK_START_HEIGHT_MIN } from "./match";
-import { simulateShot3D, type Shot3DResult, type Wind } from "./shot3d";
+import { simulateWeaponShot3D } from "./roller";
+import type { Shot3DResult, Wind } from "./shot3d";
 import {
   applyCraterTerrain,
   flattenTerrainUnder,
@@ -49,6 +51,8 @@ export interface FallEvent3D {
   distance: number;
   /** El tanque tenía paracaídas activo: la caída no hizo daño. */
   parachute: boolean;
+  /** El escudo absorbió este mismo tiro: la caída a su cráter tampoco hizo daño. */
+  shielded: boolean;
 }
 
 export interface TurnResult3D {
@@ -56,6 +60,8 @@ export interface TurnResult3D {
   shot: Shot3DResult;
   damage: DamageEvent[];
   falls: FallEvent3D[];
+  /** Tanques a los que la explosión les iba a hacer daño y el escudo lo absorbió (y se gastó). */
+  blocked: string[];
 }
 
 /**
@@ -142,7 +148,13 @@ export function settleTank3D(
 
 /**
  * Resuelve un disparo 3D. Mismas validaciones que resolveTurn: jugador vivo, arma jugable
- * (solo Baby Missile) y con munición. No recibe daño ni impacto: los calcula.
+ * (Baby Missile, Missile, Roller) y con munición. No recibe daño ni impacto: los calcula.
+ *
+ * Escudo (regla propia, campaign.ts): si la explosión (también la del Roller) le iba a sacar vida
+ * a un tanque con escudo, el escudo absorbe ese tiro y se gasta. El cráter se abre igual y el
+ * tanque cae a él, pero la caída de ese mismo tiro tampoco le saca vida: si no, con el cráter del
+ * Missile el escudo no salvaría a nadie. Lo que el escudo no tapa es la caída sola: si le sacan el
+ * piso sin que la explosión lo alcance, el escudo no se gasta y la caída duele como siempre.
  */
 export function resolveTurn3D(
   state: MatchState3D,
@@ -160,8 +172,9 @@ export function resolveTurn3D(
   if (!isAlive(shooterTank)) throw new Error(`el tanque de ${cmd.playerId} está muerto`);
   if (!canFire(shooterPlayer.inventory, weaponId)) throw new Error(`sin munición de ${weaponId}`);
 
-  const shot = simulateShot3D(
+  const shot = simulateWeaponShot3D(
     state.terrain,
+    weapon,
     {
       originX: shooterTank.x,
       originY: shooterTank.y,
@@ -170,8 +183,6 @@ export function resolveTurn3D(
       pitch: cmd.pitch,
       power: cmd.power,
       wind: state.wind,
-      windFactor: weapon.windFactor,
-      gravityFactor: weapon.gravityFactor,
       shooterId: shooterTank.id,
     },
     state.tanks.filter(isAlive),
@@ -180,9 +191,11 @@ export function resolveTurn3D(
 
   let terrain = state.terrain;
   const tanks = state.tanks.slice();
+  const players = state.players.slice();
   let money = shooterPlayer.money;
   const damage: DamageEvent[] = [];
   const falls: FallEvent3D[] = [];
+  const blocked: string[] = [];
 
   const hurt = (i: number, amount: number, cause: DamageEvent["cause"]) => {
     const target = tanks[i]!;
@@ -204,7 +217,15 @@ export function resolveTurn3D(
     for (let i = 0; i < tanks.length; i++) {
       const t = tanks[i]!;
       if (!isAlive(t)) continue;
-      hurt(i, explosionDamage(collisionDistance3D(t, shot.x, shot.y, shot.z), weapon.explosionRadius, weapon.hurtAmount), "explosion");
+      const amount = explosionDamage(collisionDistance3D(t, shot.x, shot.y, shot.z), weapon.explosionRadius, weapon.hurtAmount);
+      const pi = players.findIndex((p) => p.id === t.id);
+      const shield = players[pi]?.inventory.shield ?? 0;
+      if (amount > 0 && shield > 0) {
+        players[pi] = { ...players[pi]!, inventory: { ...players[pi]!.inventory, shield: shield - 1 } };
+        blocked.push(t.id);
+        continue;
+      }
+      hurt(i, amount, "explosion");
     }
     for (let i = 0; i < tanks.length; i++) {
       const s = settleTank3D(terrain, tanks[i]!);
@@ -215,12 +236,14 @@ export function resolveTurn3D(
       // toda la ronda (campaign.ts), así que no se gasta por caída.
       const owner = state.players.find((p) => p.id === s.tank.id);
       const parachute = (owner?.inventory.parachute ?? 0) > 0;
-      falls.push({ tankId: s.tank.id, fromY: s.fall.fromY, toY: s.fall.toY, distance: s.fall.distance, parachute });
-      hurt(i, parachute ? 0 : s.fall.damage, "fall");
+      const shielded = blocked.includes(s.tank.id);
+      falls.push({ tankId: s.tank.id, fromY: s.fall.fromY, toY: s.fall.toY, distance: s.fall.distance, parachute, shielded });
+      hurt(i, parachute || shielded ? 0 : s.fall.damage, "fall");
     }
   }
 
-  const players = state.players.slice();
-  players[shooterIdx] = { ...shooterPlayer, money, inventory: consumeAmmo(shooterPlayer.inventory, weaponId) };
-  return { state: { ...state, terrain, tanks, players }, shot, damage, falls };
+  // El inventario del que disparó puede haber cambiado arriba (su propio escudo).
+  const shooterNow = players[shooterIdx]!;
+  players[shooterIdx] = { ...shooterNow, money, inventory: consumeAmmo(shooterNow.inventory, weaponId) };
+  return { state: { ...state, terrain, tanks, players }, shot, damage, falls, blocked };
 }

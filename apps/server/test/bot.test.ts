@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
 import type { Server } from "@colyseus/core";
 import { createFlatTerrain, createRng, MONEY_START, SHOP_ITEMS, type MatchState3D } from "@pegaycobra/sim";
-import { BOT_NAME, BOT_SAMPLES, botCandidates, botWantsMissile, pickBotShot } from "../src/bot";
+import { BOT_NAME, BOT_SAMPLES, botCandidates, botShopPick, pickBotShot } from "../src/bot";
 import { Game } from "../src/game";
 import { createServer, ROOM_NAME } from "../src/server";
 import { GameRoom } from "../src/room";
@@ -82,16 +82,34 @@ describe("puntería del bot", () => {
     expect(g.fire("B", pick)).not.toBeNull();
   });
 
-  it("compra Missile solo si no tiene y le alcanza; con Missiles, los tira", () => {
+  it("compra solo si no tiene Missile y le alcanza: Missile o Roller, a cara o cruz", () => {
     const g = started();
     const bot = g.playerOf("B")!;
     expect(bot.money).toBe(MONEY_START);
-    expect(botWantsMissile(bot)).toBe(true);
-    expect(botWantsMissile({ ...bot, money: SHOP_ITEMS.missile.price - 1 })).toBe(false);
+    expect(botShopPick(bot, () => 0.9)).toBe("missile");
+    expect(botShopPick(bot, () => 0.1)).toBe("roller");
+    expect(botShopPick({ ...bot, money: SHOP_ITEMS.missile.price - 1 }, () => 0.9)).toBeNull();
+    expect(botShopPick({ ...bot, money: SHOP_ITEMS.roller.price - 1 }, () => 0.1)).toBeNull();
     const armed = { ...bot, inventory: { ...bot.inventory, missile: 3 } };
-    expect(botWantsMissile(armed)).toBe(false);
-    g.match = { ...g.match!, players: g.match!.players.map((p) => (p.id === "B" ? armed : p)) };
-    expect(pickBotShot(g.match, "B", createRng(1))!.weapon).toBe("missile");
+    expect(botShopPick(armed, () => 0.1)).toBeNull();
+    expect(botShopPick(armed, () => 0.9)).toBeNull();
+  });
+
+  it("tira lo que tiene: Missile, si no Roller, si no la Baby", () => {
+    const g = started();
+    const give = (inventory: object) => ({
+      ...g.match!,
+      players: g.match!.players.map((p) => (p.id === "B" ? { ...p, inventory: { ...p.inventory, ...inventory } } : p)),
+    });
+    expect(pickBotShot(give({ missile: 3, roller: 2 }), "B", createRng(1))!.weapon).toBe("missile");
+    expect(pickBotShot(give({ roller: 2 }), "B", createRng(1))!.weapon).toBe("roller");
+    expect(pickBotShot(give({}), "B", createRng(1))!.weapon).toBe("babyMissile");
+    // El Roller elegido lo acepta Game.fire, y se gasta.
+    g.match = give({ roller: 2 });
+    g.tickSecond();
+    for (let i = 0; i < 29; i++) g.tickSecond();
+    expect(g.fire("B", pickBotShot(g.match, "B", createRng(1))!)!.weapon).toBe("roller");
+    expect(g.playerOf("B")!.inventory.roller).toBe(1);
   });
 });
 
@@ -172,7 +190,7 @@ describe("sala con bot", () => {
     await a.leave();
   }, 20_000);
 
-  it("en la tienda compra un Missile, da el listo y lo gasta en la ronda siguiente", async () => {
+  it("en la tienda compra un pack (Missile o Roller), da el listo y lo gasta en la ronda siguiente", async () => {
     const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
     quiet(a);
     const botShots: any[] = [];
@@ -197,22 +215,25 @@ describe("sala con bot", () => {
 
     const money = bot.money;
     await until(() => bot.ready);
-    expect(bot.missiles).toBe(SHOP_ITEMS.missile.pack);
-    expect(bot.money).toBe(money - SHOP_ITEMS.missile.price);
+    const bought = bot.missiles > 0 ? "missile" : "roller";
+    const left = () => (bought === "missile" ? bot.missiles : bot.rollers);
+    expect(bot.missiles + bot.rollers).toBe(SHOP_ITEMS[bought].pack); // un solo pack, de una sola cosa
+    expect(bot.money).toBe(money - SHOP_ITEMS[bought].price);
+    expect(bot.shield).toBe(0);
     expect(bot.parachute).toBe(0);
     expect(bot.fuel).toBe(0);
 
     a.send("ready");
     await until(() => a.state.round === 2 && a.state.phase !== "shop");
-    // Si el bot tira primero puede cerrar la ronda de un Missile: Ana solo tira si le toca.
-    while (!botShots.some((s) => s.weapon === "missile")) {
+    // Si el bot tira primero puede cerrar la ronda de un tiro: Ana solo tira si le toca.
+    while (!botShots.some((s) => s.weapon === bought)) {
       if (a.state.round === 2 && a.state.phase === "aiming" && a.state.turnId === a.sessionId) {
         a.send("fire", { yaw: a.state.players.get(a.sessionId).yaw + 180, pitch: 60, power: 250 });
         await until(() => a.state.phase !== "aiming" || a.state.turnId !== a.sessionId);
       }
       await sleep(5);
     }
-    await until(() => bot.missiles === SHOP_ITEMS.missile.pack - 1);
+    await until(() => left() === SHOP_ITEMS[bought].pack - 1);
     await a.leave();
   }, 60_000);
 

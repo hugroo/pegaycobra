@@ -14,12 +14,16 @@
 //   - El Missile se vende de a 3 (el original lo vende de a 5).
 //   - El paracaídas protege durante toda la ronda siguiente (el original gasta uno por caída).
 //   - La nafta mueve el tanque antes de tirar (en el original mover reemplaza al tiro).
+//   - El Roller (roller.ts) y el Escudo: precios y efecto propios. El escudo absorbe el próximo
+//     tiro cuya explosión le iba a sacar vida al tanque y se gasta (turn3d.ts); no tapa la caída
+//     cuando le sacan el piso sin alcanzarlo.
 
 import { INTEREST_RATE, MONEY_PER_ROUND, MONEY_WON_FOR_ROUND, TANK_MAX_LIFE } from "./constants";
 import { isAlive } from "./damage";
 import { clampMoney, type Inventory } from "./economy";
 import { GAME_TERRAIN_3D, generateTerrain, terrainHeightAt } from "./terrain";
 import { createRng } from "./rng";
+import { WEAPONS } from "./weapons";
 import type { DamageEvent, Player } from "./turn";
 import { placeTanks3D, rollWind3D, tanks3DAt, type MatchState3D } from "./turn3d";
 
@@ -76,7 +80,8 @@ export interface RoundPayout {
 /**
  * Plata de fin de ronda, en el orden de ShowScoreSimAction: primero el premio a los que siguen
  * vivos, después el interés sobre lo que cada uno tiene. Lo gastado en la tienda ya no está en
- * `money`, así que no gana interés. Además vence el paracaídas (dura una ronda).
+ * `money`, así que no gana interés. Además vence el paracaídas (dura una ronda). El escudo no
+ * vence: si nadie te pegó, lo seguís teniendo.
  */
 export function endRoundPayouts(players: readonly Player[], survivors: ReadonlySet<string>): { players: Player[]; payouts: RoundPayout[] } {
   const payouts: RoundPayout[] = [];
@@ -97,7 +102,7 @@ export function endRoundPayouts(players: readonly Player[], survivors: ReadonlyS
 // Tienda
 // ---------------------------------------------------------------------------
 
-export type ShopItemId = "missile" | "parachute" | "fuel";
+export type ShopItemId = "missile" | "roller" | "shield" | "parachute" | "fuel";
 
 export interface ShopItem {
   id: ShopItemId;
@@ -122,6 +127,20 @@ export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze(
     price: 1200,
     pack: 3,
     description: "Explosión de radio 6 (la Baby es 3.5). Se gasta uno por tiro.",
+  },
+  roller: {
+    id: "roller",
+    name: "Roller",
+    price: WEAPONS.roller.cost,
+    pack: WEAPONS.roller.bundleSize,
+    description: `Sale corto, toca el piso y rueda cuesta abajo hasta ${WEAPONS.roller.roll!.maxCells} celdas o hasta un tanque. Cráter chico.`,
+  },
+  shield: {
+    id: "shield",
+    name: "Escudo",
+    price: 2000,
+    pack: 1,
+    description: "Absorbe el próximo tiro que te alcance (explosión o Roller) y se gasta. Si te sacan el piso, caés igual.",
   },
   parachute: {
     id: "parachute",
@@ -148,6 +167,7 @@ export function cannotBuy(player: Player, item: ShopItemId): string | null {
   if (!it) return "ese ítem no existe";
   if (player.money < it.price) return "no alcanza la plata";
   if (item === "parachute" && (player.inventory.parachute ?? 0) > 0) return "ya tenés paracaídas para la ronda";
+  if (item === "shield" && (player.inventory.shield ?? 0) > 0) return "ya tenés un escudo";
   return null;
 }
 

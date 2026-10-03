@@ -5,7 +5,7 @@ No es un port. El loop se escribe de nuevo y las reglas (física, cráter, daño
 del original.
 
 Estado: **jugable en 3D en el navegador, multijugador de 2 a 4, partida de 5 rondas con tienda.**
-Dos armas (Baby Missile infinita y Missile comprado), paracaídas y nafta.
+Tres armas (Baby Missile infinita, Missile y Roller comprados), escudo, paracaídas y nafta.
 
 ```
 packages/sim   TypeScript puro: terreno width × depth, tiro con yaw/pitch, cráter en disco, daño,
@@ -52,7 +52,7 @@ Controles (una sola barra abajo):
 |---|---|
 | Girar y elevar el cañón | Arrastrar con el botón izquierdo (horizontal = giro, vertical = elevación), o ← → / ↑ ↓ |
 | Potencia | Rueda del mouse (en tu turno), la barra, o PageUp / PageDown |
-| Elegir arma | Botones *Baby Missile* / *Missile*, o las teclas 1 / 2 |
+| Elegir arma | Botones *Baby Missile* / *Missile* / *Roller*, o las teclas 1 / 2 / 3 |
 | Nafta (mover el tanque antes de tirar) | Botón *Nafta* o tecla N, y después un clic en el piso dentro del anillo amarillo |
 | Tirar | Espacio o el botón *Tirar* |
 | Mover la cámara | Arrastrar con el botón derecho (fuera de tu turno, también el izquierdo) |
@@ -61,8 +61,9 @@ Controles (una sola barra abajo):
 Tenés 30 s por turno; si no tirás, perdés el turno. El HUD muestra la ronda (2/5), de quién es
 el turno, los segundos, el viento, tu plata, tu inventario y la sala; la dirección del viento es
 la flecha celeste en el piso, al lado del tanque del turno. El panel de la izquierda muestra la
-vida, los puntos y los Missiles de cada jugador. Si un tiro sale del mapa, todas las pestañas
-muestran "¡Se fue!".
+vida, los puntos, los Missiles, los Rollers y el escudo de cada jugador. Si un tiro sale del mapa,
+todas las pestañas muestran "¡Se fue!". Un tanque con escudo se ve dentro de una burbuja celeste;
+cuando el escudo se come un tiro, el cartel del impacto dice "bloqueado" en vez del daño.
 
 ### La partida
 
@@ -78,10 +79,18 @@ muestran "¡Se fue!".
   | Ítem | Precio | Qué hace |
   |---|---|---|
   | Missile ×3 | $1.200 | Explosión de radio 6 (la Baby es 3.5). Se gasta uno por tiro |
+  | Roller ×2 | $1.500 | No hace un arco largo: sale con el 60% de la potencia, toca el piso y rueda cuesta abajo hasta 60 celdas o hasta un tanque, y ahí explota (radio 4.5, cráter chico). En lo llano explota donde cae. Si vuelve rodando hasta vos, te pega |
+  | Escudo | $2.000 | Absorbe el próximo tiro cuya explosión te alcance (Baby, Missile o Roller) y se gasta. Uno por vez; si nadie te pega, lo seguís teniendo la ronda siguiente |
   | Paracaídas | $1.250 | La ronda siguiente, caer no te hace daño. Uno por ronda |
   | Nafta | $3.000 | Antes de tirar, mové el tanque hasta 20 celdas. Una vez por turno |
 
   La Baby Missile es infinita y no se vende.
+
+  **Qué tapa el escudo y qué no.** Tapa el tiro entero: la explosión no te saca vida y, si el
+  cráter de ese mismo tiro te deja sin piso, caés pero esa caída tampoco duele. No tapa la caída
+  sola: si un tiro te saca el piso sin que la explosión te alcance (por ejemplo, pega al pie del
+  barranco donde estás parado), caés, duele como siempre (para eso está el paracaídas) y el
+  escudo no se gasta. Un tiro que se fue del mapa tampoco lo gasta.
 - **Gana quien tiene más puntos al final de la ronda 5.** Puntos = daño hecho a otros (1 por
   punto de vida) + 10 por kill. La plata no suma puntos: sirve solo para la tienda. Si hay
   empate en puntos desempatan kills y después daño; si sigue igual, es empate.
@@ -121,15 +130,19 @@ de la misma sala podrían caer en servidores distintos.
   |---|---|---|
   | `start` | lobby | que sea el anfitrión y haya 2 o más |
   | `fillBots` | lobby | que sea el anfitrión. Agrega bots hasta llegar a 2 jugadores |
-  | `fire { yaw, pitch, power, weapon }` | tu turno | `weapon` es `babyMissile` o `missile` y tenés munición. Cualquier otro campo (daño, impacto, posición) se descarta sin llegar al sim. Otra arma: el mensaje se ignora entero |
+  | `fire { yaw, pitch, power, weapon }` | tu turno | `weapon` es `babyMissile`, `missile` o `roller` y tenés munición. Cualquier otro campo (daño, impacto, posición) se descarta sin llegar al sim. Otra arma: el mensaje se ignora entero |
   | `move { moveTo: { x, z } }` | tu turno, antes de tirar | que tengas nafta, no te hayas movido ya en el turno, y el destino esté a ≤ 20 celdas, dentro del mapa y no pegado a otro tanque (`validateMove` del sim) |
   | `buy { item }` | tienda | que el ítem exista y te alcance la plata (`cannotBuy` del sim) |
   | `ready` | tienda | — |
 
 - El server llama a `resolveTurn` del sim. Manda a todos un mensaje `shot` con el arma, la
-  trayectoria (`path`, tríos x/y/z) y la duración de la animación. La munición se descuenta al
-  disparar (todos ven el Missile gastado); la vida, la plata, los puntos y el cráter se aplican
-  recién cuando termina la animación.
+  trayectoria (`path`, tríos x/y/z; con el Roller incluye la rodada por el piso), la duración de
+  la animación, el daño y `blocked` (a quién le absorbió el tiro un escudo). La munición se
+  descuenta al disparar (todos ven el Missile gastado); la vida, la plata, los puntos, el cráter y
+  los escudos gastados se aplican recién cuando termina la animación.
+- El bot compra en la tienda solo si no le queda ningún Missile: un pack de Missile o de Roller, a
+  cara o cruz. Tira lo que tenga (Missile, si no Roller, si no la Baby) apuntando igual que
+  siempre. No compra escudo, paracaídas ni nafta.
 - Otros mensajes del server: `moved` (alguien usó nafta), `skip` (turno perdido por tiempo) y
   `roundEnd` (lo que cobró cada uno al terminar la ronda).
 - El heightmap (257 × 257 float32) no va en el estado de Colyseus: viaja en mensajes binarios
@@ -181,13 +194,14 @@ pnpm typecheck
 | `projectile.ts` | `simulateShot()`: potencia + ángulo + viento + gravedad, en pasos fijos |
 | `crater.ts` | `applyCrater()` baja el heightmap; `flattenUnder()` aplana bajo un tanque que cayó |
 | `damage.ts` | Daño de explosión por distancia, daño de caída, `settleTank()` |
-| `weapons.ts` | Baby Missile, Missile, Baby Nuke, Nuke. Se pueden disparar las dos primeras (el Missile, si lo compraste) |
+| `weapons.ts` | Baby Missile, Missile, Roller, Baby Nuke, Nuke. Se pueden disparar las tres primeras (Missile y Roller, si los compraste) |
 | `economy.ts` | Premio por daño y por kill, interés de fin de ronda, munición |
 | `turn.ts` | `resolveTurn(state, { playerId, angleDeg, power }, { recordPath })`: lo que llama el server |
 | `match.ts` | Perfil: `rollWind()`, `placeTanks()`, `spreadTanks()` + `GAME_TERRAIN`. `matchOutcome()` (ganador, lo usan los dos modos) |
 | `terrain.ts` | **3D.** `generateTerrain(seed)`: grilla width × depth, semiesferas, scale, smooth 5×5. `terrainHeightAt()` bilineal. `applyCraterTerrain()` (disco), `flattenTerrainUnder()` |
 | `shot3d.ts` | **3D.** `simulateShot3D()`: yaw 0–360 (0 = +X, 90 = +Z), pitch 0–90, potencia; viento `{x, z}`; gravedad en Y |
-| `turn3d.ts` | **3D.** `rollWind3D()`, `placeTanks3D()`, `resolveTurn3D()`. `resolveTurn()` lo usa cuando el estado tiene `terrain`. Con paracaídas, la caída no daña |
+| `roller.ts` | **3D.** `simulateRoll()`: la bola baja por el gradiente del terreno hasta un tanque, N celdas o quedarse sin pendiente. `simulateWeaponShot3D()`: el tiro de cualquier arma, con la rodada si es un Roller. Lo usan el server, la fantasma del cliente y el bot |
+| `turn3d.ts` | **3D.** `rollWind3D()`, `placeTanks3D()`, `resolveTurn3D()`. `resolveTurn()` lo usa cuando el estado tiene `terrain`. Con paracaídas, la caída no daña. Con escudo, el próximo tiro que te alcanza no daña (`blocked`) |
 | `campaign.ts` | **Partida.** `startRound3D()` (ronda nueva), `endRoundPayouts()` (premio por sobrevivir + interés), `SHOP_ITEMS`, `buyItem()` / `cannotBuy()`, `validateMove()` / `moveTank()` (nafta), `scoreTurn()`, `standings()`, `matchWinners()` |
 
 Todo son funciones puras: reciben el estado y devuelven uno nuevo. En 3D el heightmap es un
@@ -301,6 +315,12 @@ tanques son primitivas generadas.
     precio por unidad.
   - **El paracaídas dura toda la ronda siguiente** y se compra de a uno. En el original se
     venden de a 8 y se gasta uno por caída.
+  - **Roller propio.** El original tiene rollers (`WeaponRoller.cpp`) que ruedan como partícula
+    con rebote. Acá la rodada es un descenso por el gradiente en pasos fijos de 0.12 celdas, sin
+    inercia: se frena en el fondo de un valle o de un cráter aunque venga con envión. Precio,
+    radio, potencia al 60% y tope de 60 celdas son números de este juego (`WEAPONS.roller`).
+  - **Escudo propio.** En el original el escudo es una esfera con energía que desvía o absorbe
+    proyectiles. Acá es una carga: absorbe un tiro entero y se gasta (`resolveTurn3D`).
   - **La nafta mueve antes de tirar** y el turno sigue. En el original, mover reemplaza al tiro.
     Una carga alcanza 20 celdas en línea recta (el original da 40 unidades, una por casillero,
     con un máximo de 50 por movimiento) y no hay límite de pendiente (`MaxClimbingDistance`).
@@ -333,7 +353,7 @@ tanques son primitivas generadas.
 - **La caída no se integra.** El original simula al tanque cayendo como partícula con gravedad.
   Como solo se mueve en vertical, la distancia caída es la diferencia de alturas, que es lo que
   se usa acá para el daño.
-- **Dos armas jugables** (Baby Missile y Missile). Baby Nuke y Nuke son solo datos.
+- **Tres armas jugables** (Baby Missile, Missile y Roller). Baby Nuke y Nuke son solo datos.
 - **RNG propio** (mulberry32) en lugar del `RandomGenerator` del original: lo que importa es que
   la misma semilla dé el mismo terreno en el server y en los tests.
 

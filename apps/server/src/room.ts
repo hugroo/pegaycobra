@@ -8,7 +8,7 @@
 
 import { Room, type Client } from "@colyseus/core";
 import { createRng } from "@pegaycobra/sim";
-import { BOT_NAME, botWantsMissile, pickBotShot } from "./bot";
+import { BOT_NAME, botShopPick, pickBotShot } from "./bot";
 import { Game, MAX_PLAYERS, MIN_PLAYERS } from "./game";
 import { generateCode } from "./codes";
 import { GameState, PlayerState } from "./schema";
@@ -23,17 +23,19 @@ export interface ShotBroadcast {
   yaw: number;
   pitch: number;
   power: number;
-  /** "babyMissile" | "missile" */
+  /** "babyMissile" | "missile" | "roller" */
   weapon: string;
   /** "ground" | "tank" | "offmap" | "timeout". Con "offmap" todos muestran "se fue". */
   outcome: string;
-  /** [x0, y0, z0, x1, y1, z1, ...] en wu, redondeado a 0.01. */
+  /** [x0, y0, z0, x1, y1, z1, ...] en wu, redondeado a 0.01. Con el Roller incluye la rodada. */
   path: number[];
   durationMs: number;
   /** Dónde terminó el tiro. [wu] */
   impact: { x: number; y: number; z: number };
   /** Daño total que hizo el tiro (explosión + caídas), ya resuelto por el sim. [hp] */
   damage: number;
+  /** Tanques cuyo escudo absorbió el tiro. Con alguno, el cartel dice "bloqueado". */
+  blocked: string[];
 }
 
 /** Mensaje "roundEnd": lo que cobró cada uno al terminar la ronda. */
@@ -129,11 +131,13 @@ export class GameRoom extends Room<{ state: GameState }> {
       durationMs: shot.durationMs,
       impact: { x: round2(r.x), y: round2(r.y), z: round2(r.z) },
       damage: round2(shot.result.damage.reduce((sum, d) => sum + d.damage, 0)),
+      blocked: shot.result.blocked,
     };
     this.flush();
     this.broadcast("shot", payload);
     const hits = shot.result.damage
       .map((d) => `${this.nameOf(d.targetId)} -${d.damage.toFixed(1)}${d.killed ? " (muere)" : ""} [${d.cause}]`)
+      .concat(shot.result.blocked.map((id) => `${this.nameOf(id)} bloqueado [escudo]`))
       .join(", ");
     this.log(
       `tira ${this.nameOf(shot.shooterId)} ${shot.weapon} yaw ${shot.yaw.toFixed(0)} pitch ${shot.pitch.toFixed(0)} ` +
@@ -189,7 +193,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       for (const id of this.bots) {
         if (g.ready.has(id)) continue;
         const player = g.playerOf(id);
-        if (player && botWantsMissile(player)) this.onBuy(id, { item: "missile" });
+        const item = player && botShopPick(player, this.botRng);
+        if (item) this.onBuy(id, { item });
         this.onReady(id);
       }
     }
@@ -322,6 +327,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (player) {
         p.money = player.money;
         p.missiles = Math.max(0, player.inventory.missile ?? 0);
+        p.rollers = Math.max(0, player.inventory.roller ?? 0);
+        p.shield = player.inventory.shield ?? 0;
         p.parachute = player.inventory.parachute ?? 0;
         p.fuel = player.inventory.fuel ?? 0;
       }
