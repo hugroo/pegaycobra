@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
 import type { Server } from "@colyseus/core";
-import { createRng, MONEY_START, SHOP_ITEMS } from "@pegaycobra/sim";
+import { createFlatTerrain, createRng, MONEY_START, SHOP_ITEMS, type MatchState3D } from "@pegaycobra/sim";
 import { BOT_NAME, BOT_SAMPLES, botCandidates, botWantsMissile, pickBotShot } from "../src/bot";
 import { Game } from "../src/game";
 import { createServer, ROOM_NAME } from "../src/server";
@@ -18,17 +18,58 @@ describe("puntería del bot", () => {
     return g;
   }
 
-  it("prueba 12 punterías con el sim y se queda con la que cae más cerca del rival", () => {
+  it("prueba 24 punterías con el sim y se queda con la que cae más cerca del rival", () => {
     const g = started();
     const all = botCandidates(g.match!, "B", createRng(1));
     const pick = pickBotShot(g.match!, "B", createRng(1))!;
     expect(all).toHaveLength(BOT_SAMPLES);
     expect(all).toContainEqual(pick);
     expect(pick.landed).toBe(true);
-    expect(pick.miss).toBe(Math.min(...all.filter((c) => c.landed).map((c) => c.miss)));
-    // No son 12 veces el mismo tiro.
+    const clear = all.filter((c) => c.landed && !c.blocked);
+    expect(pick.miss).toBe(Math.min(...(clear.length ? clear : all.filter((c) => c.landed)).map((c) => c.miss)));
+    // El giro queda cerca del rumbo al rival, y no son 24 veces el mismo tiro.
+    expect(Math.max(...all.map((c) => c.yaw)) - Math.min(...all.map((c) => c.yaw))).toBeLessThanOrEqual(16);
     expect(new Set(all.map((c) => c.power)).size).toBe(BOT_SAMPLES);
     expect(new Set(all.map((c) => c.yaw)).size).toBe(BOT_SAMPLES);
+  });
+
+  // Piso plano con un cerro de pared a pared entre el bot (x = 60) y Ana (x = 200).
+  const HILL_X0 = 180;
+  const HILL_X1 = 192;
+  function behindHill(): MatchState3D {
+    const g = started();
+    const terrain = createFlatTerrain(257, 257, 10);
+    for (let z = 0; z < 257; z++) for (let x = HILL_X0; x <= HILL_X1; x++) terrain.heights[x + z * 257] = 45;
+    const at = (id: string, x: number) => ({ ...g.match!.tanks.find((t) => t.id === id)!, x, y: 10, z: 128 });
+    return { ...g.match!, terrain, wind: { x: 0, z: 0 }, tanks: [at("A", 200), at("B", 60)] };
+  }
+
+  it("con un cerro en el medio no elige el tiro que pega en el cerro si otro lo pasa", () => {
+    const m = behindHill();
+    const all = botCandidates(m, "B", createRng(1));
+    const clear = all.filter((c) => c.landed && !c.blocked);
+    const onHill = all.filter((c) => c.blocked);
+    const pick = pickBotShot(m, "B", createRng(1))!;
+    // Hay tiros que pasan el cerro, y el que cae más cerca de Ana de todos se queda en el cerro.
+    expect(clear.length).toBeGreaterThan(0);
+    expect(Math.min(...onHill.map((c) => c.miss))).toBeLessThan(Math.min(...clear.map((c) => c.miss)));
+    expect(pick.blocked).toBe(false);
+    expect(pick.miss).toBe(Math.min(...clear.map((c) => c.miss)));
+    // Dónde cae el elegido según Game.fire: del otro lado del cerro.
+    const g = started();
+    g.match = m;
+    g.tickSecond();
+    for (let i = 0; i < 29; i++) g.tickSecond();
+    expect(g.fire("B", pick)!.result.shot.x).toBeGreaterThan(HILL_X1);
+  });
+
+  it("si ninguna puntería pasa el cerro, tira la menos mala", () => {
+    const m = behindHill();
+    const all = botCandidates(m, "B", createRng(4));
+    expect(all.some((c) => c.landed && !c.blocked)).toBe(false);
+    const pick = pickBotShot(m, "B", createRng(4))!;
+    expect(pick.landed).toBe(true);
+    expect(pick.miss).toBe(Math.min(...all.filter((c) => c.landed).map((c) => c.miss)));
   });
 
   it("el tiro elegido lo acepta Game.fire como el de cualquier jugador", () => {
@@ -162,9 +203,15 @@ describe("sala con bot", () => {
     expect(bot.fuel).toBe(0);
 
     a.send("ready");
-    await until(() => a.state.round === 2 && a.state.phase === "aiming");
-    if (a.state.turnId === a.sessionId) a.send("fire", { yaw: a.state.players.get(a.sessionId).yaw + 180, pitch: 60, power: 250 });
-    await until(() => botShots.some((s) => s.weapon === "missile"));
+    await until(() => a.state.round === 2 && a.state.phase !== "shop");
+    // Si el bot tira primero puede cerrar la ronda de un Missile: Ana solo tira si le toca.
+    while (!botShots.some((s) => s.weapon === "missile")) {
+      if (a.state.round === 2 && a.state.phase === "aiming" && a.state.turnId === a.sessionId) {
+        a.send("fire", { yaw: a.state.players.get(a.sessionId).yaw + 180, pitch: 60, power: 250 });
+        await until(() => a.state.phase !== "aiming" || a.state.turnId !== a.sessionId);
+      }
+      await sleep(5);
+    }
     await until(() => bot.missiles === SHOP_ITEMS.missile.pack - 1);
     await a.leave();
   }, 60_000);
