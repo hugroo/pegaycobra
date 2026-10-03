@@ -23,7 +23,7 @@ export interface ShotBroadcast {
   yaw: number;
   pitch: number;
   power: number;
-  /** "babyMissile" | "missile" | "roller" | "napalm" */
+  /** "babyMissile" | "missile" | "roller" | "napalm" | "nuke" */
   weapon: string;
   /** "ground" | "tank" | "offmap" | "timeout". Con "offmap" todos muestran "se fue". */
   outcome: string;
@@ -34,7 +34,7 @@ export interface ShotBroadcast {
   impact: { x: number; y: number; z: number };
   /** Daño total que hizo el tiro (explosión + caídas), ya resuelto por el sim. [hp] */
   damage: number;
-  /** Tanques cuyo escudo absorbió el tiro. Con alguno, el cartel dice "bloqueado". */
+  /** Tanques cuyo escudo absorbió el tiro. Con alguno, el cartel dice "bloqueado". Con el Nuke, siempre vacío. */
   blocked: string[];
 }
 
@@ -342,6 +342,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         p.missiles = Math.max(0, player.inventory.missile ?? 0);
         p.rollers = Math.max(0, player.inventory.roller ?? 0);
         p.napalms = Math.max(0, player.inventory.napalm ?? 0);
+        p.nukes = Math.max(0, player.inventory.nuke ?? 0);
         p.shield = player.inventory.shield ?? 0;
         p.parachute = player.inventory.parachute ?? 0;
         p.fuel = player.inventory.fuel ?? 0;

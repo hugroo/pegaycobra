@@ -2,7 +2,7 @@
 // Partida en 3D: viento vectorial, ubicación de tanques, caída y resolución de un disparo.
 // Mismas reglas que turn.ts (perfil), sobre el terreno width × depth:
 //   tiro (shot3d.ts; el Roller además rueda, roller.ts) → cráter en disco (terrain.ts)
-//   → daño de explosión (damage.ts), salvo a quien lo tapa un escudo
+//   → daño de explosión (damage.ts), salvo a quien lo tapa un escudo (al Nuke no lo tapa)
 //   → caídas y daño de caída → plata para quien disparó (economy.ts).
 // El Napalm no abre cráter ni explota: deja un fuego (napalm.ts) que quema al empezar cada turno.
 // Orígenes: Explosion.cpp, TargetDamageCalc.cpp, TargetDamage.cpp, TargetFalling.cpp, Wind.cpp.
@@ -154,13 +154,16 @@ export function settleTank3D(
 
 /**
  * Resuelve un disparo 3D. Mismas validaciones que resolveTurn: jugador vivo, arma jugable
- * (Baby Missile, Missile, Roller, Napalm) y con munición. No recibe daño ni impacto: los calcula.
+ * (Baby Missile, Missile, Roller, Napalm, Nuke) y con munición. No recibe daño ni impacto: los calcula.
  *
  * Escudo (regla propia, campaign.ts): si la explosión (también la del Roller) le iba a sacar vida
  * a un tanque con escudo, el escudo absorbe ese tiro y se gasta. El cráter se abre igual y el
  * tanque cae a él, pero la caída de ese mismo tiro tampoco le saca vida: si no, con el cráter del
  * Missile el escudo no salvaría a nadie. Lo que el escudo no tapa es la caída sola: si le sacan el
  * piso sin que la explosión lo alcance, el escudo no se gasta y la caída duele como siempre.
+ *
+ * Nuke (piercesShield): el escudo no lo frena ni se gasta. La explosión y la caída a su cráter le
+ * sacan vida al tanque como si no tuviera escudo, y `blocked` queda vacío.
  *
  * Napalm: donde termina el tiro queda un fuego (fireFromShot) y nada más. Sin cráter el terreno es
  * el mismo objeto que entró, nadie cae, y como no hay explosión tampoco se gasta ningún escudo.
@@ -231,7 +234,7 @@ export function resolveTurn3D(
       const amount = explosionDamage(collisionDistance3D(t, shot.x, shot.y, shot.z), weapon.explosionRadius, weapon.hurtAmount);
       const pi = players.findIndex((p) => p.id === t.id);
       const shield = players[pi]?.inventory.shield ?? 0;
-      if (amount > 0 && shield > 0) {
+      if (amount > 0 && shield > 0 && !weapon.piercesShield) {
         players[pi] = { ...players[pi]!, inventory: { ...players[pi]!.inventory, shield: shield - 1 } };
         blocked.push(t.id);
         continue;

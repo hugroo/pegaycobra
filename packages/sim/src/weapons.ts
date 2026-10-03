@@ -10,6 +10,7 @@
 // los números y la rodada (roller.ts) se escribieron para este juego, no se portaron.
 // El Napalm también: el original lo tiene (WeaponNapalm.cpp, corre cuesta abajo y quema por tiempo);
 // acá es un disco fijo que quema por turno (napalm.ts), con números de este juego.
+// El Nuke usa los números del XML. Que el escudo no lo frene es regla propia (turn3d.ts).
 
 import { INFINITE_AMMO } from "./constants";
 
@@ -60,6 +61,8 @@ export interface Weapon {
   readonly roll?: RollSpec;
   /** Solo el Napalm: el fuego que deja donde cae. */
   readonly burn?: BurnSpec;
+  /** Solo el Nuke: el escudo no absorbe su explosión ni se gasta. */
+  readonly piercesShield?: boolean;
 }
 
 export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
@@ -149,14 +152,15 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     hurtAmount: 1,
     windFactor: 1,
     gravityFactor: 1,
+    piercesShield: true,
   },
 });
 
 /**
- * Armas que se pueden disparar: la Baby Missile (infinita, no se compra), y el Missile, el Roller y
- * el Napalm (se compran en la tienda, ver campaign.ts). Baby Nuke y Nuke existen solo como datos.
+ * Armas que se pueden disparar: la Baby Missile (infinita, no se compra), y el Missile, el Roller,
+ * el Napalm y el Nuke (se compran en la tienda, ver campaign.ts). La Baby Nuke existe solo como datos.
  */
-export const PLAYABLE_WEAPONS: readonly WeaponId[] = Object.freeze(["babyMissile", "missile", "roller", "napalm"]);
+export const PLAYABLE_WEAPONS: readonly WeaponId[] = Object.freeze(["babyMissile", "missile", "roller", "napalm", "nuke"]);
 
 export function isPlayable(id: WeaponId): boolean {
   return PLAYABLE_WEAPONS.includes(id);

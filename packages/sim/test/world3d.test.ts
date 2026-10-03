@@ -269,7 +269,7 @@ describe("resolveTurn con yaw", () => {
   });
 
   it("sigue rechazando cualquier arma que no sea la Baby Missile", () => {
-    expect(() => resolveTurn(match(), { playerId: "A", yaw: 0, pitch: 45, power: 600, weaponId: "nuke" })).toThrow();
+    expect(() => resolveTurn(match(), { playerId: "A", yaw: 0, pitch: 45, power: 600, weaponId: "babyNuke" })).toThrow();
     expect(() => resolveTurn(match(), { playerId: "A", yaw: 0, pitch: 45, power: 600, weaponId: "missile" })).toThrow();
   });
 

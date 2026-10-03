@@ -265,8 +265,8 @@ describe("Escudo", () => {
 });
 
 describe("tienda con Roller y Escudo", () => {
-  it("ofrece Missile, Roller, Napalm, Escudo, Paracaídas y Nafta, en ese orden", () => {
-    expect(Object.keys(SHOP_ITEMS)).toEqual(["missile", "roller", "napalm", "shield", "parachute", "fuel"]);
+  it("ofrece Missile, Roller, Napalm, Nuke, Escudo, Paracaídas y Nafta, en ese orden", () => {
+    expect(Object.keys(SHOP_ITEMS)).toEqual(["missile", "roller", "napalm", "nuke", "shield", "parachute", "fuel"]);
   });
 
   it("el Roller viene de a 2", () => {

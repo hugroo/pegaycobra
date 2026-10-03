@@ -111,7 +111,7 @@ describe("tienda", () => {
     expect(money(g, "B")).toBeGreaterThanOrEqual(0);
     expect(money(g, "B")).toBeLessThan(SHOP_ITEMS.missile.price);
     expect(bought).toBe(Math.floor(before / SHOP_ITEMS.missile.price));
-    expect(g.buy("B", { item: "nuke" })).toBe(false);
+    expect(g.buy("B", { item: "babyNuke" })).toBe(false);
     expect(parseBuyMessage({ item: "babyMissile" })).toBeNull();
   });
 

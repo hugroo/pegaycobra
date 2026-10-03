@@ -22,10 +22,11 @@ export const PlayerState = schema(
     pitch: t.float32().default(45),
     /** Plata (solo para la tienda). [$] */
     money: t.uint32().default(0),
-    /** Inventario: Missiles, Rollers, Napalm, escudo puesto, paracaídas activo para la ronda, cargas de nafta. */
+    /** Inventario: Missiles, Rollers, Napalm, Nukes, escudo puesto, paracaídas activo para la ronda, cargas de nafta. */
     missiles: t.uint16().default(0),
     rollers: t.uint16().default(0),
     napalms: t.uint16().default(0),
+    nukes: t.uint16().default(0),
     shield: t.uint8().default(0),
     parachute: t.uint8().default(0),
     fuel: t.uint16().default(0),

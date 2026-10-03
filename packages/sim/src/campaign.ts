@@ -19,6 +19,7 @@
 //     cuando le sacan el piso sin alcanzarlo.
 //   - El Napalm (napalm.ts): precio y efecto propios. Deja fuego hasta que termina la ronda; el
 //     escudo no lo apaga.
+//   - El Nuke se vende de a 1 (el original, de a 2) y el escudo no lo frena (turn3d.ts).
 
 import { INTEREST_RATE, MONEY_PER_ROUND, MONEY_WON_FOR_ROUND, TANK_MAX_LIFE } from "./constants";
 import { isAlive } from "./damage";
@@ -104,7 +105,7 @@ export function endRoundPayouts(players: readonly Player[], survivors: ReadonlyS
 // Tienda
 // ---------------------------------------------------------------------------
 
-export type ShopItemId = "missile" | "roller" | "napalm" | "shield" | "parachute" | "fuel";
+export type ShopItemId = "missile" | "roller" | "napalm" | "nuke" | "shield" | "parachute" | "fuel";
 
 export interface ShopItem {
   id: ShopItemId;
@@ -146,12 +147,22 @@ export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze(
       `No explota ni abre cráter: deja fuego en un disco de radio ${WEAPONS.napalm.burn!.radius} el resto de la ronda. ` +
       `El tanque que empieza su turno ahí pierde ${WEAPONS.napalm.burn!.damagePerTurn} de vida. El escudo no lo apaga.`,
   },
+  nuke: {
+    id: "nuke",
+    name: "Nuke",
+    // accessories.xml: <cost>12000</cost> por <bundlesize>2</bundlesize> → 6000 c/u; se vende de a 1.
+    price: WEAPONS.nuke.cost / WEAPONS.nuke.bundleSize,
+    pack: 1,
+    description:
+      `Un Missile enorme: explosión y cráter de radio ${WEAPONS.nuke.explosionRadius} (el Missile es ${WEAPONS.missile.explosionRadius}). ` +
+      "El escudo no lo frena ni se gasta.",
+  },
   shield: {
     id: "shield",
     name: "Escudo",
     price: 2000,
     pack: 1,
-    description: "Absorbe el próximo tiro que te alcance (explosión o Roller) y se gasta. Si te sacan el piso, caés igual.",
+    description: "Absorbe el próximo tiro que te alcance (explosión o Roller) y se gasta. Si te sacan el piso, caés igual. Al Nuke no lo frena.",
   },
   parachute: {
     id: "parachute",

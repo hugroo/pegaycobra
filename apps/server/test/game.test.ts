@@ -39,7 +39,7 @@ describe("mensaje de tiro", () => {
   });
 
   it("descarta el mensaje si pide otra arma, si falta un número o si viene basura", () => {
-    expect(parseFireMessage({ yaw: 30, pitch: 45, power: 600, weapon: "nuke" })).toBeNull();
+    expect(parseFireMessage({ yaw: 30, pitch: 45, power: 600, weapon: "babyNuke" })).toBeNull();
     expect(parseFireMessage({ yaw: 30, pitch: 45, power: 600, weaponId: "babyNuke" })).toBeNull();
     expect(parseFireMessage({ angle: 45, power: 600 })).toBeNull(); // el formato 2D ya no alcanza
     expect(parseFireMessage({ yaw: "30", pitch: 45, power: 600 })).toBeNull();

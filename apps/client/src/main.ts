@@ -78,6 +78,8 @@ const ui = {
   wRollerN: $("w-roller-n"),
   wNapalm: $<HTMLButtonElement>("w-napalm"),
   wNapalmN: $("w-napalm-n"),
+  wNuke: $<HTMLButtonElement>("w-nuke"),
+  wNukeN: $("w-nuke-n"),
   fuelBtn: $<HTMLButtonElement>("btn-fuel"),
   fuelN: $("fuel-n"),
   yawOut: $("yaw-out"),
@@ -95,7 +97,7 @@ const minimap = new Minimap(ui.minimap);
 
 let room: Room<any> | null = null;
 /** Las armas que se pueden pedir en un "fire". */
-type Fireable = "babyMissile" | "missile" | "roller" | "napalm";
+type Fireable = "babyMissile" | "missile" | "roller" | "napalm" | "nuke";
 let aim = { yaw: 0, pitch: 45, power: 500 };
 let weapon: Fireable = "babyMissile";
 let moveMode = false;
@@ -331,7 +333,7 @@ function attach(r: Room<any>): void {
   onState();
 }
 
-/** Cartel en el punto de impacto: "se fue", el daño, o "bloqueado" si un escudo se comió el tiro. */
+/** Cartel en el punto de impacto: "se fue", el daño, o "bloqueado" si un escudo se comió el tiro (al Nuke no: dice el daño). */
 function impactLabel(lands: boolean, damage: number, blocked: boolean): string {
   if (!lands) return "se fue";
   const hurt = damage > 0 ? `-${Math.max(1, Math.round(damage))}` : "0";
@@ -411,6 +413,7 @@ function inventoryChips(p: any): HTMLSpanElement[] {
     chip(`Missile ×${p.missiles}`, p.missiles <= 0),
     chip(`Roller ×${p.rollers}`, p.rollers <= 0),
     chip(`Napalm ×${p.napalms}`, p.napalms <= 0),
+    chip(`Nuke ×${p.nukes}`, p.nukes <= 0),
     chip(p.shield > 0 ? "Escudo ✓" : "Escudo –", p.shield <= 0),
     chip(p.parachute > 0 ? "Paracaídas ✓" : "Paracaídas –", p.parachute <= 0),
     chip(`Nafta ×${p.fuel}`, p.fuel <= 0),
@@ -469,7 +472,7 @@ function renderHud(phase: string): void {
       const extra = document.createElement("span");
       extra.className = "extra";
       extra.textContent =
-        `${p.points} pts · M×${p.missiles}${p.rollers > 0 ? ` · R×${p.rollers}` : ""}${p.napalms > 0 ? ` · Napalm×${p.napalms}` : ""}` +
+        `${p.points} pts · M×${p.missiles}${p.rollers > 0 ? ` · R×${p.rollers}` : ""}${p.napalms > 0 ? ` · Napalm×${p.napalms}` : ""}${p.nukes > 0 ? ` · Nuke×${p.nukes}` : ""}` +
         `${p.shield > 0 ? " · escudo" : ""}${p.parachute > 0 ? " · ☂" : ""}${p.fuel > 0 ? ` · N×${p.fuel}` : ""}` +
         // Parado en un fuego (inFire, la misma cuenta del server): va a perder vida al empezar su turno.
         `${p.life > 0 && fires.some((f) => inFire(f, p)) ? " · en el fuego" : ""}`;
@@ -482,17 +485,25 @@ function renderHud(phase: string): void {
   const missiles = mp?.missiles ?? 0;
   const rollers = mp?.rollers ?? 0;
   const napalms = mp?.napalms ?? 0;
-  if ((weapon === "missile" && missiles <= 0) || (weapon === "roller" && rollers <= 0) || (weapon === "napalm" && napalms <= 0)) {
+  const nukes = mp?.nukes ?? 0;
+  if (
+    (weapon === "missile" && missiles <= 0) ||
+    (weapon === "roller" && rollers <= 0) ||
+    (weapon === "napalm" && napalms <= 0) ||
+    (weapon === "nuke" && nukes <= 0)
+  ) {
     weapon = "babyMissile";
   }
   ui.wMissileN.textContent = `×${missiles}`;
   ui.wRollerN.textContent = `×${rollers}`;
   ui.wNapalmN.textContent = `×${napalms}`;
+  ui.wNukeN.textContent = `×${nukes}`;
   ui.wBaby.disabled = !mine;
   ui.wMissile.disabled = !mine || missiles <= 0;
   ui.wRoller.disabled = !mine || rollers <= 0;
   ui.wNapalm.disabled = !mine || napalms <= 0;
-  for (const [btn, id] of [[ui.wBaby, "babyMissile"], [ui.wMissile, "missile"], [ui.wRoller, "roller"], [ui.wNapalm, "napalm"]] as const) {
+  ui.wNuke.disabled = !mine || nukes <= 0;
+  for (const [btn, id] of [[ui.wBaby, "babyMissile"], [ui.wMissile, "missile"], [ui.wRoller, "roller"], [ui.wNapalm, "napalm"], [ui.wNuke, "nuke"]] as const) {
     btn.classList.toggle("on", weapon === id);
     btn.setAttribute("aria-checked", String(weapon === id));
   }
@@ -554,9 +565,9 @@ function renderShop(phase: string): void {
   const asPlayer = {
     id: mp.id,
     money: mp.money,
-    inventory: { parachute: mp.parachute, fuel: mp.fuel, missile: mp.missiles, roller: mp.rollers, napalm: mp.napalms, shield: mp.shield },
+    inventory: { parachute: mp.parachute, fuel: mp.fuel, missile: mp.missiles, roller: mp.rollers, napalm: mp.napalms, nuke: mp.nukes, shield: mp.shield },
   };
-  const itemsKey = `${mp.money}|${mp.parachute}|${mp.fuel}|${mp.missiles}|${mp.rollers}|${mp.napalms}|${mp.shield}`;
+  const itemsKey = `${mp.money}|${mp.parachute}|${mp.fuel}|${mp.missiles}|${mp.rollers}|${mp.napalms}|${mp.nukes}|${mp.shield}`;
   if (ui.shopItems.dataset.key === itemsKey) return;
   ui.shopItems.dataset.key = itemsKey;
   ui.shopItems.replaceChildren(
@@ -643,6 +654,7 @@ function selectWeapon(w: Fireable): void {
   if (w === "missile" && (me()?.missiles ?? 0) <= 0) return;
   if (w === "roller" && (me()?.rollers ?? 0) <= 0) return;
   if (w === "napalm" && (me()?.napalms ?? 0) <= 0) return;
+  if (w === "nuke" && (me()?.nukes ?? 0) <= 0) return;
   weapon = w;
   onState();
 }
@@ -650,6 +662,7 @@ ui.wBaby.addEventListener("click", () => selectWeapon("babyMissile"));
 ui.wMissile.addEventListener("click", () => selectWeapon("missile"));
 ui.wRoller.addEventListener("click", () => selectWeapon("roller"));
 ui.wNapalm.addEventListener("click", () => selectWeapon("napalm"));
+ui.wNuke.addEventListener("click", () => selectWeapon("nuke"));
 
 function toggleMoveMode(): void {
   if (!myTurn() || (me()?.fuel ?? 0) <= 0 || room?.state.moved) return;
@@ -791,6 +804,9 @@ window.addEventListener("keydown", (e) => {
       break;
     case "4":
       selectWeapon("napalm");
+      break;
+    case "5":
+      selectWeapon("nuke");
       break;
     case "n":
     case "N":

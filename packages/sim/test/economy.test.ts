@@ -91,7 +91,7 @@ describe("5. matar paga plata; el misil básico no se gasta", () => {
   });
 
   it("no deja disparar armas fuera del MVP", () => {
-    expect(() => resolveTurn(match(200), { playerId: "A", ...SHOT, weaponId: "nuke" })).toThrow();
+    expect(() => resolveTurn(match(200), { playerId: "A", ...SHOT, weaponId: "babyNuke" })).toThrow();
   });
 });
 

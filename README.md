@@ -5,7 +5,7 @@ No es un port. El loop se escribe de nuevo y las reglas (física, cráter, daño
 del original.
 
 Estado: **jugable en 3D en el navegador, multijugador de 2 a 4, partida de 5 rondas con tienda.**
-Cuatro armas (Baby Missile infinita; Missile, Roller y Napalm comprados), escudo, paracaídas y nafta.
+Cinco armas (Baby Missile infinita; Missile, Roller, Napalm y Nuke comprados), escudo, paracaídas y nafta.
 
 ```
 packages/sim   TypeScript puro: terreno width × depth, tiro con yaw/pitch, cráter en disco, daño,
@@ -52,7 +52,7 @@ Controles (una sola barra abajo):
 |---|---|
 | Girar y elevar el cañón | Arrastrar con el botón izquierdo (horizontal = giro, vertical = elevación), o ← → / ↑ ↓ |
 | Potencia | Rueda del mouse (en tu turno), la barra, o PageUp / PageDown |
-| Elegir arma | Botones *Baby Missile* / *Missile* / *Roller* / *Napalm*, o las teclas 1 / 2 / 3 / 4 |
+| Elegir arma | Botones *Baby Missile* / *Missile* / *Roller* / *Napalm* / *Nuke*, o las teclas 1 / 2 / 3 / 4 / 5 |
 | Nafta (mover el tanque antes de tirar) | Botón *Nafta* o tecla N, y después un clic en el piso dentro del anillo amarillo |
 | Tirar | Espacio o el botón *Tirar* |
 | Mover la cámara | Arrastrar con el botón derecho (fuera de tu turno, también el izquierdo) |
@@ -63,7 +63,8 @@ el turno, los segundos, el viento, tu plata, tu inventario y la sala; la direcci
 la flecha celeste en el piso, al lado del tanque del turno. El panel de la izquierda muestra la
 vida, los puntos, los Missiles, los Rollers y el escudo de cada jugador. Si un tiro sale del mapa,
 todas las pestañas muestran "¡Se fue!". Un tanque con escudo se ve dentro de una burbuja celeste;
-cuando el escudo se come un tiro, el cartel del impacto dice "bloqueado" en vez del daño.
+cuando el escudo se come un tiro, el cartel del impacto dice "bloqueado" en vez del daño (con el
+Nuke no: el escudo no lo frena y el cartel dice el daño).
 Un fuego de Napalm es una mancha naranja con llamas en el piso y un disco naranja en el minimapa;
 el panel de la izquierda marca "en el fuego" al tanque parado adentro, y cuando le empieza el turno
 sale el cartel "se quema: -25".
@@ -84,7 +85,8 @@ sale el cartel "se quema: -25".
   | Missile ×3 | $1.200 | Explosión de radio 6 (la Baby es 3.5). Se gasta uno por tiro |
   | Roller ×2 | $1.500 | Vuela con la misma potencia que un Missile, toca el piso y rueda cuesta abajo hasta 60 celdas o hasta un tanque, y ahí explota (radio 4.5, cráter chico). En lo llano explota donde cae. Si vuelve rodando hasta vos, te pega |
   | Napalm ×1 | $2.000 | Cae como un Missile, pero no explota ni abre cráter: deja fuego en un disco de radio 5 hasta que termina la ronda. Al caer no saca vida. El tanque que **empieza su turno** con la base adentro del disco pierde 25, todos los turnos, hasta que salga (con nafta) o se muera. Los puntos y la plata de ese daño son del que tiró el Napalm |
-  | Escudo | $2.000 | Absorbe el próximo tiro cuya explosión te alcance (Baby, Missile o Roller) y se gasta. Uno por vez; si nadie te pega, lo seguís teniendo la ronda siguiente |
+  | Nuke ×1 | $6.000 | Un Missile enorme: vuela igual, y la explosión y el cráter son de radio 18 (tres veces el Missile). No rueda ni prende fuego. El escudo no lo frena ni se gasta. Es el ítem más caro |
+  | Escudo | $2.000 | Absorbe el próximo tiro cuya explosión te alcance (Baby, Missile o Roller; el Nuke no) y se gasta. Uno por vez; si nadie te pega, lo seguís teniendo la ronda siguiente |
   | Paracaídas | $1.250 | La ronda siguiente, caer no te hace daño. Uno por ronda |
   | Nafta | $3.000 | Antes de tirar, mové el tanque hasta 20 celdas. Una vez por turno |
 
@@ -96,6 +98,8 @@ sale el cartel "se quema: -25".
   barranco donde estás parado), caés, duele como siempre (para eso está el paracaídas) y el
   escudo no se gasta. Un tiro que se fue del mapa tampoco lo gasta. Y no apaga el fuego: el Napalm
   no es una explosión, así que el escudo ni lo frena ni se gasta, y el tanque se quema igual.
+  Tampoco frena el Nuke: la explosión y la caída a su cráter te sacan vida como si no tuvieras
+  escudo, el escudo queda puesto y el cartel dice el daño.
 
   **El fuego.** Dura lo que queda de la ronda: la ronda siguiente arranca limpia. No es terreno: el
   heightmap queda igual y nadie cae. Dos fuegos encimados queman dos veces. Tu propio fuego te quema
@@ -139,7 +143,7 @@ de la misma sala podrían caer en servidores distintos.
   |---|---|---|
   | `start` | lobby | que sea el anfitrión y haya 2 o más |
   | `fillBots` | lobby | que sea el anfitrión. Agrega bots hasta llegar a 2 jugadores |
-  | `fire { yaw, pitch, power, weapon }` | tu turno | `weapon` es `babyMissile`, `missile`, `roller` o `napalm` y tenés munición. Cualquier otro campo (daño, impacto, posición) se descarta sin llegar al sim. Otra arma: el mensaje se ignora entero |
+  | `fire { yaw, pitch, power, weapon }` | tu turno | `weapon` es `babyMissile`, `missile`, `roller`, `napalm` o `nuke` y tenés munición. Cualquier otro campo (daño, impacto, posición) se descarta sin llegar al sim. Otra arma: el mensaje se ignora entero |
   | `move { moveTo: { x, z } }` | tu turno, antes de tirar | que tengas nafta, no te hayas movido ya en el turno, y el destino esté a ≤ 20 celdas, dentro del mapa y no pegado a otro tanque (`validateMove` del sim) |
   | `buy { item }` | tienda | que el ítem exista y te alcance la plata (`cannotBuy` del sim) |
   | `ready` | tienda | — |
@@ -154,7 +158,7 @@ de la misma sala podrían caer en servidores distintos.
   `burnTurn3D` del sim para ese tanque; si se quemó, manda `burn { id, damage, killed }`.
 - El bot compra en la tienda solo si no le queda ningún Missile: un pack de Missile o de Roller, a
   cara o cruz. Tira lo que tenga (Missile, si no Roller, si no la Baby) apuntando igual que
-  siempre. No compra Napalm, escudo, paracaídas ni nafta.
+  siempre. No compra Napalm, Nuke, escudo, paracaídas ni nafta.
 - Otros mensajes del server: `moved` (alguien usó nafta), `skip` (turno perdido por tiempo),
   `burn` (a alguien le empezó el turno en el fuego) y `roundEnd` (lo que cobró cada uno al terminar
   la ronda).
@@ -208,7 +212,7 @@ pnpm typecheck
 | `projectile.ts` | `simulateShot()`: potencia + ángulo + viento + gravedad, en pasos fijos |
 | `crater.ts` | `applyCrater()` baja el heightmap; `flattenUnder()` aplana bajo un tanque que cayó |
 | `damage.ts` | Daño de explosión por distancia, daño de caída, `settleTank()` |
-| `weapons.ts` | Baby Missile, Missile, Roller, Napalm, Baby Nuke, Nuke. Se pueden disparar las cuatro primeras (Missile, Roller y Napalm, si los compraste) |
+| `weapons.ts` | Baby Missile, Missile, Roller, Napalm, Baby Nuke, Nuke. Se pueden disparar todas menos la Baby Nuke (Missile, Roller, Napalm y Nuke, si los compraste) |
 | `economy.ts` | Premio por daño y por kill, interés de fin de ronda, munición |
 | `turn.ts` | `resolveTurn(state, { playerId, angleDeg, power }, { recordPath })`: lo que llama el server |
 | `match.ts` | Perfil: `rollWind()`, `placeTanks()`, `spreadTanks()` + `GAME_TERRAIN`. `matchOutcome()` (ganador, lo usan los dos modos) |
@@ -216,7 +220,7 @@ pnpm typecheck
 | `shot3d.ts` | **3D.** `simulateShot3D()`: yaw 0–360 (0 = +X, 90 = +Z), pitch 0–90, potencia; viento `{x, z}`; gravedad en Y |
 | `roller.ts` | **3D.** `simulateRoll()`: la bola baja por el gradiente del terreno hasta un tanque, N celdas o quedarse sin pendiente. `simulateWeaponShot3D()`: el tiro de cualquier arma, con la rodada si es un Roller. Lo usan el server, la fantasma del cliente y el bot |
 | `napalm.ts` | **3D.** `fireFromShot()`: el fuego que deja un tiro de Napalm (o null). `inFire()`: si un punto del piso está adentro del disco. Lo usan el server, la fantasma del cliente y el HUD |
-| `turn3d.ts` | **3D.** `rollWind3D()`, `placeTanks3D()`, `resolveTurn3D()`. `resolveTurn()` lo usa cuando el estado tiene `terrain`. Con paracaídas, la caída no daña. Con escudo, el próximo tiro que te alcanza no daña (`blocked`). Un Napalm no toca el terreno y agrega un fuego a `state.fires`. `burnTurn3D()`: lo que pierde un tanque al empezar su turno parado en un fuego |
+| `turn3d.ts` | **3D.** `rollWind3D()`, `placeTanks3D()`, `resolveTurn3D()`. `resolveTurn()` lo usa cuando el estado tiene `terrain`. Con paracaídas, la caída no daña. Con escudo, el próximo tiro que te alcanza no daña (`blocked`), salvo el Nuke (`piercesShield`). Un Napalm no toca el terreno y agrega un fuego a `state.fires`. `burnTurn3D()`: lo que pierde un tanque al empezar su turno parado en un fuego |
 | `campaign.ts` | **Partida.** `startRound3D()` (ronda nueva), `endRoundPayouts()` (premio por sobrevivir + interés), `SHOP_ITEMS`, `buyItem()` / `cannotBuy()`, `validateMove()` / `moveTank()` (nafta), `scoreTurn()`, `standings()`, `matchWinners()` |
 
 Todo son funciones puras: reciben el estado y devuelven uno nuevo. En 3D el heightmap es un
@@ -303,6 +307,7 @@ tanques son primitivas generadas.
 | **Partida:** puntos por kill; matarse resta | `OptionsGame.cpp` "ScorePerKill" (10); `TargetDamage.cpp` (kill propio: kills − 1 y score − ScorePerKill) | `SCORE_PER_KILL`, `scoreTurn()` |
 | **Partida:** la plata no da puntos | `OptionsGame.cpp` "ScorePerMoney" (0) | `scoreTurn()` |
 | **Tienda:** precio del Missile | `accessories.xml` Missile: `<cost>2000</cost>` por `<bundlesize>5</bundlesize>` → 400 c/u | `SHOP_ITEMS.missile` (3 × 400) |
+| **Tienda:** Nuke: radio y precio | `accessories.xml` Nuke: `<size>18</size>`, `<cost>12000</cost>` por `<bundlesize>2</bundlesize>` → 6000 c/u | `WEAPONS.nuke`, `SHOP_ITEMS.nuke` (1 × 6000) |
 | **Tienda:** precio del paracaídas | `accessories.xml` Parachute: 10000 por 8 → 1250 c/u | `SHOP_ITEMS.parachute` |
 | **Tienda:** precio de la nafta | `accessories.xml` Fuel: 6000 por 40 unidades → 150 por celda | `SHOP_ITEMS.fuel` (20 × 150) |
 | **Paracaídas:** con paracaídas, caer no daña | `src/common/actions/TargetFalling.cpp` `collision()` | `turn3d.ts` |
@@ -340,6 +345,8 @@ tanques son primitivas generadas.
     quema por tiempo real. Acá es un disco fijo donde cayó el tiro y el reloj es el turno: quema al
     que empieza su turno adentro. Precio, radio (5) y daño por turno (25) son números de este juego
     (`WEAPONS.napalm`).
+  - **El Nuke pasa el escudo** y se vende de a 1 (el original lo vende de a 2). El radio (18) y el
+    precio por unidad son los del original.
   - **La nafta mueve antes de tirar** y el turno sigue. En el original, mover reemplaza al tiro.
     Una carga alcanza 20 celdas en línea recta (el original da 40 unidades, una por casillero,
     con un máximo de 50 por movimiento) y no hay límite de pendiente (`MaxClimbingDistance`).
@@ -372,13 +379,13 @@ tanques son primitivas generadas.
 - **La caída no se integra.** El original simula al tanque cayendo como partícula con gravedad.
   Como solo se mueve en vertical, la distancia caída es la diferencia de alturas, que es lo que
   se usa acá para el daño.
-- **Cuatro armas jugables** (Baby Missile, Missile, Roller y Napalm). Baby Nuke y Nuke son solo datos.
+- **Cinco armas jugables** (Baby Missile, Missile, Roller, Napalm y Nuke). La Baby Nuke es solo datos.
 - **RNG propio** (mulberry32) en lugar del `RandomGenerator` del original: lo que importa es que
   la misma semilla dé el mismo terreno en el server y en los tests.
 
 ## Fuera de alcance por ahora
 
-Nuke y Baby Nuke, sonido, cuentas, base de datos, matchmaking, una segunda cámara y deploy. No se
+Baby Nuke, sonido nuevo, cuentas, base de datos, matchmaking, una segunda cámara y deploy. No se
 portó nada de OpenGL, wxWidgets, SDL ni Lua del original: el render es Three.js escrito de cero.
 El viento se sortea al empezar cada ronda y no cambia dentro de la ronda (en el original es la
 opción `WindChangeNever`). El que no tiene el turno ve el cañón ajeno en el último ángulo que
