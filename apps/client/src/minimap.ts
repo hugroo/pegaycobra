@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Minimapa: vista cenital fija (x a la derecha, z hacia abajo) en un canvas 2D. Solo dibuja lo
-// que le pasa main.ts: el terreno en grises, los fuegos de Napalm, los tanques, el viento, dónde cae
+// que le pasa main.ts: el terreno con la misma escala de color que la vista 3D, los fuegos de Napalm, los tanques, el viento, dónde cae
 // la fantasma y dónde cayó el último tiro real (el del mensaje "shot", igual en todas las pestañas).
 
 import type { Terrain } from "@pegaycobra/sim";
+import { hillshade, landColor, type RGB } from "./landscape";
 import { SLOT_COLORS } from "./scene3d";
 
 export interface MiniTank {
@@ -16,7 +17,7 @@ export interface MiniTank {
 
 export interface MiniModel {
   terrain: Terrain;
-  /** Cambia cuando cambia el terreno: recién ahí se repinta la base en grises. */
+  /** Cambia cuando cambia el terreno: recién ahí se repinta la base. */
   terrainVersion: number;
   tanks: MiniTank[];
   wind: { x: number; z: number };
@@ -44,20 +45,23 @@ export class Minimap {
     this.ctx = canvas.getContext("2d")!;
   }
 
-  /** Altura → gris: valle oscuro, cima clara. Una celda del terreno = un píxel de la base. */
+  /** Mismo color por altura que la vista 3D, con el sol marcando la pendiente. Una celda = un píxel. */
   private paintBase(t: Terrain): void {
     this.base.width = t.width;
     this.base.height = t.depth;
     const ctx = this.base.getContext("2d")!;
     const img = ctx.createImageData(t.width, t.depth);
-    let max = 1;
-    for (const h of t.heights) if (h > max) max = h;
-    for (let i = 0; i < t.heights.length; i++) {
-      const g = 28 + (Math.max(0, t.heights[i]!) / max) * 210;
-      img.data[i * 4] = g;
-      img.data[i * 4 + 1] = g;
-      img.data[i * 4 + 2] = g;
-      img.data[i * 4 + 3] = 255;
+    const c: RGB = [0, 0, 0];
+    for (let z = 0; z < t.depth; z++) {
+      for (let x = 0; x < t.width; x++) {
+        const i = x + z * t.width;
+        landColor(t, x, z, c);
+        const light = 255 * hillshade(t, x, z);
+        img.data[i * 4] = c[0] * light;
+        img.data[i * 4 + 1] = c[1] * light;
+        img.data[i * 4 + 2] = c[2] * light;
+        img.data[i * 4 + 3] = 255;
+      }
     }
     ctx.putImageData(img, 0, 0);
   }

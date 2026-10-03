@@ -9,11 +9,14 @@
 import * as THREE from "three";
 import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { TANK_RADIUS, terrainHeightAt, type Terrain } from "@pegaycobra/sim";
+import { LAKE, SKY, SUN_DIR, landColor, type RGB } from "./landscape";
 
 export const SLOT_COLORS = ["#ff6b6b", "#4dabf7", "#69db7c", "#f783ac"];
 
-/** Los tanques se dibujan más grandes que su esfera de colisión (2 wu) para que se vean. */
-const TANK_SCALE = 1.6;
+/** Los tanques se dibujan más grandes que su esfera de colisión (2 wu) para que se lean de lejos. */
+const TANK_SCALE = 2.1;
+/** Cuánto brilla el tanque con su propio color, para que se lea también a la sombra de un cerro. */
+const TANK_GLOW = 0.35;
 /** Pivote del cañón en coordenadas locales del tanque (antes de escalar). [wu] */
 const PIVOT_Y = 1.05;
 const BARREL_LEN = 2.6;
@@ -164,17 +167,32 @@ export class World {
     this.edgeLayer.className = "edge-layer";
     host.appendChild(this.edgeLayer);
 
-    this.scene.background = new THREE.Color("#0f1c2e");
-    this.scene.fog = new THREE.Fog("#0f1c2e", 260, 700);
-    this.scene.add(new THREE.HemisphereLight("#cfe3ff", "#3b3020", 1.1));
-    const sun = new THREE.DirectionalLight("#fff3dd", 1.6);
-    sun.position.set(180, 260, 60);
-    this.scene.add(sun);
+    const sky = new THREE.Color().setRGB(...SKY, THREE.SRGBColorSpace);
+    this.scene.background = sky;
+    this.scene.fog = new THREE.Fog(sky, 260, 700);
+    // Poca luz de cielo y un sol fuerte y bajo: la ladera que mira al sol queda clara y la otra en
+    // sombra, así el relieve se lee por la luz. El sol además proyecta sombra (cerros y tanques).
+    this.scene.add(new THREE.HemisphereLight("#cfe3ff", "#8a7a55", 0.75));
+    const sun = new THREE.DirectionalLight("#fff1d6", 2.3);
+    sun.position.set(128 + SUN_DIR[0] * 320, SUN_DIR[1] * 320, 128 + SUN_DIR[2] * 320);
+    sun.target.position.set(128, 0, 128);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(4096, 4096);
+    const sc = sun.shadow.camera;
+    sc.left = sc.bottom = -190;
+    sc.right = sc.top = 190;
+    sc.near = 60;
+    sc.far = 620;
+    sun.shadow.bias = -0.0004;
+    sun.shadow.normalBias = 0.5;
+    this.scene.add(sun, sun.target);
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // Piso de fondo para que el mapa no flote en el vacío.
+    // El lago: sigue más allá del borde del mapa, para que el mapa no flote en el vacío.
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(4000, 4000).rotateX(-Math.PI / 2),
-      new THREE.MeshLambertMaterial({ color: "#1a2433" }),
+      new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(...LAKE, THREE.SRGBColorSpace) }),
     );
     floor.position.set(128, -0.3, 128);
     this.scene.add(floor);
@@ -368,6 +386,8 @@ export class World {
     geo.setIndex(new THREE.BufferAttribute(index, 1));
     geo.computeVertexNormals();
     this.terrainMesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    this.terrainMesh.castShadow = true;
+    this.terrainMesh.receiveShadow = true;
     this.scene.add(this.terrainMesh);
 
     const mw = w - 1;
@@ -530,7 +550,7 @@ export class World {
     let v = this.tanks.get(m.id);
     if (v) return v;
     const color = new THREE.Color(SLOT_COLORS[m.slot] ?? "#cccccc");
-    const bodyMat = new THREE.MeshLambertMaterial({ color });
+    const bodyMat = new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: TANK_GLOW });
     const dark = new THREE.MeshLambertMaterial({ color: "#222833" });
     const root = new THREE.Group();
     const treads = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.6, 2.6), dark);
@@ -547,6 +567,7 @@ export class World {
     barrel.rotation.z = -Math.PI / 2; // el cilindro nace en Y; lo acostamos sobre +X
     barrel.position.x = BARREL_LEN / 2;
     pitchG.add(barrel);
+    for (const part of [treads, body, dome, barrel]) part.castShadow = true;
     root.add(treads, body, dome, yawG);
     root.scale.setScalar(TANK_SCALE);
 
@@ -604,6 +625,7 @@ export class World {
       v.yawG.rotation.y = -rad(m.yaw);
       v.pitchG.rotation.z = rad(m.pitch);
       v.bodyMat.color.set(alive ? (SLOT_COLORS[m.slot] ?? "#ccc") : "#4b515c");
+      v.bodyMat.emissive.copy(v.bodyMat.color);
       v.yawG.visible = alive;
       v.marker.visible = alive && m.isTurn;
       v.marker.position.y = 5.2 + Math.sin(now / 220) * 0.25;
@@ -841,43 +863,15 @@ export class World {
   }
 }
 
-/** Color por altura: pasto abajo, tierra en las laderas, roca y nieve arriba. */
-function heightColor(h: number, out: THREE.Color): void {
-  if (h < 1) out.set("#3c4a2a");
-  else if (h < 22) out.setRGB(0.36 + h * 0.004, 0.5 - h * 0.002, 0.2);
-  else if (h < 45) out.setRGB(0.48 - (h - 22) * 0.002, 0.42 - (h - 22) * 0.004, 0.26);
-  else if (h < 60) out.setRGB(0.5, 0.48, 0.45);
-  else out.setRGB(0.9, 0.92, 0.95);
-}
-
-/** Pendiente en la celda (x, z): módulo del gradiente por diferencias centrales. [wu / wu] */
-function slopeAt(t: Terrain, x: number, z: number): number {
-  const { width: w, depth: d, heights: h } = t;
-  const xa = Math.max(0, x - 1);
-  const xb = Math.min(w - 1, x + 1);
-  const za = Math.max(0, z - 1);
-  const zb = Math.min(d - 1, z + 1);
-  const gx = (h[xb + z * w]! - h[xa + z * w]!) / Math.max(1, xb - xa);
-  const gz = (h[x + zb * w]! - h[x + za * w]!) / Math.max(1, zb - za);
-  return Math.hypot(gx, gz);
-}
-
 const SCORCH = new THREE.Color("#1c1410");
 const FIRE = new THREE.Color("#ff5a14");
-const ROCK = new THREE.Color("#4a4038");
-/** Pendiente desde la que la ladera empieza a oscurecerse, y desde la que ya es roca pelada. */
-const SLOPE_FLAT = 0.15;
-const SLOPE_STEEP = 1.1;
+const land: RGB = [0, 0, 0];
 /**
- * Color de una celda: la altura da el tono y la pendiente lo sombrea. Lo llano (valle, meseta,
- * cima) queda claro; la ladera se oscurece y vira a roca, así el cerro se separa del valle.
- * Encima va el quemado de los cráteres y, arriba de todo, la mancha de un fuego de Napalm.
+ * Color de una celda: el del paisaje (altura y pendiente, ver landscape.ts) y encima el quemado
+ * de los cráteres y, arriba de todo, la mancha de un fuego de Napalm. La luz la pone el sol.
  */
 function terrainColor(t: Terrain, x: number, z: number, scorch: number, heat: number, out: THREE.Color): void {
-  heightColor(t.heights[x + z * t.width]!, out);
-  const k = Math.min(1, Math.max(0, (slopeAt(t, x, z) - SLOPE_FLAT) / (SLOPE_STEEP - SLOPE_FLAT)));
-  const steep = k * k * (3 - 2 * k);
-  out.lerp(ROCK, 0.55 * steep).multiplyScalar(1.12 - 0.5 * steep);
+  out.setRGB(...landColor(t, x, z, land), THREE.SRGBColorSpace);
   if (scorch > 0) out.lerp(SCORCH, 0.35 + 0.55 * scorch);
   if (heat > 0) out.lerp(FIRE, heat);
 }
