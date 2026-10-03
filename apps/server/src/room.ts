@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Sala de Colyseus: recibe mensajes, se los pasa a Game y copia el resultado al estado.
 //
-// Mensajes del cliente:  start · fire { yaw, pitch, power, weapon } · move { moveTo: { x, z } }
-//                        buy { item } · ready
+// Mensajes del cliente:  start · fillBots · fire { yaw, pitch, power, weapon }
+//                        move { moveTo: { x, z } } · buy { item } · ready
+// Los bots (bot.ts) no tienen conexión: la sala les pasa sus mensajes por los mismos métodos.
 // Mensajes del server:   terrain (binario) · shot · moved · skip · roundEnd
 
 import { Room, type Client } from "@colyseus/core";
-import { Game } from "./game";
+import { createRng } from "@pegaycobra/sim";
+import { BOT_NAME, botWantsMissile, pickBotShot } from "./bot";
+import { Game, MAX_PLAYERS, MIN_PLAYERS } from "./game";
 import { generateCode } from "./codes";
 import { GameState, PlayerState } from "./schema";
 import { changedRect, fullTerrain, terrainRect } from "./terrain-net";
@@ -45,11 +48,18 @@ export class GameRoom extends Room<{ state: GameState }> {
   static shopSeconds = 20;
   /** Semilla fija para tests reproducibles. null = al azar. */
   static seedOverride: number | null = null;
+  /** Lo que tarda un bot en tirar o en tocar "listo". Los tests lo bajan. [ms] */
+  static botDelayMs = 1500;
 
   maxClients = 4;
   private game = new Game(GameRoom.turnSeconds, GameRoom.shopSeconds);
   private sentRoundSerial = 0;
   private sentRoundEnd: object | null = null;
+  /** Asientos que son bots. */
+  private readonly bots = new Set<string>();
+  private botSerial = 0;
+  private botRng: () => number = Math.random;
+  private botPending = false;
 
   onCreate(): void {
     this.roomId = generateCode(activeCodes);
@@ -60,7 +70,19 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.onMessage("start", (client) => {
       const seed = GameRoom.seedOverride ?? Math.floor(Math.random() * 2 ** 31);
       if (!this.game.start(client.sessionId, seed)) return;
+      this.botRng = createRng(seed ^ 0x51ed270b);
       void this.lock(); // nadie más entra una vez arrancada
+      this.flush();
+    });
+
+    this.onMessage("fillBots", (client) => {
+      if (this.game.phase !== "lobby" || client.sessionId !== this.game.hostId) return;
+      while (this.game.seats.length < MIN_PLAYERS) {
+        const id = `bot-${++this.botSerial}`;
+        this.game.addPlayer(id, BOT_NAME);
+        this.bots.add(id);
+        this.log(`entra ${BOT_NAME}`);
+      }
       this.flush();
     });
 
@@ -72,54 +94,9 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.flush();
     });
 
-    this.onMessage("fire", (client, message: unknown) => {
-      const shot = this.game.fire(client.sessionId, message);
-      if (!shot) return; // ignorado
-      const r = shot.result.shot;
-      const payload: ShotBroadcast = {
-        shooterId: shot.shooterId,
-        yaw: shot.yaw,
-        pitch: shot.pitch,
-        power: shot.power,
-        weapon: shot.weapon,
-        outcome: r.outcome,
-        path: (r.path ?? []).map(round2),
-        durationMs: shot.durationMs,
-      };
-      this.flush();
-      this.broadcast("shot", payload);
-      const hits = shot.result.damage
-        .map((d) => `${this.nameOf(d.targetId)} -${d.damage.toFixed(1)}${d.killed ? " (muere)" : ""} [${d.cause}]`)
-        .join(", ");
-      this.log(
-        `tira ${this.nameOf(shot.shooterId)} ${shot.weapon} yaw ${shot.yaw.toFixed(0)} pitch ${shot.pitch.toFixed(0)} ` +
-          `pot ${shot.power.toFixed(0)} -> ${payload.outcome} (${r.x.toFixed(1)}, ${r.z.toFixed(1)})${hits ? ` | ${hits}` : ""}`,
-      );
-      this.clock.setTimeout(() => {
-        const before = this.game.match?.terrain;
-        const serial = this.game.roundSerial;
-        this.game.finishShot();
-        // El cráter llega a todos recién ahora, junto con la vida y las posiciones nuevas.
-        const after = this.game.match?.terrain;
-        if (before && after && serial === this.game.roundSerial) {
-          const rect = changedRect(before, after);
-          if (rect) this.broadcast("terrain", terrainRect(after, rect.x0, rect.z0, rect.w, rect.d));
-        }
-        this.flush();
-      }, (shot.durationMs + 250) * GameRoom.shotDelayScale);
-    });
-
-    this.onMessage("buy", (client, message: unknown) => {
-      if (!this.game.buy(client.sessionId, message)) return;
-      const item = (message as { item?: string }).item;
-      this.log(`${this.nameOf(client.sessionId)} compra ${item}`);
-      this.flush();
-    });
-
-    this.onMessage("ready", (client) => {
-      this.game.setReady(client.sessionId);
-      this.flush();
-    });
+    this.onMessage("fire", (client, message: unknown) => this.onFire(client.sessionId, message));
+    this.onMessage("buy", (client, message: unknown) => this.onBuy(client.sessionId, message));
+    this.onMessage("ready", (client) => this.onReady(client.sessionId));
 
     this.clock.setInterval(() => {
       if (this.game.phase !== "aiming" && this.game.phase !== "shop") return;
@@ -133,7 +110,93 @@ export class GameRoom extends Room<{ state: GameState }> {
     }, 1000);
   }
 
+  private onFire(id: string, message: unknown): void {
+    const shot = this.game.fire(id, message);
+    if (!shot) return; // ignorado
+    const r = shot.result.shot;
+    const payload: ShotBroadcast = {
+      shooterId: shot.shooterId,
+      yaw: shot.yaw,
+      pitch: shot.pitch,
+      power: shot.power,
+      weapon: shot.weapon,
+      outcome: r.outcome,
+      path: (r.path ?? []).map(round2),
+      durationMs: shot.durationMs,
+    };
+    this.flush();
+    this.broadcast("shot", payload);
+    const hits = shot.result.damage
+      .map((d) => `${this.nameOf(d.targetId)} -${d.damage.toFixed(1)}${d.killed ? " (muere)" : ""} [${d.cause}]`)
+      .join(", ");
+    this.log(
+      `tira ${this.nameOf(shot.shooterId)} ${shot.weapon} yaw ${shot.yaw.toFixed(0)} pitch ${shot.pitch.toFixed(0)} ` +
+        `pot ${shot.power.toFixed(0)} -> ${payload.outcome} (${r.x.toFixed(1)}, ${r.z.toFixed(1)})${hits ? ` | ${hits}` : ""}`,
+    );
+    this.clock.setTimeout(() => {
+      const before = this.game.match?.terrain;
+      const serial = this.game.roundSerial;
+      this.game.finishShot();
+      // El cráter llega a todos recién ahora, junto con la vida y las posiciones nuevas.
+      const after = this.game.match?.terrain;
+      if (before && after && serial === this.game.roundSerial) {
+        const rect = changedRect(before, after);
+        if (rect) this.broadcast("terrain", terrainRect(after, rect.x0, rect.z0, rect.w, rect.d));
+      }
+      this.flush();
+    }, (shot.durationMs + 250) * GameRoom.shotDelayScale);
+  }
+
+  private onBuy(id: string, message: unknown): void {
+    if (!this.game.buy(id, message)) return;
+    const item = (message as { item?: string }).item;
+    this.log(`${this.nameOf(id)} compra ${item}`);
+    this.flush();
+  }
+
+  private onReady(id: string): void {
+    this.game.setReady(id);
+    this.flush();
+  }
+
+  /** Si le toca a un bot (tirar, o comprar y dar el listo), lo agenda para dentro de botDelayMs. */
+  private driveBots(): void {
+    if (this.botPending || this.bots.size === 0) return;
+    const g = this.game;
+    const due =
+      (g.phase === "aiming" && g.turnId !== null && this.bots.has(g.turnId)) ||
+      (g.phase === "shop" && [...this.bots].some((id) => !g.ready.has(id)));
+    if (!due) return;
+    this.botPending = true;
+    this.clock.setTimeout(() => {
+      this.botPending = false;
+      this.botAct();
+    }, GameRoom.botDelayMs);
+  }
+
+  private botAct(): void {
+    const g = this.game;
+    if (g.phase === "aiming" && g.turnId !== null && this.bots.has(g.turnId) && g.match) {
+      const shot = pickBotShot(g.match, g.turnId, this.botRng);
+      if (shot) this.onFire(g.turnId, { yaw: shot.yaw, pitch: shot.pitch, power: shot.power, weapon: shot.weapon });
+    } else if (g.phase === "shop") {
+      for (const id of this.bots) {
+        if (g.ready.has(id)) continue;
+        const player = g.playerOf(id);
+        if (player && botWantsMissile(player)) this.onBuy(id, { item: "missile" });
+        this.onReady(id);
+      }
+    }
+  }
+
   onJoin(client: Client, options?: { name?: unknown }): void {
+    // Un bot le deja el lugar a un humano si la sala pasaría de MAX_PLAYERS.
+    const bot = [...this.bots][0];
+    if (bot && this.game.phase === "lobby" && this.game.seats.length >= MAX_PLAYERS) {
+      this.game.removePlayer(bot);
+      this.bots.delete(bot);
+      this.log(`sale ${BOT_NAME}`);
+    }
     const seat = this.game.addPlayer(client.sessionId, options?.name); // tira si ya empezó o está llena
     this.sync();
     this.log(`entra ${seat.name}`);
@@ -142,6 +205,10 @@ export class GameRoom extends Room<{ state: GameState }> {
   onLeave(client: Client): void {
     const name = this.nameOf(client.sessionId);
     this.game.removePlayer(client.sessionId);
+    // Un bot no puede quedar de anfitrión: no arranca la partida.
+    if (this.game.hostId && this.bots.has(this.game.hostId)) {
+      this.game.hostId = this.game.connectedSeats.find((s) => !this.bots.has(s.id))?.id ?? null;
+    }
     this.log(`sale ${name}`);
     this.flush();
   }
@@ -178,6 +245,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     const before = `${this.state.phase}:${this.state.turnId}`;
     this.sync();
     if (`${this.state.phase}:${this.state.turnId}` !== before) this.logTurn();
+    this.driveBots();
   }
 
   private nameOf(id: string): string {

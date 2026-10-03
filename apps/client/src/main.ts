@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Pantallas (HTML), conexión con el server, entrada y loop de Three.js.
-// El cliente manda { yaw, pitch, power, weapon }, { moveTo }, { item } y "listo". Nada más:
+// El cliente manda { yaw, pitch, power, weapon }, { moveTo }, { item }, "listo" y "fillBots". Nada más:
 // daño, impacto, plata y puntaje los decide el server.
 
 import "./style.css";
@@ -41,6 +41,7 @@ const ui = {
   lobbyCode: $("lobby-code"),
   lobbyPlayers: $("lobby-players"),
   start: $<HTMLButtonElement>("btn-start"),
+  fillBots: $<HTMLButtonElement>("btn-bots"),
   lobbyWait: $("lobby-wait"),
   lobbyLeave: $<HTMLButtonElement>("btn-lobby-leave"),
   hudRound: $("hud-round"),
@@ -178,6 +179,7 @@ ui.join.addEventListener("click", joinWithCode);
 ui.code.addEventListener("input", () => (ui.code.value = ui.code.value.toUpperCase()));
 ui.code.addEventListener("keydown", (e) => e.key === "Enter" && joinWithCode());
 ui.start.addEventListener("click", () => room?.send("start"));
+ui.fillBots.addEventListener("click", () => room?.send("fillBots"));
 ui.lobbyLeave.addEventListener("click", () => void leave());
 ui.back.addEventListener("click", () => void leave());
 ui.ready.addEventListener("click", () => room?.send("ready"));
@@ -341,6 +343,9 @@ function renderLobby(): void {
   const host = isMe(s.hostId);
   ui.start.hidden = !host;
   ui.start.disabled = players.length < 2;
+  // Los bots completan hasta 2: con 2 o más ya no hay nada que llenar.
+  ui.fillBots.hidden = !host;
+  ui.fillBots.disabled = players.length >= 2;
   ui.lobbyWait.textContent = host
     ? players.length < 2
       ? "Esperando a que entre al menos otro jugador…"

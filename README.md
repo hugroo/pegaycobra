@@ -120,6 +120,7 @@ de la misma sala podrían caer en servidores distintos.
   | Mensaje | Cuándo | Qué valida el server |
   |---|---|---|
   | `start` | lobby | que sea el anfitrión y haya 2 o más |
+  | `fillBots` | lobby | que sea el anfitrión. Agrega bots hasta llegar a 2 jugadores |
   | `fire { yaw, pitch, power, weapon }` | tu turno | `weapon` es `babyMissile` o `missile` y tenés munición. Cualquier otro campo (daño, impacto, posición) se descarta sin llegar al sim. Otra arma: el mensaje se ignora entero |
   | `move { moveTo: { x, z } }` | tu turno, antes de tirar | que tengas nafta, no te hayas movido ya en el turno, y el destino esté a ≤ 20 celdas, dentro del mapa y no pegado a otro tanque (`validateMove` del sim) |
   | `buy { item }` | tienda | que el ítem exista y te alcance la plata (`cannotBuy` del sim) |
