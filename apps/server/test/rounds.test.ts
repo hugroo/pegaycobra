@@ -1,0 +1,211 @@
+import { describe, expect, it } from "vitest";
+import { FUEL_MOVE_RANGE, INTEREST_RATE, MONEY_START, ROUND_MAX_TURNS, SHOP_ITEMS, SURVIVOR_BONUS } from "@pegaycobra/sim";
+import { Game, parseBuyMessage, parseMoveMessage, SHOP_SECONDS } from "../src/game";
+
+function started(seed = 11, ids = ["A", "B"]) {
+  const g = new Game(30, SHOP_SECONDS);
+  for (const id of ids) g.addPlayer(id, id);
+  g.start(ids[0]!, seed);
+  return g;
+}
+
+/** Mata a `id` a mano y deja vencer el turno: así termina la ronda sin depender de la puntería. */
+function killAndPass(g: Game, id: string) {
+  g.match = { ...g.match!, tanks: g.match!.tanks.map((t) => (t.id === id ? { ...t, life: 0 } : t)) };
+  for (let i = 0; i < 30 && g.phase === "aiming"; i++) g.tickSecond();
+}
+
+const money = (g: Game, id: string) => g.playerOf(id)!.money;
+const inv = (g: Game, id: string) => g.playerOf(id)!.inventory;
+
+describe("rondas", () => {
+  it("arranca en la ronda 1 de 5, sin tienda", () => {
+    const g = started();
+    expect(g.round).toBe(1);
+    expect(g.rounds).toBe(5);
+    expect(g.phase).toBe("aiming");
+    expect(g.buy("A", { item: "missile" })).toBe(false); // la tienda abre entre rondas
+  });
+
+  it("al quedar uno vivo termina la ronda: cobra el que sobrevivió, todos cobran interés, abre la tienda", () => {
+    const g = started();
+    killAndPass(g, "B");
+    expect(g.phase).toBe("shop");
+    expect(g.timeLeft).toBe(SHOP_SECONDS);
+    expect(g.lastRound!.round).toBe(1);
+    expect(g.lastRound!.survivors).toEqual(["A"]);
+    expect(money(g, "A")).toBe(Math.trunc((MONEY_START + SURVIVOR_BONUS) * (1 + INTEREST_RATE)));
+    expect(money(g, "B")).toBe(Math.trunc(MONEY_START * (1 + INTEREST_RATE)));
+  });
+
+  it("si nadie muere, la ronda corta a los 15 tiros por jugador (MaxNumberOfRoundTurns)", () => {
+    const g = started();
+    let ticks = 0;
+    while (g.phase === "aiming" && ticks < 10_000) {
+      g.tickSecond();
+      ticks++;
+    }
+    expect(g.phase).toBe("shop");
+    expect(ticks).toBe(30 * ROUND_MAX_TURNS * 2);
+    expect(g.lastRound!.survivors.sort()).toEqual(["A", "B"]); // los dos cobran por sobrevivir
+  });
+
+  it("la ronda siguiente tiene viento sorteado de nuevo, terreno nuevo y vida llena", () => {
+    const g = started(5);
+    const wind1 = g.match!.wind;
+    const terrain1 = g.match!.terrain;
+    const winds = [`${wind1.x},${wind1.z}`];
+    for (let r = 2; r <= 5; r++) {
+      killAndPass(g, "B");
+      g.setReady("A");
+      g.setReady("B");
+      expect(g.round).toBe(r);
+      expect(g.phase).toBe("aiming");
+      expect(g.match!.terrain).not.toBe(terrain1);
+      expect(g.match!.tanks.every((t) => t.life === 100)).toBe(true);
+      winds.push(`${g.match!.wind.x},${g.match!.wind.z}`);
+    }
+    expect(new Set(winds).size).toBeGreaterThan(1);
+  });
+
+  it("la tienda dura 20 s; al vencer empieza la ronda siguiente", () => {
+    const g = started();
+    killAndPass(g, "B");
+    for (let i = 0; i < SHOP_SECONDS - 1; i++) g.tickSecond();
+    expect(g.phase).toBe("shop");
+    g.tickSecond();
+    expect(g.phase).toBe("aiming");
+    expect(g.round).toBe(2);
+  });
+
+  it("empieza un jugador distinto cada ronda", () => {
+    const g = started();
+    const first1 = g.turnId;
+    killAndPass(g, "B");
+    g.setReady("A");
+    g.setReady("B");
+    expect(g.turnId).not.toBe(first1);
+  });
+});
+
+describe("tienda", () => {
+  it("compra con la plata de cada uno y no deja comprar de más", () => {
+    const g = started();
+    killAndPass(g, "B");
+    const before = money(g, "B"); // 11500
+    expect(g.buy("B", { item: "missile" })).toBe(true);
+    expect(money(g, "B")).toBe(before - SHOP_ITEMS.missile.price);
+    expect(inv(g, "B").missile).toBe(3);
+    let bought = 1;
+    while (g.buy("B", { item: "missile" })) bought++;
+    expect(money(g, "B")).toBeGreaterThanOrEqual(0);
+    expect(money(g, "B")).toBeLessThan(SHOP_ITEMS.missile.price);
+    expect(bought).toBe(Math.floor(before / SHOP_ITEMS.missile.price));
+    expect(g.buy("B", { item: "nuke" })).toBe(false);
+    expect(parseBuyMessage({ item: "babyMissile" })).toBeNull();
+  });
+
+  it("si todos tocan listo, la tienda cierra antes", () => {
+    const g = started();
+    killAndPass(g, "B");
+    g.setReady("A");
+    expect(g.phase).toBe("shop");
+    g.setReady("B");
+    expect(g.phase).toBe("aiming");
+  });
+});
+
+describe("Missile en partida", () => {
+  it("sin Missiles el tiro se ignora; con Missiles se gasta uno y la Baby no se gasta", () => {
+    const g = started();
+    const shooter = g.turnId!;
+    expect(g.fire(shooter, { yaw: 0, pitch: 60, power: 300, weapon: "missile" })).toBeNull();
+    // le damos Missiles a mano (como si los hubiera comprado)
+    g.match = { ...g.match!, players: g.match!.players.map((p) => (p.id === shooter ? { ...p, inventory: { ...p.inventory, missile: 3 } } : p)) };
+    const shot = g.fire(shooter, { yaw: g.aims.get(shooter)!.yaw, pitch: 60, power: 300, weapon: "missile" });
+    expect(shot?.weapon).toBe("missile");
+    expect(inv(g, shooter).missile).toBe(2); // ya se ve gastado mientras vuela
+    g.finishShot();
+    expect(inv(g, shooter).missile).toBe(2);
+    expect(inv(g, shooter).babyMissile).toBe(-1);
+  });
+});
+
+describe("nafta", () => {
+  function fueled() {
+    const g = started();
+    const id = g.turnId!;
+    g.match = { ...g.match!, players: g.match!.players.map((p) => (p.id === id ? { ...p, inventory: { ...p.inventory, fuel: 2 } } : p)) };
+    const t = g.match!.tanks.find((tk) => tk.id === id)!;
+    return { g, id, t };
+  }
+
+  it("mueve el tanque antes de tirar, una vez por turno, y gasta una carga", () => {
+    const { g, id, t } = fueled();
+    const to = { x: t.x + 10, z: t.z };
+    const moved = g.move(id, { moveTo: to });
+    expect(moved).not.toBeNull();
+    expect(g.match!.tanks.find((tk) => tk.id === id)!.x).toBeCloseTo(t.x + 10, 5);
+    expect(inv(g, id).fuel).toBe(1);
+    expect(g.move(id, { moveTo: { x: t.x + 12, z: t.z } })).toBeNull(); // segunda vez en el turno
+    expect(g.phase).toBe("aiming"); // sigue pudiendo tirar
+    expect(g.fire(id, { yaw: 0, pitch: 60, power: 300 })).not.toBeNull();
+  });
+
+  it("el server rechaza destinos más lejos de N, sin nafta o de otro jugador", () => {
+    const { g, id, t } = fueled();
+    expect(g.move(id, { moveTo: { x: t.x + FUEL_MOVE_RANGE + 1, z: t.z } })).toBeNull();
+    const other = g.seats.find((s) => s.id !== id)!.id;
+    expect(g.move(other, { moveTo: { x: t.x, z: t.z } })).toBeNull(); // no es su turno
+    expect(g.match!.tanks.find((tk) => tk.id === id)!.x).toBe(t.x);
+    expect(parseMoveMessage({ moveTo: { x: "1", z: 2 } })).toBeNull();
+    expect(parseMoveMessage({ x: 1, z: 2 })).toBeNull();
+  });
+});
+
+describe("fin de partida", () => {
+  it("después de la ronda 5 gana el de más puntos, no el de más plata", () => {
+    const g = started();
+    for (let r = 1; r <= 5; r++) {
+      if (r > 1) {
+        g.setReady("A");
+        g.setReady("B");
+      }
+      // B junta puntos a mano; A sobrevive todas las rondas y junta más plata.
+      g.board = { ...g.board, B: { points: g.board.B!.points + 30, kills: 0, damage: g.board.B!.damage + 30 } };
+      killAndPass(g, "B");
+    }
+    expect(g.phase).toBe("ended");
+    expect(g.endReason).toBe("rounds");
+    expect(money(g, "A")).toBeGreaterThan(money(g, "B"));
+    expect(g.winnerId).toBe("B");
+    expect(g.winners).toEqual(["B"]);
+  });
+
+  it("empate en puntos: no hay ganador único", () => {
+    const g = started();
+    for (let r = 1; r <= 5; r++) {
+      if (r > 1) {
+        g.setReady("A");
+        g.setReady("B");
+      }
+      killAndPass(g, "B");
+    }
+    expect(g.phase).toBe("ended");
+    expect(g.winnerId).toBeNull();
+    expect(g.winners.sort()).toEqual(["A", "B"]);
+  });
+
+  it("si se van todos menos uno, ese gana aunque sea en la tienda", () => {
+    const g = started(3, ["A", "B", "C"]);
+    killAndPass(g, "C");
+    killAndPass(g, "B");
+    expect(g.phase).toBe("shop");
+    g.removePlayer("B");
+    expect(g.phase).toBe("shop");
+    g.removePlayer("C");
+    expect(g.phase).toBe("ended");
+    expect(g.endReason).toBe("forfeit");
+    expect(g.winnerId).toBe("A");
+  });
+});

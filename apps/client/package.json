@@ -1,0 +1,23 @@
+{
+  "name": "@pegaycobra/client",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-2.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@colyseus/sdk": "^0.18.4",
+    "@pegaycobra/sim": "workspace:*",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "typescript": "^5.9.0",
+    "vite": "^8.3.0"
+  }
+}

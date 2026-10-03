@@ -1,0 +1,6 @@
+{
+  // Los tests importan vitest, cuyos tipos pueden arrastrar tipos de Node.
+  // Por eso van aparte: así no aflojan el guard de tsconfig.json sobre src.
+  "extends": "./tsconfig.json",
+  "include": ["src", "test"]
+}

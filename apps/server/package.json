@@ -1,0 +1,28 @@
+{
+  "name": "@pegaycobra/server",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-2.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@pegaycobra/sim": "workspace:*",
+    "@colyseus/core": "^0.18.18",
+    "@colyseus/schema": "^5.0.35",
+    "@colyseus/ws-transport": "^0.18.4",
+    "express": "^5.2.1",
+    "tsx": "^4.23.0"
+  },
+  "devDependencies": {
+    "@colyseus/sdk": "^0.18.4",
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

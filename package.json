@@ -1,0 +1,16 @@
+{
+  "name": "pegaycobra",
+  "private": true,
+  "license": "GPL-2.0-or-later",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @pegaycobra/server --filter @pegaycobra/client dev",
+    "build": "pnpm --filter @pegaycobra/client build",
+    "start": "pnpm --filter @pegaycobra/server start",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

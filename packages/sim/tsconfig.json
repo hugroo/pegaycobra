@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Solo ES2022 y ningún @types global: si src usa `document`, `window`,
+    // `process` o `Buffer`, no compila.
+    "lib": ["ES2022"],
+    "types": []
+  },
+  "include": ["src"]
+}

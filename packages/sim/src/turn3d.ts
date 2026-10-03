@@ -1,0 +1,226 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Partida en 3D: viento vectorial, ubicación de tanques, caída y resolución de un disparo.
+// Mismas reglas que turn.ts (perfil), sobre el terreno width × depth:
+//   tiro (shot3d.ts) → cráter en disco (terrain.ts) → daño de explosión (damage.ts)
+//   → caídas y daño de caída → plata para quien disparó (economy.ts).
+// Orígenes: Explosion.cpp, TargetDamageCalc.cpp, TargetDamage.cpp, TargetFalling.cpp, Wind.cpp.
+
+import { TANK_RADIUS } from "./constants";
+import { applyDamage, explosionDamage, fallDamage, isAlive, type Tank } from "./damage";
+import { canFire, clampMoney, consumeAmmo, moneyForDamage } from "./economy";
+import { TANK_START_HEIGHT_MAX, TANK_START_HEIGHT_MIN } from "./match";
+import { simulateShot3D, type Shot3DResult, type Wind } from "./shot3d";
+import {
+  applyCraterTerrain,
+  flattenTerrainUnder,
+  terrainHeightAt,
+  type Terrain,
+} from "./terrain";
+import type { DamageEvent, Player } from "./turn";
+import { isPlayable, WEAPONS, type WeaponId } from "./weapons";
+
+/** Tanque en 3D. (x, y, z) es la base [wu]; y es la altura. */
+export interface Tank3D extends Tank {
+  readonly z: number;
+}
+
+export interface MatchState3D {
+  readonly terrain: Terrain;
+  readonly wind: Wind;
+  readonly tanks: readonly Tank3D[];
+  readonly players: readonly Player[];
+}
+
+export interface FireCommand3D {
+  playerId: string;
+  /** [grados] 0 = +X, 90 = +Z */
+  yaw: number;
+  /** [grados] 0..90 */
+  pitch: number;
+  /** [0, POWER_MAX] */
+  power: number;
+  weaponId?: WeaponId;
+}
+
+export interface FallEvent3D {
+  tankId: string;
+  fromY: number;
+  toY: number;
+  distance: number;
+  /** El tanque tenía paracaídas activo: la caída no hizo daño. */
+  parachute: boolean;
+}
+
+export interface TurnResult3D {
+  state: MatchState3D;
+  shot: Shot3DResult;
+  damage: DamageEvent[];
+  falls: FallEvent3D[];
+}
+
+/**
+ * Viento de la ronda como vector en XZ. Wind::newLevel() (WindRandom):
+ * velocidad = trunc(rand · 5.9) → 0..5; ángulo = rand · 360°; dirección = (sin a, cos a).
+ * El "y" del piso del original es nuestro z.
+ */
+export function rollWind3D(rng: () => number): Wind {
+  const speed = Math.trunc(rng() * 5.9);
+  if (speed <= 0) return { x: 0, z: 0 };
+  const a = (rng() * 360 * Math.PI) / 180;
+  return { x: speed * Math.sin(a), z: speed * Math.cos(a) };
+}
+
+/** Distancia mínima garantizada entre tanques al empezar. [wu = celdas] */
+export const TANK_MIN_SEPARATION_3D = 60;
+
+/**
+ * Ubica `count` tanques lejos entre sí. Regla propia (el placeTank() del original es al azar y
+ * no garantiza distancia): los tanques van sobre un anillo alrededor del centro, repartidos en
+ * ángulos iguales con un giro al azar, y cada uno se corre un poco al azar buscando suelo en
+ * [5.5, 70] (defnhilly.xml). Si un candidato queda a menos de TANK_MIN_SEPARATION_3D de otro,
+ * se descarta; si no aparece ninguno bueno, queda el punto exacto del anillo.
+ * Con el anillo a 0.36 del ancho, la cuerda entre vecinos es ≥ 130 wu con 4 jugadores.
+ */
+export function placeTanks3D(terrain: Terrain, count: number, rng: () => number): { x: number; z: number }[] {
+  const cx = (terrain.width - 1) / 2;
+  const cz = (terrain.depth - 1) / 2;
+  const radius = Math.min(cx, cz) * 0.72;
+  const spin = rng() * Math.PI * 2;
+  const step = (Math.PI * 2) / Math.max(1, count);
+  const placed: { x: number; z: number }[] = [];
+  for (let n = 0; n < count; n++) {
+    const base = spin + step * n;
+    let pick = { x: cx + Math.cos(base) * radius, z: cz + Math.sin(base) * radius };
+    for (let i = 0; i < 60; i++) {
+      const a = base + (rng() - 0.5) * step * 0.3;
+      const r = radius * (0.85 + rng() * 0.25);
+      const cand = { x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r };
+      const h = terrainHeightAt(terrain, cand.x, cand.z);
+      if (h < TANK_START_HEIGHT_MIN || h > TANK_START_HEIGHT_MAX) continue;
+      if (placed.some((p) => Math.hypot(p.x - cand.x, p.z - cand.z) < TANK_MIN_SEPARATION_3D)) continue;
+      pick = cand;
+      break;
+    }
+    placed.push(pick);
+  }
+  return placed;
+}
+
+export function tanks3DAt(
+  terrain: Terrain,
+  ids: readonly string[],
+  spots: readonly { x: number; z: number }[],
+  life: number,
+): Tank3D[] {
+  return ids.map((id, i) => {
+    const { x, z } = spots[i]!;
+    return { id, x, y: terrainHeightAt(terrain, x, z), z, life };
+  });
+}
+
+/** Distancia del punto a la superficie de la esfera del tanque (0 adentro). [wu] */
+export function collisionDistance3D(t: Tank3D, px: number, py: number, pz: number): number {
+  return Math.max(0, Math.hypot(px - t.x, py - (t.y + TANK_RADIUS), pz - t.z) - TANK_RADIUS);
+}
+
+/** Si el suelo quedó por debajo de la base, el tanque cae, se aplana el piso y se calcula el daño. */
+export function settleTank3D(
+  terrain: Terrain,
+  tank: Tank3D,
+): { terrain: Terrain; tank: Tank3D; fall?: { fromY: number; toY: number; distance: number; damage: number } } {
+  if (!isAlive(tank)) return { terrain, tank };
+  const ground = terrainHeightAt(terrain, tank.x, tank.z);
+  if (!(ground < tank.y)) return { terrain, tank };
+  const distance = tank.y - ground;
+  const y = Math.fround(ground);
+  return {
+    terrain: flattenTerrainUnder(terrain, tank.x, y, tank.z),
+    tank: { ...tank, y },
+    fall: { fromY: tank.y, toY: ground, distance, damage: fallDamage(distance) },
+  };
+}
+
+/**
+ * Resuelve un disparo 3D. Mismas validaciones que resolveTurn: jugador vivo, arma jugable
+ * (solo Baby Missile) y con munición. No recibe daño ni impacto: los calcula.
+ */
+export function resolveTurn3D(
+  state: MatchState3D,
+  cmd: FireCommand3D,
+  options: { recordPath?: boolean } = {},
+): TurnResult3D {
+  const weaponId = cmd.weaponId ?? "babyMissile";
+  if (!isPlayable(weaponId)) throw new Error(`arma no jugable en el MVP: ${weaponId}`);
+  const weapon = WEAPONS[weaponId];
+
+  const shooterIdx = state.players.findIndex((p) => p.id === cmd.playerId);
+  const shooterPlayer = state.players[shooterIdx];
+  const shooterTank = state.tanks.find((t) => t.id === cmd.playerId);
+  if (!shooterPlayer || !shooterTank) throw new Error(`jugador desconocido: ${cmd.playerId}`);
+  if (!isAlive(shooterTank)) throw new Error(`el tanque de ${cmd.playerId} está muerto`);
+  if (!canFire(shooterPlayer.inventory, weaponId)) throw new Error(`sin munición de ${weaponId}`);
+
+  const shot = simulateShot3D(
+    state.terrain,
+    {
+      originX: shooterTank.x,
+      originY: shooterTank.y,
+      originZ: shooterTank.z,
+      yaw: cmd.yaw,
+      pitch: cmd.pitch,
+      power: cmd.power,
+      wind: state.wind,
+      windFactor: weapon.windFactor,
+      gravityFactor: weapon.gravityFactor,
+      shooterId: shooterTank.id,
+    },
+    state.tanks.filter(isAlive),
+    { recordPath: options.recordPath ?? false },
+  );
+
+  let terrain = state.terrain;
+  const tanks = state.tanks.slice();
+  let money = shooterPlayer.money;
+  const damage: DamageEvent[] = [];
+  const falls: FallEvent3D[] = [];
+
+  const hurt = (i: number, amount: number, cause: DamageEvent["cause"]) => {
+    const target = tanks[i]!;
+    const r = applyDamage(target, amount);
+    if (r.dealt <= 0) return;
+    tanks[i] = r.tank;
+    const reward = moneyForDamage({
+      damage: r.dealt,
+      killed: r.killed,
+      armsLevel: weapon.armsLevel,
+      friendly: target.id === shooterTank.id,
+    });
+    money = clampMoney(money + reward);
+    damage.push({ targetId: target.id, cause, damage: r.dealt, killed: r.killed, money: reward });
+  };
+
+  if (shot.outcome === "ground" || shot.outcome === "tank") {
+    terrain = applyCraterTerrain(terrain, shot.x, shot.y, shot.z, weapon.craterRadius);
+    for (let i = 0; i < tanks.length; i++) {
+      const t = tanks[i]!;
+      if (!isAlive(t)) continue;
+      hurt(i, explosionDamage(collisionDistance3D(t, shot.x, shot.y, shot.z), weapon.explosionRadius, weapon.hurtAmount), "explosion");
+    }
+    for (let i = 0; i < tanks.length; i++) {
+      const s = settleTank3D(terrain, tanks[i]!);
+      if (!s.fall) continue;
+      terrain = s.terrain;
+      tanks[i] = s.tank;
+      // TargetFalling::collision(): con paracaídas el daño de caída es 0. Acá el paracaídas dura
+      // toda la ronda (campaign.ts), así que no se gasta por caída.
+      const owner = state.players.find((p) => p.id === s.tank.id);
+      const parachute = (owner?.inventory.parachute ?? 0) > 0;
+      falls.push({ tankId: s.tank.id, fromY: s.fall.fromY, toY: s.fall.toY, distance: s.fall.distance, parachute });
+      hurt(i, parachute ? 0 : s.fall.damage, "fall");
+    }
+  }
+
+  const players = state.players.slice();
+  players[shooterIdx] = { ...shooterPlayer, money, inventory: consumeAmmo(shooterPlayer.inventory, weaponId) };
+  return { state: { ...state, terrain, tanks, players }, shot, damage, falls };
+}

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pega y Cobra</title>
+  </head>
+  <body>
+    <!-- Pantalla 1: crear o entrar -->
+    <section id="screen-home" class="screen">
+      <div class="card">
+        <h1>Pega y Cobra</h1>
+        <p class="sub">Artillería por turnos, de 2 a 4 jugadores.</p>
+        <label>Tu nombre <input id="name" maxlength="16" placeholder="Jugador" autocomplete="off" /></label>
+        <button id="btn-create" class="primary">Crear sala</button>
+        <div class="or">o entrá con un código</div>
+        <div class="row">
+          <input id="code" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false" />
+          <button id="btn-join">Entrar</button>
+        </div>
+        <p id="home-error" class="error" role="alert"></p>
+      </div>
+    </section>
+
+    <!-- Pantalla 2: sala de espera -->
+    <section id="screen-lobby" class="screen" hidden>
+      <div class="card">
+        <p class="sub">Código de la sala</p>
+        <div id="lobby-code" class="code"></div>
+        <p class="hint">Pasale este código a los demás. Hacen falta entre 2 y 4 jugadores.</p>
+        <ul id="lobby-players" class="players"></ul>
+        <button id="btn-start" class="primary">Arrancar</button>
+        <p id="lobby-wait" class="hint"></p>
+        <button id="btn-lobby-leave" class="ghost">Salir</button>
+      </div>
+    </section>
+
+    <!-- Pantalla 3: partida -->
+    <section id="screen-game" class="screen game" hidden>
+      <header class="hud">
+        <div class="hud-round"><span class="lbl">Ronda</span> <span id="hud-round">1/5</span></div>
+        <div class="hud-turn-wrap">
+          <span id="hud-turn-dot" class="turn-dot"></span>
+          <div id="hud-turn" class="hud-turn"></div>
+          <div class="hud-time"><span id="hud-time">30</span><small>s</small></div>
+        </div>
+        <div class="hud-wind" title="La flecha celeste en el piso marca hacia dónde sopla">
+          <span class="lbl">Viento</span>
+          <span id="hud-wind">0</span>
+        </div>
+        <div class="hud-mine">
+          <span class="money" id="hud-money">$0</span>
+          <span id="hud-inv" class="inv"></span>
+        </div>
+        <div class="hud-small"><span class="lbl">Sala</span> <span id="hud-code"></span></div>
+      </header>
+      <div class="field">
+        <div id="viewport" class="viewport"></div>
+        <ul id="hud-players" class="hud-players"></ul>
+        <div id="banner" class="banner" hidden></div>
+
+        <!-- Tienda entre rondas: la ven todos, cada uno compra con su plata -->
+        <div id="shop" class="overlay" hidden>
+          <div class="card shop-card">
+            <div class="shop-head">
+              <h2 id="shop-title">Tienda</h2>
+              <div class="shop-time"><span id="shop-time">20</span><small>s</small></div>
+            </div>
+            <div id="shop-summary" class="summary"></div>
+            <div class="shop-money">Tu plata: <b id="shop-money">$0</b> · <span id="shop-inv" class="inv"></span></div>
+            <div id="shop-items" class="items"></div>
+            <p id="shop-error" class="error" role="alert"></p>
+            <button id="btn-ready" class="primary">Listo</button>
+            <p class="hint">La próxima ronda arranca cuando todos tocan Listo o se termina el tiempo.</p>
+          </div>
+        </div>
+
+        <!-- Fin de partida: tabla de puntos -->
+        <div id="overlay" class="overlay" hidden>
+          <div class="card end-card">
+            <h2 id="overlay-title"></h2>
+            <p id="overlay-sub" class="sub"></p>
+            <table class="scores">
+              <thead><tr><th>#</th><th>Jugador</th><th>Puntos</th><th>Kills</th><th>Daño</th><th>Plata</th></tr></thead>
+              <tbody id="scores-body"></tbody>
+            </table>
+            <button id="btn-back" class="primary">Volver al lobby</button>
+          </div>
+        </div>
+      </div>
+      <footer class="controls">
+        <div class="weapons" role="radiogroup" aria-label="Arma">
+          <button id="w-baby" class="weapon on" role="radio" aria-checked="true">Baby Missile <small>∞</small></button>
+          <button id="w-missile" class="weapon" role="radio" aria-checked="false">Missile <small id="w-missile-n">×0</small></button>
+        </div>
+        <button id="btn-fuel" class="fuel" title="Mové el tanque antes de tirar">Nafta <small id="fuel-n">×0</small></button>
+        <div class="ctl"><span class="lbl">Giro</span> <output id="yaw-out">0°</output></div>
+        <div class="ctl"><span class="lbl">Elevación</span> <output id="pitch-out">45°</output></div>
+        <div class="ctl power">
+          <span class="lbl">Potencia</span>
+          <input id="power" type="range" min="0" max="1000" step="5" value="500" />
+          <output id="power-out">500</output>
+        </div>
+        <button id="btn-fire" class="primary fire">Tirar</button>
+        <div class="keys">
+          Arrastrá con el botón izquierdo para girar y elevar el cañón · rueda o barra: potencia ·
+          1 / 2: arma · N: nafta (clic en el piso) · Espacio tira · botón derecho: cámara · Shift + rueda: zoom
+        </div>
+      </footer>
+    </section>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
