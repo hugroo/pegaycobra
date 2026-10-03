@@ -18,6 +18,7 @@ import {
   type ShopItemId,
   type Terrain,
 } from "@pegaycobra/sim";
+import { Minimap, type MiniModel } from "./minimap";
 import { LINGER_MS, SLOT_COLORS, World, type GhostModel, type MoveModel, type ShotModel, type TankModel } from "./scene3d";
 
 const ROOM_NAME = "pegaycobra";
@@ -77,10 +78,12 @@ const ui = {
   powerOut: $("power-out"),
   fire: $<HTMLButtonElement>("btn-fire"),
   viewport: $("viewport"),
+  minimap: $<HTMLCanvasElement>("minimap"),
 };
 
 const client = new Client(SERVER_URL);
 let world: World | null = null; // se crea al entrar a la primera partida (WebGL recién ahí)
+const minimap = new Minimap(ui.minimap);
 
 let room: Room<any> | null = null;
 let aim = { yaw: 0, pitch: 45, power: 500 };
@@ -89,6 +92,8 @@ let moveMode = false;
 let moveHover: MoveModel["hover"] = null;
 let terrain: Terrain | null = null;
 let shotAnim: ShotModel | null = null;
+/** Dónde terminó el último tiro real (último punto del "shot" del server). Lo usa el minimapa. */
+let lastImpact: (NonNullable<MiniModel["impact"]> & { at: number }) | null = null;
 let leavingOnPurpose = false;
 /** Se apaga la fantasma desde que apretás Tirar hasta tu próximo turno. */
 let ghostOff = false;
@@ -211,6 +216,7 @@ function onTerrain(m: TerrainMessage): void {
   }
   terrainVersion++;
   const full = m.w === m.width && m.d === m.depth;
+  if (full) lastImpact = null; // ronda nueva
   world ??= new World(ui.viewport);
   world.setTerrain(terrain, full ? undefined : { x0: m.x0, z0: m.z0, w: m.w, d: m.d }, full);
 }
@@ -226,6 +232,7 @@ function attach(r: Room<any>): void {
   room = r;
   leavingOnPurpose = false;
   shotAnim = null;
+  lastImpact = null;
   terrain = null;
   ghostOff = false;
   lastTurnKey = "";
@@ -254,6 +261,11 @@ function attach(r: Room<any>): void {
         explodes: m.outcome === "ground" || m.outcome === "tank",
         radius: (WEAPONS[m.weapon] ?? WEAPONS.babyMissile).explosionRadius,
       };
+      const n = m.path.length;
+      lastImpact =
+        n >= 3
+          ? { x: m.path[n - 3]!, z: m.path[n - 1]!, lands: shotAnim.explodes, slot: shotAnim.slot, at: shotAnim.start + m.durationMs }
+          : null;
       if (m.weapon === "missile") showBanner(`${shooter?.name ?? "?"} tira un Missile`, 1400);
       if (m.outcome === "offmap" || m.outcome === "timeout") {
         // Todas las pestañas reciben el mismo "shot": todas muestran que se fue.
@@ -751,7 +763,13 @@ function computeGhost(mine: TankModel | undefined, tanks: TankModel[], wind: { x
       { recordPath: true },
     );
     const lands = r.outcome === "ground" || r.outcome === "tank";
-    ghostCache = { path: r.path ?? [], impact: lands ? { x: r.x, y: r.y, z: r.z } : null, shooter: mine, radius: w.explosionRadius };
+    ghostCache = {
+      path: r.path ?? [],
+      impact: lands ? { x: r.x, y: r.y, z: r.z } : null,
+      gone: !lands,
+      shooter: mine,
+      radius: w.explosionRadius,
+    };
   }
   if (ghostCache) ghostCache.shooter = mine;
   return ghostCache;
@@ -795,13 +813,31 @@ function frame(now: number): void {
   if (shotAnim && now - shotAnim.start > shotAnim.durationMs + LINGER_MS && s.phase !== "animating") shotAnim = null;
 
   const myTank = tanks.find((t) => t.isMe);
+  const ghost = moveMode ? null : computeGhost(myTank, tanks, wind);
   world.render({
     tanks,
-    ghost: moveMode ? null : computeGhost(myTank, tanks, wind),
+    ghost,
     shot: shotAnim,
     wind,
     move: moveMode && myTank ? { center: { x: myTank.x, z: myTank.z }, range: FUEL_MOVE_RANGE, hover: moveHover } : null,
     now,
+  });
+
+  // Minimapa: mismo terreno, mismos tanques y el mismo "shot" que la vista 3D.
+  let ball: MiniModel["ball"] = null;
+  if (shotAnim && shotAnim.path.length >= 3 && now < shotAnim.start + shotAnim.durationMs) {
+    const n = shotAnim.path.length / 3;
+    const i = Math.min(n - 1, Math.floor(((now - shotAnim.start) / Math.max(1, shotAnim.durationMs)) * (n - 1)));
+    ball = { x: shotAnim.path[i * 3]!, z: shotAnim.path[i * 3 + 2]! };
+  }
+  minimap.draw({
+    terrain: terrain!,
+    terrainVersion,
+    tanks: tanks.map((t) => ({ x: t.x, z: t.z, slot: t.slot, alive: t.life > 0, isMe: t.isMe })),
+    wind,
+    ghost: ghost ? { path: ghost.path, lands: !ghost.gone, slot: ghost.shooter.slot } : null,
+    ball,
+    impact: lastImpact && now >= lastImpact.at ? lastImpact : null,
   });
 }
 requestAnimationFrame(frame);

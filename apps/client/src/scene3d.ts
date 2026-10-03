@@ -39,6 +39,8 @@ export interface GhostModel {
   /** [x, y, z, ...] del sim. */
   path: number[];
   impact: { x: number; y: number; z: number } | null;
+  /** El tiro no termina en el mapa (sale por un borde o se agota): la fantasma cierra en "se fue". */
+  gone: boolean;
   shooter: TankModel;
   /** Radio de explosión del arma elegida. [wu] */
   radius: number;
@@ -78,7 +80,12 @@ interface TankView {
   label: CSS2DObject;
   labelEl: HTMLDivElement;
   nameEl: HTMLSpanElement;
+  distEl: HTMLElement;
   barEl: HTMLElement;
+  /** Flecha en el borde de la pantalla, para cuando el tanque queda fuera de cámara. */
+  edgeEl: HTMLDivElement;
+  edgeArrow: HTMLElement;
+  edgeText: HTMLElement;
   marker: THREE.Mesh;
   slot: number;
 }
@@ -88,6 +95,7 @@ const rad = (d: number) => (d * Math.PI) / 180;
 export class World {
   readonly renderer: THREE.WebGLRenderer;
   private readonly labels: CSS2DRenderer;
+  private readonly edgeLayer: HTMLDivElement;
   private readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(50, 1, 0.5, 3000);
   private terrain: Terrain | null = null;
@@ -98,6 +106,7 @@ export class World {
 
   private readonly ghostLine: THREE.Line;
   private readonly ghostRing: THREE.Mesh;
+  private readonly ghostGone: CSS2DObject;
   private readonly moveRing: THREE.Mesh;
   private readonly moveMarker: THREE.Mesh;
   private readonly shotLine: THREE.Line;
@@ -124,6 +133,9 @@ export class World {
     this.labels = new CSS2DRenderer();
     this.labels.domElement.className = "labels";
     host.appendChild(this.labels.domElement);
+    this.edgeLayer = document.createElement("div");
+    this.edgeLayer.className = "edge-layer";
+    host.appendChild(this.edgeLayer);
 
     this.scene.background = new THREE.Color("#0f1c2e");
     this.scene.fog = new THREE.Fog("#0f1c2e", 260, 700);
@@ -160,6 +172,13 @@ export class World {
     );
     this.ghostRing.renderOrder = 10;
     this.scene.add(this.ghostRing);
+
+    const goneEl = document.createElement("div");
+    goneEl.className = "ghost-gone";
+    goneEl.textContent = "se fue";
+    this.ghostGone = new CSS2DObject(goneEl);
+    this.ghostGone.visible = false;
+    this.scene.add(this.ghostGone);
 
     // Nafta: anillo de alcance (radio 1, se escala) y marcador del destino.
     this.moveRing = new THREE.Mesh(
@@ -251,7 +270,15 @@ export class World {
         // Quemado: lo que bajó un cráter queda oscuro (en el original, DeformTextures + scorch).
         if (!newRound && now < before - 0.05) this.scorch[i] = Math.min(1, (this.scorch[i] ?? 0) + Math.min(1, (before - now) / 3));
         pos.setY(i, now);
-        terrainColor(now, this.scorch[i] ?? 0, c);
+      }
+    }
+    // El color depende de la pendiente, que mira a los vecinos: se repinta una celda más allá del parche.
+    const x1 = Math.min(t.width, r.x0 + r.w + 1);
+    const z1 = Math.min(t.depth, r.z0 + r.d + 1);
+    for (let z = Math.max(0, r.z0 - 1); z < z1; z++) {
+      for (let x = Math.max(0, r.x0 - 1); x < x1; x++) {
+        const i = x + z * t.width;
+        terrainColor(t, x, z, this.scorch[i] ?? 0, c);
         col.setXYZ(i, c.r, c.g, c.b);
       }
     }
@@ -276,7 +303,7 @@ export class World {
         positions[i * 3] = x;
         positions[i * 3 + 1] = heights[i]!;
         positions[i * 3 + 2] = z;
-        heightColor(heights[i]!, c);
+        terrainColor(t, x, z, 0, c);
         colors[i * 3] = c.r;
         colors[i * 3 + 1] = c.g;
         colors[i * 3 + 2] = c.b;
@@ -450,13 +477,23 @@ export class World {
     const barEl = document.createElement("b");
     barEl.style.background = SLOT_COLORS[m.slot] ?? "#ccc";
     bar.append(barEl);
-    labelEl.append(nameEl, bar);
+    const distEl = document.createElement("small");
+    labelEl.append(nameEl, bar, distEl);
     const label = new CSS2DObject(labelEl);
     label.position.set(0, 3.6, 0);
     root.add(label);
 
+    const edgeEl = document.createElement("div");
+    edgeEl.className = "edge-marker";
+    edgeEl.style.color = SLOT_COLORS[m.slot] ?? "#ccc";
+    const edgeArrow = document.createElement("i");
+    const edgeText = document.createElement("span");
+    edgeEl.append(edgeArrow, edgeText);
+    edgeEl.hidden = true;
+    this.edgeLayer.appendChild(edgeEl);
+
     this.scene.add(root);
-    v = { root, yawG, pitchG, bodyMat, label, labelEl, nameEl, barEl, marker, slot: m.slot };
+    v = { root, yawG, pitchG, bodyMat, label, labelEl, nameEl, distEl, barEl, edgeEl, edgeArrow, edgeText, marker, slot: m.slot };
     this.tanks.set(m.id, v);
     return v;
   }
@@ -484,8 +521,53 @@ export class World {
       if (!seen.has(id)) {
         this.scene.remove(v.root);
         v.labelEl.remove();
+        v.edgeEl.remove();
         this.tanks.delete(id);
       }
+    }
+  }
+
+  /**
+   * Marcador de rivales: si el tanque está en cuadro, su cartel muestra nombre y distancia; si
+   * quedó fuera de cámara, una flecha pegada al borde de la pantalla apunta hacia él.
+   * Se llama después de mover la cámara.
+   */
+  private syncRivalMarkers(models: TankModel[]): void {
+    const me = models.find((t) => t.isMe);
+    const w = this.host.clientWidth;
+    const h = this.host.clientHeight;
+    this.camera.updateMatrixWorld();
+    const view = this.camera.matrixWorldInverse.copy(this.camera.matrixWorld).invert();
+    const p = new THREE.Vector3();
+    for (const m of models) {
+      const v = this.tanks.get(m.id);
+      if (!v) continue;
+      const rival = !m.isMe && m.life > 0;
+      const dist = me ? `${Math.round(Math.hypot(m.x - me.x, m.y - me.y, m.z - me.z))} m` : "";
+      v.distEl.textContent = rival ? dist : "";
+      if (!rival) {
+        v.edgeEl.hidden = true;
+        continue;
+      }
+      // Se mide a la altura del cartel: si el cartel no entra entero en cuadro, va la flecha.
+      p.set(m.x, m.y + 5, m.z).applyMatrix4(view);
+      const behind = p.z > -this.camera.near;
+      p.applyMatrix4(this.camera.projectionMatrix);
+      // Detrás de la cámara la proyección sale espejada: se da vuelta para que la flecha apunte bien.
+      const nx = behind ? -p.x : p.x;
+      let ny = behind ? -p.y : p.y;
+      if (!behind && Math.abs(nx) < 0.92 && ny > -0.96 && ny < 0.84) {
+        v.edgeEl.hidden = true;
+        continue;
+      }
+      if (Math.abs(nx) < 1e-3 && Math.abs(ny) < 1e-3) ny = -1;
+      const dx = nx * (w / 2);
+      const dy = -ny * (h / 2);
+      const k = Math.min((w / 2 - 70) / Math.max(1e-3, Math.abs(dx)), (h / 2 - 38) / Math.max(1e-3, Math.abs(dy)));
+      v.edgeEl.style.transform = `translate(${w / 2 + dx * k}px, ${h / 2 + dy * k}px) translate(-50%, -50%)`;
+      v.edgeArrow.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
+      v.edgeText.textContent = dist ? `${m.name} · ${dist}` : m.name;
+      v.edgeEl.hidden = false;
     }
   }
 
@@ -506,6 +588,7 @@ export class World {
     if (!g || g.path.length < 6) {
       this.ghostLine.visible = false;
       this.ghostRing.visible = false;
+      this.ghostGone.visible = false;
       return;
     }
     // Arranca en la punta del cañón dibujado y se engancha con el primer punto del sim que queda
@@ -539,6 +622,18 @@ export class World {
       this.ghostRing.visible = true;
     } else {
       this.ghostRing.visible = false;
+    }
+    // Sin impacto en el mapa, la línea termina en un cartel "se fue".
+    // El final suele quedar fuera de cuadro, así que el cartel va en el último punto que se ve.
+    this.ghostGone.visible = false;
+    if (!g.gone) return;
+    const ndc = new THREE.Vector3();
+    for (let i = pts.length - 1; i >= 0; i--) {
+      ndc.copy(pts[i]!).project(this.camera);
+      if (Math.abs(ndc.x) > 0.88 || Math.abs(ndc.y) > 0.88 || ndc.z > 1) continue;
+      this.ghostGone.position.copy(pts[i]!);
+      this.ghostGone.visible = true;
+      break;
     }
   }
 
@@ -631,6 +726,7 @@ export class World {
     else if (turn) this.focus(turn.x, turn.y + 3, turn.z);
     this.updateCamera(dt);
 
+    this.syncRivalMarkers(f.tanks);
     this.renderer.render(this.scene, this.camera);
     this.labels.render(this.scene, this.camera);
   }
@@ -645,8 +741,31 @@ function heightColor(h: number, out: THREE.Color): void {
   else out.setRGB(0.9, 0.92, 0.95);
 }
 
+/** Pendiente en la celda (x, z): módulo del gradiente por diferencias centrales. [wu / wu] */
+function slopeAt(t: Terrain, x: number, z: number): number {
+  const { width: w, depth: d, heights: h } = t;
+  const xa = Math.max(0, x - 1);
+  const xb = Math.min(w - 1, x + 1);
+  const za = Math.max(0, z - 1);
+  const zb = Math.min(d - 1, z + 1);
+  const gx = (h[xb + z * w]! - h[xa + z * w]!) / Math.max(1, xb - xa);
+  const gz = (h[x + zb * w]! - h[x + za * w]!) / Math.max(1, zb - za);
+  return Math.hypot(gx, gz);
+}
+
 const SCORCH = new THREE.Color("#1c1410");
-function terrainColor(h: number, scorch: number, out: THREE.Color): void {
-  heightColor(h, out);
+const ROCK = new THREE.Color("#4a4038");
+/** Pendiente desde la que la ladera empieza a oscurecerse, y desde la que ya es roca pelada. */
+const SLOPE_FLAT = 0.15;
+const SLOPE_STEEP = 1.1;
+/**
+ * Color de una celda: la altura da el tono y la pendiente lo sombrea. Lo llano (valle, meseta,
+ * cima) queda claro; la ladera se oscurece y vira a roca, así el cerro se separa del valle.
+ */
+function terrainColor(t: Terrain, x: number, z: number, scorch: number, out: THREE.Color): void {
+  heightColor(t.heights[x + z * t.width]!, out);
+  const k = Math.min(1, Math.max(0, (slopeAt(t, x, z) - SLOPE_FLAT) / (SLOPE_STEEP - SLOPE_FLAT)));
+  const steep = k * k * (3 - 2 * k);
+  out.lerp(ROCK, 0.55 * steep).multiplyScalar(1.12 - 0.5 * steep);
   if (scorch > 0) out.lerp(SCORCH, 0.35 + 0.55 * scorch);
 }
