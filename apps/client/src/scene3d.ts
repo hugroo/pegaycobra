@@ -8,7 +8,7 @@
 
 import * as THREE from "three";
 import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
-import { TANK_RADIUS, terrainHeightAt, type Terrain } from "@pegaycobra/sim";
+import { ROLL_STEP, TANK_RADIUS, terrainHeightAt, type Terrain, type WeaponId } from "@pegaycobra/sim";
 import { LAKE, SKY, SUN_DIR, landColor, type RGB } from "./landscape";
 
 /** Paleta de tanques: el server manda el índice. Los cuatro primeros son los de los asientos. */
@@ -24,8 +24,14 @@ const BARREL_LEN = 2.6;
 const EXPLOSION_MS = 450;
 /** Cuánto dura el destello donde se abre un Racimo. [ms] */
 const OPEN_MS = 320;
-/** Cuánto dura el polvo que levanta un Rebote donde pica. [ms] */
+/** Cuánto dura el destello de un Rebote donde pica. [ms] */
 const BOUNCE_MS = 380;
+/** Cuánto dura el polvo que levanta la Tierra. [ms] */
+const DUST_MS = 800;
+/** Nubes del polvo de la Tierra: una en el medio y el resto en ronda. */
+const DUST_PUFFS = 7;
+/** Lo que tarda el Rodillo en aplastarse cuando toca el piso. [ms] */
+const SQUASH_MS = 120;
 /** Cuánto dura el cartel de daño en el punto de impacto. [ms] */
 const IMPACT_LABEL_MS = 1000;
 /** Cuánto se queda la cámara mirando el impacto después de que llega el proyectil. [ms] */
@@ -48,6 +54,30 @@ const WIND_ARROW_AWAY = 14;
 /** Color del fogonazo de una explosión, y el del polvo que levanta la Tierra. */
 const BLAST = "#ffb347";
 const DUST = "#a8845a";
+/** Color del proyectil y de su estela. */
+const SHOT = "#fff4c2";
+/** Radio de la bola de la Chispa: el resto se mide contra esta. [wu] */
+const BALL_RADIUS = 0.7;
+/** Cada cabeza de un Racimo, contra la bola de la Chispa. */
+const HEAD_SIZE = 0.65;
+
+/**
+ * Cómo se ve cada arma en el aire, para reconocerla sin leer el cartel: la forma, el tamaño contra
+ * la bola de la Chispa y el color. Solo dibujo: por dónde va lo dice el recorrido del server.
+ *   ball: la bola. drop: una gota, con la cola hacia atrás. bunch: las cinco cabezas juntas, hasta
+ *   que se abren. roller: una bola con tacos, que al tocar el piso se aplasta y rueda.
+ */
+const SHOT_LOOK: Record<WeaponId, { shape: "ball" | "drop" | "bunch" | "roller"; size: number; color: string }> = {
+  babyMissile: { shape: "ball", size: 1, color: SHOT },
+  missile: { shape: "ball", size: 1.4, color: SHOT },
+  roller: { shape: "roller", size: 1.2, color: SHOT },
+  napalm: { shape: "drop", size: 1.1, color: "#ff7a1a" },
+  babyNuke: { shape: "ball", size: 2, color: SHOT },
+  nuke: { shape: "ball", size: 2.6, color: SHOT },
+  dirt: { shape: "ball", size: 1.3, color: DUST },
+  mirv: { shape: "bunch", size: 1, color: SHOT },
+  leapfrog: { shape: "ball", size: 1, color: SHOT },
+};
 
 /** Silueta del tanque, como la manda el server. Solo cambia el dibujo. */
 export type Hull = "box" | "flat" | "tower";
@@ -105,6 +135,8 @@ export interface MarkModel {
 }
 
 export interface ShotModel {
+  /** El arma disparada: de ahí sale cómo se dibuja el proyectil (SHOT_LOOK). */
+  weapon: WeaponId;
   path: number[];
   start: number;
   /** Lo que dura el tiro entero: con un Racimo, hasta que cae la última cabeza. */
@@ -115,9 +147,11 @@ export interface ShotModel {
   radius: number;
   /** Racimo que se abrió: `path` llega hasta la apertura y de ahí sigue cada cabeza. `lands`: explota donde termina. */
   heads?: { path: number[]; lands: boolean }[];
-  /** Rebote que picó: el punto de `path` donde tocó el piso. Ahí levanta polvo y sigue. */
+  /** Rebote que picó: el punto de `path` donde tocó el piso. Ahí da un destello y sigue. */
   bounce?: number;
-  /** El tiro no explota, levanta polvo (Tierra): el fogonazo es color tierra. */
+  /** Rodillo que tocó el piso: el punto de `path` desde donde rueda. */
+  roll?: number;
+  /** El tiro no explota, levanta polvo (Tierra): en vez del fogonazo, nubes color tierra. */
   dust?: boolean;
   /** Dónde terminó el tiro y qué dice el cartel de impacto ("-40", "se fue"). Los dos vienen del server. */
   impact: { x: number; y: number; z: number };
@@ -258,7 +292,15 @@ export class World {
   private readonly markRingGeo = new THREE.RingGeometry(0.75, 1.2, 24).rotateX(-Math.PI / 2);
   private readonly shotLine: THREE.Line;
   private readonly shotBall: THREE.Mesh;
+  /** Las otras formas del proyectil (SHOT_LOOK): la gota, las cabezas juntas y el Rodillo, que gira en `rollerSpin`. */
+  private readonly shotDrop = new THREE.Group();
+  private readonly shotBunch = new THREE.Group();
+  private readonly shotRoller = new THREE.Group();
+  private readonly rollerSpin = new THREE.Group();
   private readonly blast: THREE.Mesh;
+  /** Polvo de la Tierra: nubes que suben y se abren sobre la loma. */
+  private readonly dust = new THREE.Group();
+  private readonly dustMat = new THREE.MeshBasicMaterial({ color: DUST, transparent: true, depthWrite: false });
   /** Racimo en vuelo: el destello de la apertura y, por cabeza, su estela, su bola y su fogonazo. */
   private readonly openFlash: THREE.Mesh;
   private readonly shotHeads: { line: THREE.Line; ball: THREE.Mesh; blast: THREE.Mesh }[] = [];
@@ -266,8 +308,9 @@ export class World {
   private readonly splashes: { x: number; z: number; big: boolean; start: number; root: THREE.Group; rings: THREE.Mesh[]; spout: THREE.Mesh }[] = [];
   private readonly splashRingGeo = new THREE.RingGeometry(0.8, 1, 40).rotateX(-Math.PI / 2);
   private readonly splashSpoutGeo = new THREE.ConeGeometry(0.5, 1, 10).translate(0, 0.5, 0); // base en y = 0
-  /** Rebote en vuelo: el polvo donde pica. */
-  private readonly bounceDust: THREE.Mesh;
+  /** Rebote en vuelo: el destello donde pica y el aro que se abre en el piso. */
+  private readonly bounceFlash: THREE.Mesh;
+  private readonly bounceRing: THREE.Mesh;
   private readonly impactLabel: CSS2DObject;
   private readonly windArrow: THREE.Mesh;
   /** Con qué viento, tanque y piso se armó la flecha: se rearma recién cuando cambia (turno nuevo). */
@@ -391,29 +434,63 @@ export class World {
 
     this.shotLine = new THREE.Line(
       new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({ color: "#fff4c2", transparent: true, opacity: 0.75 }),
+      new THREE.LineBasicMaterial({ color: SHOT, transparent: true, opacity: 0.75 }),
     );
     this.shotLine.frustumCulled = false;
     this.scene.add(this.shotLine);
-    this.shotBall = new THREE.Mesh(new THREE.SphereGeometry(0.7, 16, 12), new THREE.MeshBasicMaterial({ color: "#fff4c2" }));
+    this.shotBall = new THREE.Mesh(new THREE.SphereGeometry(BALL_RADIUS, 16, 12), new THREE.MeshBasicMaterial({ color: SHOT }));
     this.scene.add(this.shotBall);
+    // Gota: la bola y un cono de cola. El frente mira a +Z, que es lo que lookAt apunta al recorrido.
+    const dropMat = new THREE.MeshBasicMaterial({ color: SHOT_LOOK.napalm.color });
+    this.shotDrop.add(
+      new THREE.Mesh(this.shotBall.geometry, dropMat),
+      new THREE.Mesh(new THREE.ConeGeometry(0.62, 1.7, 12).rotateX(-Math.PI / 2).translate(0, 0, -1.15), dropMat),
+    );
+    // Racimo cerrado: las cinco cabezas apretadas, una adelante y cuatro alrededor.
+    for (const [x, y, z] of [[0, 0, 0.45], [0.5, 0, -0.2], [-0.5, 0, -0.2], [0, 0.5, -0.2], [0, -0.5, -0.2]] as const) {
+      const head = new THREE.Mesh(this.shotBall.geometry, this.shotBall.material);
+      head.scale.setScalar(HEAD_SIZE);
+      head.position.set(x, y, z);
+      this.shotBunch.add(head);
+    }
+    // Rodillo: la bola con cuatro tacos oscuros, que son los que dejan ver que gira. Avanza hacia +X
+    // y gira alrededor de Z.
+    const stud = new THREE.BoxGeometry(0.34, 0.34, 1.05);
+    const studMat = new THREE.MeshBasicMaterial({ color: "#3b2f2a" });
+    this.rollerSpin.add(new THREE.Mesh(this.shotBall.geometry, this.shotBall.material));
+    for (let k = 0; k < 4; k++) {
+      const s = new THREE.Mesh(stud, studMat);
+      s.position.set(Math.cos((k * Math.PI) / 2) * 0.6, Math.sin((k * Math.PI) / 2) * 0.6, 0);
+      this.rollerSpin.add(s);
+    }
+    this.shotRoller.add(this.rollerSpin);
+    this.scene.add(this.shotDrop, this.shotBunch, this.shotRoller);
     this.blast = new THREE.Mesh(
       new THREE.SphereGeometry(1, 24, 16),
       new THREE.MeshBasicMaterial({ color: BLAST, transparent: true, opacity: 0.9 }),
     );
     this.scene.add(this.blast);
+    for (let k = 0; k < DUST_PUFFS; k++) this.dust.add(new THREE.Mesh(this.blast.geometry, this.dustMat));
+    this.dust.visible = false;
+    this.scene.add(this.dust);
+    // Un aro que mira a la cámara: se abre alrededor de las cabezas sin taparlas.
     this.openFlash = new THREE.Mesh(
-      new THREE.SphereGeometry(1, 16, 12),
-      new THREE.MeshBasicMaterial({ color: "#fff4c2", transparent: true, opacity: 0.8 }),
+      new THREE.RingGeometry(0.72, 1, 40),
+      new THREE.MeshBasicMaterial({ color: SHOT, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide }),
     );
     this.openFlash.visible = false;
     this.scene.add(this.openFlash);
-    this.bounceDust = new THREE.Mesh(
+    this.bounceFlash = new THREE.Mesh(
       new THREE.SphereGeometry(1, 16, 12),
-      new THREE.MeshBasicMaterial({ color: DUST, transparent: true, opacity: 0.8 }),
+      new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.9, depthWrite: false }),
     );
-    this.bounceDust.visible = false;
-    this.scene.add(this.bounceDust);
+    this.bounceFlash.visible = false;
+    this.bounceRing = new THREE.Mesh(
+      this.splashRingGeo,
+      new THREE.MeshBasicMaterial({ color: SHOT, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    this.bounceRing.visible = false;
+    this.scene.add(this.bounceFlash, this.bounceRing);
     const impactEl = document.createElement("div");
     impactEl.className = "impact-label";
     this.impactLabel = new CSS2DObject(impactEl);
@@ -1080,11 +1157,12 @@ export class World {
   /** Dibuja el tiro real. Devuelve la posición actual del proyectil (para la cámara) o null. */
   private drawShot(s: ShotModel | null, now: number): THREE.Vector3 | null {
     this.shotLine.visible = false;
-    this.shotBall.visible = false;
+    this.shotBall.visible = this.shotDrop.visible = this.shotBunch.visible = this.shotRoller.visible = false;
     this.blast.visible = false;
+    this.dust.visible = false;
     this.impactLabel.visible = false;
     this.openFlash.visible = false;
-    this.bounceDust.visible = false;
+    this.bounceFlash.visible = this.bounceRing.visible = false;
     for (const v of this.shotHeads) v.line.visible = v.ball.visible = v.blast.visible = false;
     if (!s || s.path.length < 3) return null;
     const n = s.path.length / 3;
@@ -1104,34 +1182,35 @@ export class World {
     this.shotLine.visible = true;
     const at = new THREE.Vector3(s.path[last * 3]!, s.path[last * 3 + 1]!, s.path[last * 3 + 2]!);
 
+    const msPerTick = s.durationMs / Math.max(1, total);
     if (heads.length > 0) {
-      if (last < n - 1) {
-        this.shotBall.position.copy(at);
-        this.shotBall.visible = true;
-      } else {
-        this.drawShotHeads(s, heads, p * total - (n - 1), s.durationMs / Math.max(1, total), elapsed, at);
-      }
+      if (last < n - 1) this.drawProjectile(s, last, at, elapsed, msPerTick);
+      else this.drawShotHeads(s, heads, p * total - (n - 1), msPerTick, elapsed, at);
     } else if (p < 1) {
-      this.shotBall.position.copy(at);
-      this.shotBall.visible = true;
+      this.drawProjectile(s, last, at, elapsed, msPerTick);
+    } else if (s.explodes && s.dust) {
+      this.drawDust(at, s.radius, elapsed - s.durationMs);
     } else if (s.explodes && elapsed - s.durationMs < EXPLOSION_MS) {
       const q = (elapsed - s.durationMs) / EXPLOSION_MS;
       this.blast.position.copy(at);
       this.blast.scale.setScalar(s.radius * (0.35 + 0.9 * q));
-      const mat = this.blast.material as THREE.MeshBasicMaterial;
-      mat.color.set(s.dust ? DUST : BLAST);
-      mat.opacity = 0.9 * (1 - q);
+      (this.blast.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - q);
       this.blast.visible = true;
     }
-    // Rebote: polvo donde picó, desde que la bola pasa por ahí.
+    // Rebote: un destello donde picó y un aro que se abre en el piso, desde que la bola pasa por ahí.
+    // Ahí no explota: ni fogonazo ni hoyo.
     if (s.bounce !== undefined && s.bounce < n) {
-      const since = elapsed - (s.bounce / Math.max(1, total)) * s.durationMs;
+      const since = elapsed - s.bounce * msPerTick;
       if (since >= 0 && since < BOUNCE_MS) {
         const q = since / BOUNCE_MS;
-        this.bounceDust.position.fromArray(s.path, s.bounce * 3);
-        this.bounceDust.scale.set(1.4 + 3 * q, 0.6 + 1.2 * q, 1.4 + 3 * q);
-        (this.bounceDust.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - q);
-        this.bounceDust.visible = true;
+        this.bounceFlash.position.fromArray(s.path, s.bounce * 3);
+        this.bounceFlash.scale.setScalar(2.2 - 1.6 * q);
+        (this.bounceFlash.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - q);
+        this.bounceRing.position.copy(this.bounceFlash.position);
+        this.bounceRing.position.y += 0.2;
+        this.bounceRing.scale.setScalar(1.5 + 5 * q);
+        (this.bounceRing.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - q);
+        this.bounceFlash.visible = this.bounceRing.visible = true;
       }
     }
     // Cartel de daño: anclado al punto de impacto en el mundo, así sigue a la cámara.
@@ -1147,6 +1226,59 @@ export class World {
   }
 
   /**
+   * El proyectil en el punto `i` de `path`, con la forma de su arma (SHOT_LOOK). La gota y el Racimo
+   * miran hacia donde van; el Rodillo, desde que toca el piso, se aplasta y gira lo que avanza.
+   */
+  private drawProjectile(s: ShotModel, i: number, at: THREE.Vector3, elapsed: number, msPerTick: number): void {
+    const look = SHOT_LOOK[s.weapon];
+    (this.shotBall.material as THREE.MeshBasicMaterial).color.set(look.color);
+    const n = s.path.length / 3;
+    if (look.shape === "ball" || n < 2) {
+      this.shotBall.position.copy(at);
+      this.shotBall.scale.setScalar(look.size);
+      this.shotBall.visible = true;
+      return;
+    }
+    // Hacia dónde va: del punto de ahora al que sigue (en el último, desde el anterior).
+    const a = Math.min(i, n - 2) * 3;
+    const dir = new THREE.Vector3(s.path[a + 3]! - s.path[a]!, s.path[a + 4]! - s.path[a + 1]!, s.path[a + 5]! - s.path[a + 2]!);
+    if (look.shape === "roller") {
+      const rolled = s.roll !== undefined && i >= s.roll ? i - s.roll : -1;
+      const k = rolled < 0 ? 0 : Math.min(1, (rolled * msPerTick) / SQUASH_MS);
+      this.shotRoller.position.copy(at);
+      this.shotRoller.rotation.y = -Math.atan2(dir.z, dir.x);
+      this.shotRoller.scale.set(look.size * (1 + 0.25 * k), look.size * (1 - 0.4 * k), look.size * (1 + 0.25 * k));
+      // En el aire da vueltas despacio; en el piso, lo que corresponde a lo que avanzó.
+      this.rollerSpin.rotation.z = rolled < 0 ? -elapsed / 260 : -(rolled * ROLL_STEP) / (BALL_RADIUS * look.size);
+      this.shotRoller.visible = true;
+      return;
+    }
+    const obj = look.shape === "drop" ? this.shotDrop : this.shotBunch;
+    obj.position.copy(at);
+    obj.lookAt(dir.add(at));
+    if (look.shape === "bunch") obj.rotateZ(elapsed / 220);
+    obj.scale.setScalar(look.size);
+    obj.visible = true;
+  }
+
+  /** Polvo de la Tierra: nubes color tierra que suben y se abren sobre la loma. No hay fogonazo ni hoyo. */
+  private drawDust(at: THREE.Vector3, radius: number, since: number): void {
+    if (since >= DUST_MS) return;
+    const q = Math.max(0, since) / DUST_MS;
+    this.dustMat.opacity = 0.75 * (1 - q);
+    this.dust.children.forEach((puff, k) => {
+      const a = (k * Math.PI * 2) / (DUST_PUFFS - 1);
+      const d = k === 0 ? 0 : radius * (0.4 + 0.3 * q);
+      const x = at.x + Math.cos(a) * d;
+      const z = at.z + Math.sin(a) * d;
+      const size = radius * (k === 0 ? 0.3 : 0.2) * (0.6 + q);
+      puff.position.set(x, this.aboveGround(x, -Infinity, z) + size * 0.5 + 3 * q, z);
+      puff.scale.set(size, size * 0.75, size);
+    });
+    this.dust.visible = true;
+  }
+
+  /**
    * Un Racimo ya abierto: el destello en el punto de apertura y cada cabeza con su estela, su bola
    * mientras cae y su fogonazo cuando llega (cada una a su tiempo). `tick` son los pasos desde la
    * apertura. Deja en `at` el centro de las cabezas, que es lo que sigue la cámara.
@@ -1156,7 +1288,7 @@ export class World {
       const line = new THREE.Line(new THREE.BufferGeometry(), this.shotLine.material);
       line.frustumCulled = false;
       const ball = new THREE.Mesh(this.shotBall.geometry, this.shotBall.material);
-      ball.scale.setScalar(0.6);
+      ball.scale.setScalar(HEAD_SIZE);
       const blast = new THREE.Mesh(this.blast.geometry, (this.blast.material as THREE.Material).clone());
       this.scene.add(line, ball, blast);
       this.shotHeads.push({ line, ball, blast });
@@ -1165,7 +1297,8 @@ export class World {
     if (elapsed - openedAt < OPEN_MS) {
       const q = Math.max(0, elapsed - openedAt) / OPEN_MS;
       this.openFlash.position.copy(at);
-      this.openFlash.scale.setScalar(0.8 + 2.4 * q);
+      this.openFlash.quaternion.copy(this.camera.quaternion);
+      this.openFlash.scale.setScalar(1.6 + 3.4 * q);
       (this.openFlash.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - q);
       this.openFlash.visible = true;
     }

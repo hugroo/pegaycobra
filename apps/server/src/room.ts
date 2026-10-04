@@ -43,6 +43,8 @@ export interface ShotBroadcast {
   path: number[];
   /** Solo Rebote que picó: `path[tick]` es el punto donde tocó el piso. El tiro termina más adelante. */
   bounce?: { tick: number };
+  /** Solo Rodillo que tocó el piso: desde `path[tick]` va rodando. Es para dibujarlo: el recorrido es el mismo. */
+  roll?: { tick: number };
   /** Solo Racimo que se abrió: cada cabeza, desde el punto de apertura hasta donde terminó. */
   heads?: { path: number[]; outcome: string }[];
   /** Lo que dura la animación entera, hasta que cae la última cabeza. */
@@ -290,6 +292,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     };
     if (heads) payload.heads = heads.map((h) => ({ path: (h.path ?? []).map(round2), outcome: h.outcome }));
     if (shotResult.bounce) payload.bounce = { tick: shotResult.bounce.tick };
+    if (shotResult.landed) payload.roll = { tick: shotResult.landed.tick };
     this.flush();
     this.broadcast("shot", payload);
     const hits = shot.result.damage

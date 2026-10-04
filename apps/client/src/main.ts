@@ -564,6 +564,8 @@ function attach(r: Room<any>): void {
       heads?: { path: number[]; outcome: string }[];
       /** Solo un Rebote que picó: `path` trae los dos tramos y el punto `tick` es donde tocó el piso. */
       bounce?: { tick: number };
+      /** Solo un Rodillo que tocó el piso: desde el punto `tick` de `path` va rodando. */
+      roll?: { tick: number };
       impact: { x: number; y: number; z: number };
       damage: number;
       blocked: string[];
@@ -577,6 +579,7 @@ function attach(r: Room<any>): void {
       const heads = (m.heads ?? []).map((h) => ({ path: h.path, lands: explodes(h.outcome) }));
       const w = WEAPONS[m.weapon] ?? WEAPONS.babyMissile;
       shotAnim = {
+        weapon: w.id,
         path: m.path,
         durationMs: m.durationMs,
         start: performance.now(),
@@ -588,6 +591,7 @@ function attach(r: Room<any>): void {
         dust: !!w.mound,
         heads: heads.length > 0 ? heads : undefined,
         bounce: m.bounce?.tick,
+        roll: m.roll?.tick,
         impact: m.impact,
         // El número y el "bloqueado" son del server; acá solo se redondea para mostrarlo. Con un
         // Racimo el número ya viene sumado: es un solo cartel para las cinco cabezas.

@@ -121,7 +121,7 @@ export function simulateWeaponShot3D(
     y: r.y,
     z: r.z,
     ticks: flight.ticks + r.steps,
-    landed: { x: flight.x, y: terrainHeightAt(terrain, flight.x, flight.z), z: flight.z },
+    landed: { x: flight.x, y: terrainHeightAt(terrain, flight.x, flight.z), z: flight.z, tick: flight.ticks },
   };
   if (r.tankId !== undefined) out.tankId = r.tankId;
   // El último punto del vuelo (ya bajo el piso) se cambia por el primero de la rodada, apoyado en

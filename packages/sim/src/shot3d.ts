@@ -81,8 +81,11 @@ export interface Shot3DResult {
   tankId?: string;
   /** [x0, y0, z0, x1, y1, z1, ...] un trío por tick, desde la boca del cañón. [wu] */
   path?: number[];
-  /** Solo Roller: dónde tocó el piso antes de rodar. (x, y, z) del resultado es donde terminó. [wu] */
-  landed?: { x: number; y: number; z: number };
+  /**
+   * Solo Roller: dónde tocó el piso antes de rodar y en qué tick (`path[tick]` es el primer punto de
+   * la rodada). (x, y, z) del resultado es donde terminó. [wu]
+   */
+  landed?: { x: number; y: number; z: number; tick: number };
   /**
    * Solo MIRV que llegó a abrirse: dónde y en qué tick, y cada cabeza. heads[0] es la que sigue el
    * tiro apuntado: outcome, (x, y, z) y tankId del resultado son los suyos. `ticks` es el de la

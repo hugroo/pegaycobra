@@ -69,6 +69,8 @@ describe("Roller", () => {
     const steps = Math.round(rolled / ROLL_STEP);
     const rollPart = path.slice(path.length - (steps + 1) * 3);
     expect(rollPart[0]).toBeCloseTo(shot.landed!.x, 6);
+    // `landed.tick` es el punto del camino donde empieza a rodar: de ahí sale el dibujo de la rodada.
+    expect(shot.landed!.tick).toBe(path.length / 3 - 1 - steps);
     for (let i = 1; i <= steps; i++) {
       expect(rollPart[i * 3 + 1]!).toBeLessThan(rollPart[(i - 1) * 3 + 1]!);
       // La bola va apoyada en el piso, no en el aire.
