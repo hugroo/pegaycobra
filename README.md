@@ -78,6 +78,12 @@ cinco hoyos chicos y el cartel del impacto es uno solo, con el daño de todas su
 Un Rebote pica y sigue: la fantasma dibuja los dos tramos, con un punto donde pica y el anillo
 donde termina el segundo. Al tirarlo se ve la bola tocar el piso, levantar polvo y seguir; el hoyo y
 el cartel quedan en el segundo golpe.
+Cada tiro deja su marca cuando cae: un punto en el piso y la línea fina del recorrido, del color del
+tanque, en la vista 3D y en el minimapa de todas las pestañas (viaja en el estado). Dura hasta que
+ese jugador tira de nuevo o empieza otra ronda; el viento nuevo no la borra. Al agua, la marca es un
+aro donde se hundió; un Racimo deja el punto de cada cabeza y una sola línea, hasta donde se abrió;
+lo que se fue del mapa deja solo la línea. La fantasma es la punteada que se mueve; la marca, la
+continua, quieta y más pálida.
 
 ### La partida
 

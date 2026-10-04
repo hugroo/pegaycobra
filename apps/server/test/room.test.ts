@@ -821,9 +821,8 @@ describe("partida de 5 rondas por red", () => {
       await until(() => [a, b].every((r) => r.state.phase === "aiming" && r.state.turnId !== id));
       return id;
     };
-    /** La marca termina donde terminó ese tiro, con un punto en el piso, y arranca donde arrancó. */
+    /** La marca arranca y termina donde ese tiro, con un punto donde cayó (marcado como agua si se hundió; ninguno si se fue). */
     const expectMarkOfShot = (mark: { path: number[]; spots: number[] }, shot: any) => {
-      expect(shot.outcome).toBe("ground");
       expect(mark.path.length % 3).toBe(0);
       expect(mark.path.length).toBeGreaterThanOrEqual(6);
       expect(mark.path.length).toBeLessThanOrEqual(shot.path.length);
@@ -831,10 +830,11 @@ describe("partida de 5 rondas por red", () => {
         expect(mark.path[k]!).toBeCloseTo(shot.path[k], 1);
         expect(mark.path.at(k - 3)!).toBeCloseTo(shot.path.at(k - 3), 1);
       }
+      if (shot.outcome === "offmap" || shot.outcome === "timeout") return expect(mark.spots).toEqual([]);
       expect(mark.spots).toHaveLength(3);
       expect(mark.spots[0]!).toBeCloseTo(shot.impact.x, 1);
       expect(mark.spots[1]!).toBeCloseTo(shot.impact.z, 1);
-      expect(mark.spots[2]).toBe(0);
+      expect(mark.spots[2]).toBe(shot.outcome === "water" ? 1 : 0);
     };
 
     // Nadie tiró todavía: nadie tiene marca.
@@ -862,12 +862,12 @@ describe("partida de 5 rondas por red", () => {
       expect(markOf(r, first)).toEqual(firstMark);
       expect(markOf(r, second)).toEqual(secondMark);
     }
-    expect(markOf(rooms[first]!, second).spots).toHaveLength(3);
-    expect(markOf(rooms[second]!, first).spots).toHaveLength(3);
+    expect(markOf(rooms[first]!, second).path.length).toBeGreaterThan(0);
+    expect(markOf(rooms[second]!, first).path.length).toBeGreaterThan(0);
 
     // El primero tira de nuevo, a otro lado: su marca se reemplaza por la del tiro nuevo y la del otro no se toca.
     expect(await fireBack(420)).toBe(first);
-    await until(() => [a, b].every((r) => markOf(r, first).path.length > 0 && markOf(r, first).spots[0] !== firstMark.spots[0]));
+    await until(() => [a, b].every((r) => markOf(r, first).path.length > 0 && markOf(r, first).path.join() !== firstMark.path.join()));
     const replaced = markOf(a, first);
     expectMarkOfShot(replaced, shots[2]);
     expect(replaced).not.toEqual(firstMark);
