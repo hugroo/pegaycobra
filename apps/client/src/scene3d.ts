@@ -445,7 +445,7 @@ export class World {
 
     const goneEl = document.createElement("div");
     goneEl.className = "ghost-gone";
-    goneEl.textContent = "se fue";
+    goneEl.textContent = "Se fue";
     this.ghostGone = new CSS2DObject(goneEl);
     this.ghostGone.visible = false;
     this.scene.add(this.ghostGone);
@@ -1147,7 +1147,7 @@ export class World {
     // El final suele quedar fuera de cuadro, así que el cartel va en el último punto que se ve.
     this.ghostGone.visible = false;
     if (!g.gone) return;
-    const goneText = g.sunk ? "al agua" : "se fue";
+    const goneText = g.sunk ? "Al agua" : "Se fue";
     if (this.ghostGone.element.textContent !== goneText) this.ghostGone.element.textContent = goneText;
     const ndc = new THREE.Vector3();
     for (let i = count - 1; i >= 0; i--) {

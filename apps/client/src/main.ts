@@ -78,6 +78,7 @@ const ui = {
   corner: $("corner"),
   playersToggle: $<HTMLButtonElement>("players-toggle"),
   banner: $("banner"),
+  tip: $("tip"),
   dock: $("dock"),
   shop: $("shop"),
   shopTitle: $("shop-title"),
@@ -580,7 +581,6 @@ function onTerrain(m: TerrainMessage): void {
 }
 
 function showBanner(text: string, ms: number): void {
-  tipUp = false;
   ui.banner.textContent = text;
   ui.banner.hidden = false;
   clearTimeout(bannerTimer);
@@ -588,7 +588,8 @@ function showBanner(text: string, ms: number): void {
 }
 
 // La línea del mapa: una sola vez por sala, en el primer turno de la partida. Sale del mapa del
-// estado, así que todas las pestañas leen la misma. Va en el cartel de siempre: no frena nada.
+// estado, así que todas las pestañas leen la misma. Va en su propio renglón, arriba del cartel de
+// siempre: dura sus 4 s o hasta el primer tiro, y un aviso que caiga en el medio (el paso) no la pisa.
 const MAP_TIP: Record<MapId, string> = {
   island: "Ojo con la orilla.",
   hill: "Si no llegás, usá el paso.",
@@ -597,8 +598,12 @@ const MAP_TIP: Record<MapId, string> = {
 const TIP_KEY = "pyc:tip";
 /** La sala en la que ya salió: ni la ronda 2 ni la revancha la traen de vuelta. */
 let tipRoom = "";
-/** El cartel a la vista es la línea del mapa: el primer tiro se la lleva. */
-let tipUp = false;
+let tipTimer = 0;
+
+function hideTip(): void {
+  clearTimeout(tipTimer);
+  ui.tip.hidden = true;
+}
 
 function mapTip(phase: string): void {
   if (!room || phase !== "aiming" || room.state.round !== 1 || tipRoom === room.roomId) return;
@@ -612,8 +617,10 @@ function mapTip(phase: string): void {
   }
   const text = MAP_TIP[room.state.map as MapId];
   if (!text) return;
-  showBanner(text, 4000);
-  tipUp = true;
+  ui.tip.textContent = text;
+  ui.tip.hidden = false;
+  clearTimeout(tipTimer);
+  tipTimer = window.setTimeout(hideTip, 4000);
 }
 
 function attach(r: Room<any>): void {
@@ -685,18 +692,15 @@ function attach(r: Room<any>): void {
         // Racimo el número ya viene sumado: es un solo cartel para las cinco cabezas.
         label:
           m.outcome === "water"
-            ? "al agua"
+            ? "Al agua"
             : lands && w.burn
-              ? "fuego"
+              ? "Fuego"
               : lands && w.mound
-                ? "loma"
+                ? "Loma"
                 : impactLabel(lands, m.damage, (m.blocked?.length ?? 0) > 0),
       };
       play("fire");
-      if (tipUp) {
-        tipUp = false;
-        ui.banner.hidden = true;
-      }
+      hideTip(); // el primer tiro se lleva la línea del mapa
       // Cada cabeza de un Racimo explota cuando llega: el mismo "boom", una vez por cabeza.
       const steps = (path: number[]) => Math.max(0, path.length / 3 - 1);
       const total = steps(m.path) + Math.max(0, ...heads.map((h) => steps(h.path)));
@@ -725,7 +729,7 @@ function attach(r: Room<any>): void {
       }
       // El que quedó en el agua muere aunque tenga escudo o paracaídas: todas las pestañas lo dicen.
       const drowned = (m.drowned ?? []).map((id) => r.state.players.get(id)?.name ?? "?");
-      if (drowned.length > 0) window.setTimeout(() => room === r && showBanner(`${drowned.join(", ")}: al agua`, 2500), m.durationMs);
+      if (drowned.length > 0) window.setTimeout(() => room === r && showBanner(`Al agua: ${drowned.join(", ")}`, 2500), m.durationMs);
       // El chapuzón sale de `splashes`, que arma el server: acá no se decide quién se ahogó ni dónde.
       // El del ahogado va un momento después de la explosión, cuando el tanque ya cayó al hoyo.
       for (const big of [false, true]) {
@@ -741,7 +745,10 @@ function attach(r: Room<any>): void {
   );
   r.onMessage("moved", (m: { id: string; free?: boolean }) => {
     const p = r.state.players.get(m.id);
-    if (p) showBanner(m.free ? `${p.name} se corrió` : `${p.name} usó nafta`, 1400);
+    if (!p || room !== r) return;
+    // El paso se avisa un segundo y en su renglón. Al que lo dio se le dice a él: es su confirmación.
+    if (m.free) showBanner(isMe(m.id) ? "Te corriste" : `Se corrió ${p.name}`, 1000);
+    else showBanner(`Usó nafta ${p.name}`, 1400);
   });
   r.onMessage("skip", () => {
     if (room === r) showBanner("Se colgó: turno perdido", 1500);
@@ -749,7 +756,7 @@ function attach(r: Room<any>): void {
   r.onMessage("burn", (m: { id: string; damage: number; killed: boolean }) => {
     if (room !== r) return;
     // Llega pegado al final de un tiro o a un turno perdido: se suma al cartel que esté, no lo pisa.
-    const text = `${r.state.players.get(m.id)?.name ?? "?"} se quema: -${Math.max(1, Math.round(m.damage))}`;
+    const text = `Se quema ${r.state.players.get(m.id)?.name ?? "?"}: -${Math.max(1, Math.round(m.damage))}`;
     showBanner(ui.banner.hidden ? text : `${ui.banner.textContent} · ${text}`, 2200);
     play("hit");
   });
@@ -780,10 +787,10 @@ function attach(r: Room<any>): void {
  * Nuke no: dice el daño). Con un Racimo el daño es el de todas las cabezas sumado.
  */
 function impactLabel(lands: boolean, damage: number, blocked: boolean): string {
-  if (!lands) return "se fue";
+  if (!lands) return "Se fue";
   const hurt = damage > 0 ? `-${Math.max(1, Math.round(damage))}` : "0";
   if (!blocked) return hurt;
-  return damage > 0 ? `bloqueado · ${hurt}` : "bloqueado"; // con daño: además lastimó a otro tanque, o le pegó otra cabeza del Racimo
+  return damage > 0 ? `Bloqueado · ${hurt}` : "Bloqueado"; // con daño: además lastimó a otro tanque, o le pegó otra cabeza del Racimo
 }
 
 const isMe = (id: string) => room?.sessionId === id;
@@ -1107,6 +1114,7 @@ function renderHud(phase: string): void {
   const stepping = moveMode && moveKind === "step";
   ui.stepBtn.hidden = !canStep;
   ui.stepBtn.classList.toggle("on", stepping);
+  ui.stepBtn.classList.toggle("go", stepping && !!stepDest);
   ui.stepLabel.textContent = stepping && stepDest ? "Ir ahí" : "Paso";
 }
 
@@ -1170,70 +1178,90 @@ function renderShop(phase: string): void {
   ui.ready.disabled = !!mp.ready;
   ui.ready.textContent = mp.ready ? "Esperando…" : "Listo";
 
-  // Cartas: la validación de plata es la misma del server (cannotBuy del sim). Se redibujan solo
-  // si cambió la plata o el inventario, así un clic no cae sobre una carta recién reemplazada.
+  // Cartas: la validación de plata es la misma del server (cannotBuy del sim). Solo se repintan si
+  // cambió la plata o el inventario, y sobre los mismos botones (shopSlot).
   const inventory = { parachute: mp.parachute, fuel: mp.fuel, missile: mp.missiles, roller: mp.rollers, napalm: mp.napalms, nuke: mp.nukes, dirt: mp.dirts, mirv: mp.mirvs, leapfrog: mp.leapfrogs, shield: mp.shield };
   const asPlayer = { id: mp.id, money: mp.money, inventory };
   const itemsKey = `${mp.money}|${mp.parachute}|${mp.fuel}|${mp.missiles}|${mp.rollers}|${mp.napalms}|${mp.nukes}|${mp.dirts}|${mp.mirvs}|${mp.leapfrogs}|${mp.shield}`;
   if (ui.shopItems.dataset.key === itemsKey) return;
   ui.shopItems.dataset.key = itemsKey;
-  const scrolled = ui.shopItems.scrollLeft; // la fila queda donde el dedo la dejó
-  ui.shopItems.replaceChildren(
-    ...(Object.keys(SHOP_ITEMS) as ShopItemId[]).map((id) => {
-      const it = SHOP_ITEMS[id];
-      const why = cannotBuy(asPlayer, id);
-      const card = document.createElement("button");
-      card.className = "item";
-      card.disabled = why !== null;
-      card.title = why ? `${it.description} (${why})` : it.description;
-      const name = document.createElement("span");
-      name.className = "name";
-      name.textContent = it.name;
-      if (it.pack > 1) {
-        const pack = document.createElement("small");
-        pack.textContent = `×${it.pack}`;
-        name.append(pack);
-      }
-      const desc = document.createElement("span");
-      desc.className = "desc";
-      desc.textContent = SHOP_LINE[id];
-      const foot = document.createElement("span");
-      foot.className = "foot";
-      const price = document.createElement("span");
-      price.className = "price";
-      price.textContent = fmtMoney(it.price);
-      const have = document.createElement("span");
-      have.className = "have";
-      // El motivo completo (el del sim) va en el tooltip; en la carta, dos palabras.
-      have.textContent = why ? (mp.money < it.price ? "no alcanza" : "ya tenés") : inventory[id] > 0 ? `tenés ${inventory[id]}` : "";
-      foot.append(price, have);
-      // En el teléfono la carta no se toca entera (el dedo la usa para pasar la fila): se compra
-      // con este botón, que en el escritorio no se ve (style.css).
-      const buy = document.createElement("span");
-      buy.className = "buy";
-      buy.textContent = `Comprá ${fmtMoney(it.price)}`;
-      card.append(name, desc, foot, buy);
-      card.addEventListener("click", () => room?.send("buy", { item: id }));
-      // Debajo de la carta, lo que te devuelven si la vendés (sellValue del sim, la cuenta del server).
-      // El renglón está siempre, así la fila no salta cuando comprás.
-      const sell = document.createElement("button");
-      sell.className = "sell";
-      const units = sellUnits(asPlayer, id);
-      if (cannotSell(asPlayer, id) === null) {
-        sell.textContent = `Vendé${units > 1 ? ` ×${units}` : ""} +${fmtMoney(sellValue(asPlayer, id))}`;
-        sell.title = "Te devuelven la mitad";
-        sell.addEventListener("click", () => room?.send("sell", { item: id }));
-      } else {
-        sell.disabled = true;
-        if (id === "shield" && inventory.shield > 0) sell.textContent = "Ya está puesto";
-      }
-      const slot = document.createElement("div");
-      slot.className = "slot";
-      slot.append(card, sell);
-      return slot;
-    }),
-  );
-  ui.shopItems.scrollLeft = scrolled;
+  for (const id of Object.keys(SHOP_ITEMS) as ShopItemId[]) {
+    const it = SHOP_ITEMS[id];
+    const { card, have, sell } = shopSlot(id);
+    const why = cannotBuy(asPlayer, id);
+    card.disabled = why !== null;
+    card.title = why ? `${it.description} (${why})` : it.description;
+    // El motivo completo (el del sim) va en el tooltip; en la carta, dos palabras.
+    have.textContent = why ? (mp.money < it.price ? "no alcanza" : "ya tenés") : inventory[id] > 0 ? `tenés ${inventory[id]}` : "";
+    // Lo que te devuelven si la vendés (sellValue del sim, la cuenta del server).
+    const units = sellUnits(asPlayer, id);
+    const sellable = cannotSell(asPlayer, id) === null;
+    sell.disabled = !sellable;
+    sell.title = sellable ? "Te devuelven la mitad" : "";
+    sell.textContent = sellable
+      ? `Vendé${units > 1 ? ` ×${units}` : ""} +${fmtMoney(sellValue(asPlayer, id))}`
+      : id === "shield" && inventory.shield > 0
+        ? "Ya está puesto"
+        : "";
+  }
+}
+
+/** Lo que cambia en una carta de la tienda: la carta (comprar), el "tenés N" y el renglón de venta. */
+interface ShopSlot {
+  card: HTMLButtonElement;
+  have: HTMLElement;
+  sell: HTMLButtonElement;
+}
+const shopSlots = new Map<ShopItemId, ShopSlot>();
+
+/**
+ * La carta de un ítem. Se arma una sola vez y después renderShop le cambia el texto y el `disabled`:
+ * un botón que se recrea con el dedo abajo pierde el toque (Comprá apretado justo después de Vendé).
+ */
+function shopSlot(id: ShopItemId): ShopSlot {
+  const made = shopSlots.get(id);
+  if (made) return made;
+  const it = SHOP_ITEMS[id];
+  const card = document.createElement("button");
+  card.className = "item";
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = it.name;
+  if (it.pack > 1) {
+    const pack = document.createElement("small");
+    pack.textContent = `×${it.pack}`;
+    name.append(pack);
+  }
+  const desc = document.createElement("span");
+  desc.className = "desc";
+  desc.textContent = SHOP_LINE[id];
+  const foot = document.createElement("span");
+  foot.className = "foot";
+  const price = document.createElement("span");
+  price.className = "price";
+  price.textContent = fmtMoney(it.price);
+  const have = document.createElement("span");
+  have.className = "have";
+  foot.append(price, have);
+  // En el teléfono la carta no se toca entera (el dedo la usa para pasar la fila): se compra
+  // con este botón, que en el escritorio no se ve (style.css).
+  const buy = document.createElement("span");
+  buy.className = "buy";
+  buy.textContent = `Comprá ${fmtMoney(it.price)}`;
+  card.append(name, desc, foot, buy);
+  card.addEventListener("click", () => room?.send("buy", { item: id }));
+  // Debajo de la carta, el renglón de venta. Está siempre, así la fila no salta cuando comprás;
+  // apagado no dispara.
+  const sell = document.createElement("button");
+  sell.className = "sell";
+  sell.addEventListener("click", () => room?.send("sell", { item: id }));
+  const slot = document.createElement("div");
+  slot.className = "slot";
+  slot.append(card, sell);
+  ui.shopItems.append(slot);
+  const parts = { card, have, sell };
+  shopSlots.set(id, parts);
+  return parts;
 }
 
 function renderEnd(phase: string): void {
@@ -1336,6 +1364,8 @@ function toggleMoveMode(kind: "fuel" | "step" = "fuel"): void {
   moveKind = kind;
   moveHover = null;
   stepDest = null;
+  // El paso dice qué sigue: el anillo solo no avisa que hay que tocar el piso.
+  if (moveMode && kind === "step") showBanner(compact.matches ? "Tocá el piso adonde vas" : "Clic en el piso adonde vas", 2500);
   onState();
 }
 ui.fuelBtn.addEventListener("click", () => toggleMoveMode());
@@ -1530,6 +1560,9 @@ function moveTo(e: PointerEvent): void {
   if (free && compact.matches) {
     stepDest = to;
     onState();
+    // Falta un toque: se dice cuál y el botón queda a la vista aunque la fila de armas esté corrida.
+    showBanner("Marcado. Tocá Ir ahí para correrte", 2500);
+    ui.stepBtn.scrollIntoView({ block: "nearest", inline: "nearest" });
     return;
   }
   room.send(free ? "step" : "move", { moveTo: to });

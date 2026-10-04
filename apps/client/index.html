@@ -107,7 +107,11 @@
           <ul id="hud-players" class="hud-players"></ul>
         </div>
         <canvas id="minimap" class="minimap" aria-label="Minimapa"></canvas>
-        <div id="banner" class="banner" hidden></div>
+        <!-- Avisos: la línea del mapa (primer turno) y, abajo, el cartel de siempre. Uno no pisa al otro. -->
+        <div class="notices">
+          <div id="tip" class="banner" hidden></div>
+          <div id="banner" class="banner" hidden></div>
+        </div>
 
         <!-- Solo en tu turno: lo que se usa para tirar -->
         <div id="dock" class="dock" hidden>
