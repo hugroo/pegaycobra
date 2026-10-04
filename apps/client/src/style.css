@@ -362,8 +362,23 @@ kbd {
   .angles.held, .power.held { border-color: var(--ocre); background-color: rgba(226, 164, 59, 0.18); }
   .fire { grid-area: fire; min-width: 0; min-height: 64px; font-size: 22px; }
 
-  .items { grid-auto-columns: minmax(132px, 1fr); touch-action: pan-x; overscroll-behavior-x: contain; scrollbar-width: none; }
-  .sell { min-height: 32px; font-size: 13px; }
+  /* Tienda con el dedo, parado o acostado: cartas grandes que se pasan de costado. La carta no ataja
+     el toque (así el dedo pasa la fila sin comprar): se compra y se vende con dos botones aparte. */
+  .items { touch-action: pan-x; overscroll-behavior-x: contain; scrollbar-width: none; scroll-snap-type: x proximity; }
+  .slot { scroll-snap-align: start; }
+  .item { pointer-events: none; }
+  .item .name { font-size: 19px; }
+  .item .desc { font-size: 14px; line-height: 1.25; }
+  .item .foot .price { display: none; }
+  .item .have { font-size: 13px; }
+  .item .buy {
+    display: grid; place-items: center; width: 100%; min-height: 52px; border-radius: 12px; pointer-events: auto;
+    background: var(--ocre); color: var(--ocre-ink); font-weight: 800; font-size: 16px; white-space: nowrap;
+  }
+  .item:disabled .buy { background: var(--glass-2); color: var(--muted); }
+  .sell { min-height: 52px; border-radius: 12px; font-size: 15px; }
+  .sell:disabled { border-color: var(--line); }
+  .sell:disabled:empty::after { content: "No tenés"; }
 
   /* Chat: cerrado es un botón arriba de la barra de tiro, con lo último que llegó encima un rato.
      Abierto sube arriba de todo, donde el teclado no lo tapa: la línea, Cerrar y abajo el historial. */
@@ -386,6 +401,21 @@ kbd {
   }
   .angles { min-height: 0; }
   .arms { align-self: end; }
+
+  /* Tienda acostada: dos cartas y la punta de la tercera, pero bajas, para que el cerro se siga
+     viendo: el texto a la izquierda y Comprá y Vendé apilados a la derecha, de 48 px cada uno.
+     Vendé es hermano de la carta: va encimado en el hueco que la carta le deja abajo de Comprá. */
+  .tray { gap: 8px; padding: 8px 12px; }
+  .tray-head button { min-height: 44px; }
+  .items { grid-auto-columns: calc(50% - 24px); }
+  .slot { grid-template: minmax(54px, 1fr) 56px / minmax(0, 1fr) 156px; gap: 0; }
+  .item {
+    grid-area: 1 / 1 / -1 / -1; grid-template: auto auto 1fr / minmax(0, 1fr) 148px;
+    gap: 2px 8px; padding: 8px; align-content: stretch;
+  }
+  .item .name, .item .desc, .item .foot { grid-column: 1; }
+  .item .buy { grid-area: 1 / 2 / -1 / 3; align-self: start; min-height: 48px; }
+  .sell { grid-area: 2 / 2; margin: 0 8px 8px 0; min-height: 48px; }
 }
 
 /* Angosto: el turno arriba a todo el ancho; jugadores y minimapa en la fila de abajo. */
@@ -409,25 +439,13 @@ kbd {
   .summary { grid-area: 2 / 1; overflow-x: auto; touch-action: pan-x; scrollbar-width: none; }
   .tray-head .money { grid-area: 2 / 2; justify-self: end; }
 
-  /* Tienda con el dedo: dos cartas grandes a la vista y la punta de la tercera, que avisa que la
-     fila sigue. La carta no ataja el toque (así el dedo pasa la fila sin comprar): se compra y se
-     vende con dos botones aparte, de más de 48 px. */
-  .items { grid-auto-columns: calc(50% - 20px); scroll-snap-type: x proximity; }
-  .slot { gap: 6px; scroll-snap-align: start; }
-  .item { grid-template-rows: auto 1fr auto auto; gap: 6px; padding: 10px; pointer-events: none; }
-  .item .name { font-size: 19px; }
-  .item .desc { font-size: 14px; line-height: 1.25; min-height: 2.5em; }
+  /* Tienda parada: dos cartas grandes a la vista y la punta de la tercera, que avisa que la fila
+     sigue; Comprá y Vendé uno abajo del otro, de 52 px. */
+  .items { grid-auto-columns: calc(50% - 20px); }
+  .slot { gap: 6px; }
+  .item { grid-template-rows: auto 1fr auto auto; gap: 6px; padding: 10px; }
+  .item .desc { min-height: 2.5em; }
   .item .foot { min-height: 1.3em; }
-  .item .foot .price { display: none; }
-  .item .have { font-size: 13px; }
-  .item .buy {
-    display: grid; place-items: center; width: 100%; min-height: 52px; border-radius: 12px; pointer-events: auto;
-    background: var(--ocre); color: var(--ocre-ink); font-weight: 800; font-size: 16px; white-space: nowrap;
-  }
-  .item:disabled .buy { background: var(--glass-2); color: var(--muted); }
-  .sell { min-height: 52px; border-radius: 12px; font-size: 15px; }
-  .sell:disabled { border-color: var(--line); }
-  .sell:disabled:empty::after { content: "No tenés"; }
 
   /* Espera, con el pulgar: el dibujo de cada mapa llena su botón y abajo se lee qué tiene el elegido. */
   #screen-lobby { padding: 12px; }
