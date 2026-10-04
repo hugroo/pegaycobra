@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
 import type { Server } from "@colyseus/core";
-import { fireFromShot, inFire, SHOP_ITEMS, simulateShot3D, simulateWeaponShot3D, terrainHeightAt, WEAPONS, type Terrain } from "@pegaycobra/sim";
+import { fireFromShot, inFire, SHOP_ITEMS, simulateShot3D, simulateWeaponShot3D, terrainHeightAt, WEAPONS, WIND_DRIFT_MAX, type Terrain } from "@pegaycobra/sim";
 import { createServer, ROOM_NAME } from "../src/server";
 import { GameRoom, type RoundEndBroadcast } from "../src/room";
 import { applyTerrainMessage, type TerrainMessage } from "../src/terrain-net";
@@ -415,8 +415,8 @@ describe("partida de 5 rondas por red", () => {
     b.send("ready");
     await until(() => a.state.round === 2 && a.state.phase === "aiming" && ta.fulls === 2 && tb.fulls === 2);
 
-    // Ronda 2: Beto tira para atrás y Ana busca, con el sim, un Racimo que se abra, caiga entero en
-    // el mapa y cuya cabeza del medio le explote cerca a Beto.
+    // Ronda 2: Beto tira para atrás y Ana busca, con el sim, un Racimo que se abra bien arriba, caiga
+    // entero en el mapa y cuya cabeza del medio le explote cerca a Beto.
     await turn(b.sessionId);
     const me = seenBy(a, a.sessionId);
     const foe = seenBy(a, b.sessionId);
@@ -430,7 +430,8 @@ describe("partida de 5 rondas por red", () => {
         for (let d = 0; d <= 12; d += 0.5) {
           for (const yaw of [base + d, base - d]) {
             const r = simulateWeaponShot3D(ta.terrain!, WEAPONS.mirv, { originX: me.x, originY: me.y, originZ: me.z, yaw, pitch, power, wind, shooterId: me.id }, tanks);
-            if (r.split?.heads.every(landed) && Math.hypot(r.x - foe.x, r.z - foe.z) <= 3) {
+            const top = r.split?.y ?? 0;
+            if (r.split?.heads.every((h) => landed(h) && top > h.y + 12) && Math.hypot(r.x - foe.x, r.z - foe.z) <= 3) {
               aim = { yaw, pitch, power };
               break search;
             }
@@ -477,6 +478,60 @@ describe("partida de 5 rondas por red", () => {
     await a.leave();
     await b.leave();
   }, 60_000);
+
+  it("el viento se corre al empezar cada turno, nunca en pleno vuelo, y los dos clientes reciben el mismo", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto" });
+    const ta = trackTerrain(a);
+    const tb = trackTerrain(b);
+    const windOf = (r: Room<any>) => ({ x: r.state.windX as number, z: r.state.windZ as number });
+    /** El viento que tenía cada cliente cuando le llegó cada "shot": el del tiro que está por ver volar. */
+    const atShot: { x: number; z: number }[][] = [[], []];
+    const shots: any[] = [];
+    a.onMessage("shot", (m) => (shots.push(m), atShot[0]!.push(windOf(a))));
+    b.onMessage("shot", () => atShot[1]!.push(windOf(b)));
+    for (const r of [a, b]) for (const type of ["skip", "moved", "roundEnd", "burn"]) r.onMessage(type, () => {});
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    a.send("start");
+    await until(() => a.state.phase === "aiming" && b.state.phase === "aiming" && ta.fulls === 1 && tb.fulls === 1);
+
+    const rooms: Record<string, Room<any>> = { [a.sessionId]: a, [b.sessionId]: b };
+    const winds: { x: number; z: number }[] = [];
+    for (let turn = 0; turn < 6; turn++) {
+      const id = a.state.turnId as string;
+      await until(() => b.state.phase === "aiming" && b.state.turnId === id);
+      // Antes de apuntar, las dos pestañas tienen el mismo vector.
+      const wind = windOf(a);
+      expect(windOf(b)).toEqual(wind);
+      winds.push(wind);
+
+      // Una Chispa para atrás, lejos de todos. El server la tira con ese mismo viento: el recorrido
+      // que manda es el que da el sim con lo que ve el cliente (la fantasma), punto por punto.
+      const me = a.state.players.get(id);
+      const aim = { yaw: me.yaw + 180, pitch: 60, power: 250 };
+      const ghost = simulateShot3D(ta.terrain!, { originX: me.x, originY: me.y, originZ: me.z, ...aim, wind, shooterId: id }, [], { recordPath: true });
+      rooms[id]!.send("fire", aim);
+      await until(() => atShot[0]!.length === turn + 1 && atShot[1]!.length === turn + 1);
+      const path = shots[turn].path as number[];
+      expect(path).toHaveLength(ghost.path!.length);
+      path.forEach((v, i) => expect(Math.abs(v - ghost.path![i]!)).toBeLessThan(0.02));
+      // En pleno vuelo el cartel sigue mostrando el viento con el que se tiró.
+      expect(atShot[0]![turn]).toEqual(wind);
+      expect(atShot[1]![turn]).toEqual(wind);
+      await until(() => a.state.phase === "aiming" && a.state.turnId !== id);
+    }
+
+    // Dos turnos seguidos nunca tienen el mismo viento, y no pega un salto: se corre a lo sumo WIND_DRIFT_MAX.
+    for (let i = 1; i < winds.length; i++) {
+      const step = Math.hypot(winds[i]!.x - winds[i - 1]!.x, winds[i]!.z - winds[i - 1]!.z);
+      expect(step).toBeGreaterThan(0.1);
+      expect(step).toBeLessThanOrEqual(WIND_DRIFT_MAX + 1e-4);
+    }
+
+    await a.leave();
+    await b.leave();
+  }, 30_000);
 
   it("si uno se va en plena partida, el otro gana", async () => {
     const url = `ws://localhost:${PORT}`;

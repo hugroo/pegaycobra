@@ -5,6 +5,7 @@ import {
   createFlatTerrain,
   createRng,
   DEFAULT_TERRAIN_3D,
+  driftWind3D,
   GAME_TERRAIN_3D,
   generateTerrain,
   INFINITE_AMMO,
@@ -19,6 +20,8 @@ import {
   tanks3DAt,
   terrainHeightAt,
   WEAPONS,
+  WIND_DRIFT_MAX,
+  WIND_DRIFT_MIN,
   WIND_MAX,
   type MatchState3D,
   type Shot3DParams,
@@ -111,6 +114,25 @@ describe("tiro 3D: el viento empuja en XZ", () => {
   it("un viento de costado desvía un tiro que va en X", () => {
     const r = simulateShot3D(FLAT, { ...CENTER, wind: { x: 0, z: 3 } });
     expect(r.z).toBeGreaterThan(129);
+  });
+
+  it("driftWind3D corre el viento un poco: nunca queda igual, nunca salta más que el tope y no pasa de WIND_MAX", () => {
+    const rng = createRng(11);
+    for (const start of [{ x: 0, z: 0 }, { x: WIND_MAX, z: 0 }, { x: -3, z: 4 }]) {
+      let w = start;
+      for (let i = 0; i < 2000; i++) {
+        const next = driftWind3D(w, rng);
+        const step = Math.hypot(next.x - w.x, next.z - w.z);
+        expect(step).toBeGreaterThan(WIND_DRIFT_MIN / 2);
+        expect(step).toBeLessThanOrEqual(WIND_DRIFT_MAX + 1e-6);
+        expect(Math.hypot(next.x, next.z)).toBeLessThanOrEqual(WIND_MAX + 1e-6);
+        // Sale en float32: el número que viaja por la red es el mismo con el que tira el server.
+        expect(next).toEqual({ x: Math.fround(next.x), z: Math.fround(next.z) });
+        w = next;
+      }
+    }
+    // Misma semilla, mismo viento.
+    expect(driftWind3D({ x: 1, z: 2 }, createRng(3))).toEqual(driftWind3D({ x: 1, z: 2 }, createRng(3)));
   });
 
   it("rollWind3D da vectores de módulo entero 0..5 en todas las direcciones", () => {

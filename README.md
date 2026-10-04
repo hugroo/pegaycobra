@@ -80,6 +80,9 @@ cinco hoyos chicos y el cartel del impacto es uno solo, con el daño de todas su
 
 - **5 rondas.** Cada ronda tiene terreno nuevo, viento sorteado de nuevo, tanques reubicados y
   vida llena. Empieza un jugador distinto cada ronda.
+- **El viento es parte del tiro.** Al empezar cada turno se corre un poco desde el del turno
+  anterior (entre 0.25 y 1 de los 5 que puede tener): nunca queda igual y nunca pasa de golpe a un
+  huracán. El cartel y la flecha cambian al empezar el turno, no con un tiro en el aire.
 - **La ronda termina** cuando queda un solo tanque vivo, o cuando cada jugador ya tiró 15 veces.
 - **Plata.** Se arranca con $4.000. El daño y los kills se cobran en el momento del tiro: con la
   Chispa, $10 por punto de vida y $30 por punto en el tiro que mata (un kill de lleno, $3.000).
@@ -212,8 +215,9 @@ de la misma sala podrían caer en servidores distintos.
   prendido: `fireFromShot`, la misma función que usa el server; con la Tierra, el pie de la loma;
   con el Racimo, la marca de la apertura y un anillo por cabeza). Es solo para mostrar: no se manda nada y el
   daño sigue saliendo del server. Al tirar se apaga y se anima la trayectoria que manda el server.
-  Como posiciones y viento viajan en float32, la fantasma puede diferir del tiro real en una
-  fracción de wu.
+  El viento es el del estado, y el sim lo guarda en float32, que es como viaja: la fantasma y el
+  server tiran con el mismo vector. Las posiciones también viajan en float32 y esas sí se redondean
+  en el camino, así que la fantasma puede diferir del tiro real en una fracción de wu.
 - La lógica de partida (rondas, turnos, tienda, reloj, salidas, ganador) está en
   `apps/server/src/game.ts`, sin Colyseus. `room.ts` solo la conecta con la red. La sala muere
   cuando queda vacía. No hay cuentas, base de datos ni persistencia.
@@ -260,7 +264,7 @@ pnpm typecheck
 | `roller.ts` | **3D.** `simulateRoll()`: la bola baja por el gradiente del terreno hasta un tanque, N celdas o quedarse sin pendiente. `simulateWeaponShot3D()`: el tiro de cualquier arma, con la rodada si es un Rodillo y la apertura si es un Racimo. Lo usan el server, la fantasma del cliente y el bot |
 | `mirv.ts` | **3D.** `simulateSplitShot3D()`: el tiro del Racimo, que vuela hasta la cima y ahí se abre en cabezas (`split` en el resultado). `splitDirection()`: para qué lado sale cada una. `shotImpacts()`: los golpes de un tiro en el orden en que caen (uno, o uno por cabeza) |
 | `napalm.ts` | **3D.** `fireFromShot()`: el fuego que deja un tiro de Quema (o null). `inFire()`: si un punto del piso está adentro del disco. Lo usan el server, la fantasma del cliente y el HUD |
-| `turn3d.ts` | **3D.** `rollWind3D()`, `placeTanks3D()`, `resolveTurn3D()`. `resolveTurn()` lo usa cuando el estado tiene `terrain`. Con paracaídas, la caída no daña. Con escudo, el próximo tiro que te alcanza no daña (`blocked`), salvo el Bombazo (`piercesShield`). Una Quema no toca el terreno y agrega un fuego a `state.fires`. Una Tierra sube el terreno y, con él, al tanque que quedó debajo; no saca vida ni gasta escudos. Un Racimo abierto se resuelve cabeza por cabeza, y el escudo absorbe una sola. `burnTurn3D()`: lo que pierde un tanque al empezar su turno parado en un fuego |
+| `turn3d.ts` | **3D.** `rollWind3D()` (viento con el que arranca la ronda), `driftWind3D()` (el de cada turno: el anterior, corrido a lo sumo `WIND_DRIFT_MAX`), `placeTanks3D()`, `resolveTurn3D()`. `resolveTurn()` lo usa cuando el estado tiene `terrain`. Con paracaídas, la caída no daña. Con escudo, el próximo tiro que te alcanza no daña (`blocked`), salvo el Bombazo (`piercesShield`). Una Quema no toca el terreno y agrega un fuego a `state.fires`. Una Tierra sube el terreno y, con él, al tanque que quedó debajo; no saca vida ni gasta escudos. Un Racimo abierto se resuelve cabeza por cabeza, y el escudo absorbe una sola. `burnTurn3D()`: lo que pierde un tanque al empezar su turno parado en un fuego |
 | `campaign.ts` | **Partida.** `startRound3D()` (ronda nueva), `endRoundPayouts()` (premio por sobrevivir + interés), `SHOP_ITEMS`, `buyItem()` / `cannotBuy()`, `sellItem()` / `cannotSell()`, `validateMove()` / `moveTank()` (nafta), `scoreTurn()`, `standings()`, `matchWinners()` |
 
 Todo son funciones puras: reciben el estado y devuelven uno nuevo. En 3D el heightmap es un
@@ -456,6 +460,5 @@ tanques son primitivas generadas.
 
 Baby Nuke, sonido nuevo, cuentas, base de datos, matchmaking, una segunda cámara y deploy. No se
 portó nada de OpenGL, wxWidgets, SDL ni Lua del original: el render es Three.js escrito de cero.
-El viento se sortea al empezar cada ronda y no cambia dentro de la ronda (en el original es la
-opción `WindChangeNever`). El que no tiene el turno ve el cañón ajeno en el último ángulo que
+El que no tiene el turno ve el cañón ajeno en el último ángulo que
 disparó, no moviéndose en vivo.

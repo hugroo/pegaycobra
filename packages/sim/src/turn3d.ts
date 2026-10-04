@@ -9,7 +9,7 @@
 // El MIRV se abre en el aire (mirv.ts) y cada cabeza es un golpe aparte, resuelto con estas mismas reglas.
 // Orígenes: Explosion.cpp, TargetDamageCalc.cpp, TargetDamage.cpp, TargetFalling.cpp, Wind.cpp.
 
-import { TANK_RADIUS } from "./constants";
+import { TANK_RADIUS, WIND_MAX } from "./constants";
 import { applyDamage, explosionDamage, fallDamage, isAlive, type Tank } from "./damage";
 import { canFire, clampMoney, consumeAmmo, moneyForDamage } from "./economy";
 import { TANK_START_HEIGHT_MAX, TANK_START_HEIGHT_MIN } from "./match";
@@ -78,7 +78,7 @@ export interface TurnResult3D {
 }
 
 /**
- * Viento de la ronda como vector en XZ. Wind::newLevel() (WindRandom):
+ * Viento con el que arranca la ronda, como vector en XZ. Wind::newLevel() (WindRandom):
  * velocidad = trunc(rand · 5.9) → 0..5; ángulo = rand · 360°; dirección = (sin a, cos a).
  * El "y" del piso del original es nuestro z.
  */
@@ -87,6 +87,36 @@ export function rollWind3D(rng: () => number): Wind {
   if (speed <= 0) return { x: 0, z: 0 };
   const a = (rng() * 360 * Math.PI) / 180;
   return { x: speed * Math.sin(a), z: speed * Math.cos(a) };
+}
+
+/** Lo menos que se corre el viento de un turno al siguiente: nunca queda igual. [unidad de viento] */
+export const WIND_DRIFT_MIN = 0.25;
+/** Lo más que se corre el viento de un turno al siguiente: no pasa de golpe a un huracán. [unidad de viento] */
+export const WIND_DRIFT_MAX = 1;
+
+/**
+ * Viento del turno que empieza: el del turno anterior, corrido entre WIND_DRIFT_MIN y WIND_DRIFT_MAX
+ * hacia cualquier lado. Regla propia: no se sortea de cero. Si el paso lo sacaría de WIND_MAX, se da
+ * para el otro lado, y si tampoco entra se recorta al borde. Sale ya en float32, que es como viaja
+ * por la red: el server tira con el mismo número que ve el cliente.
+ */
+export function driftWind3D(wind: Wind, rng: () => number): Wind {
+  const step = WIND_DRIFT_MIN + rng() * (WIND_DRIFT_MAX - WIND_DRIFT_MIN);
+  const a = rng() * Math.PI * 2;
+  const dx = step * Math.cos(a);
+  const dz = step * Math.sin(a);
+  let x = wind.x + dx;
+  let z = wind.z + dz;
+  if (Math.hypot(x, z) > WIND_MAX) {
+    x = wind.x - dx;
+    z = wind.z - dz;
+  }
+  const mag = Math.hypot(x, z);
+  if (mag > WIND_MAX) {
+    x *= WIND_MAX / mag;
+    z *= WIND_MAX / mag;
+  }
+  return { x: Math.fround(x), z: Math.fround(z) };
 }
 
 /** Distancia mínima garantizada entre tanques al empezar. [wu = celdas] */

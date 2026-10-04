@@ -8,6 +8,8 @@ import {
   buyItem,
   cannotBuy,
   cannotSell,
+  createRng,
+  driftWind3D,
   emptyScoreboard,
   endRoundPayouts,
   matchWinners,
@@ -165,6 +167,8 @@ export class Game {
   /** Lo que quemó el fuego desde la última vez que la sala lo leyó (takeBurns). */
   private burned: BurnEvent[] = [];
   private baseSeed = 0;
+  /** De acá sale cuánto se corre el viento en cada turno. Se rearma con la semilla de cada ronda. */
+  private windRng: () => number = Math.random;
 
   constructor(
     private readonly turnSeconds = TURN_SECONDS,
@@ -215,6 +219,7 @@ export class Game {
     this.roundSerial++;
     const gone = new Set(this.seats.filter((s) => !s.connected).map((s) => s.id));
     this.match = startRound3D(this.seedFor(this.round), players, gone);
+    this.windRng = createRng(this.seedFor(this.round) ^ 0x7f4a7c15);
     const { terrain, tanks } = this.match;
     // Cada cañón arranca mirando al centro del mapa, a 45°.
     const cx = (terrain.width - 1) / 2;
@@ -380,6 +385,8 @@ export class Game {
       this.turnId = next;
       if (this.burn(next)) break;
     }
+    // Turno nuevo, viento nuevo: se corre desde el anterior. El primer turno de la ronda juega con el sorteado.
+    this.match = { ...this.match, wind: driftWind3D(this.match.wind, this.windRng) };
     this.phase = "aiming";
     this.timeLeft = this.turnSeconds;
   }
