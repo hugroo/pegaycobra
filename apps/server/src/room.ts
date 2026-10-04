@@ -12,7 +12,7 @@
 
 import { Room, type Client } from "@colyseus/core";
 import { createRng } from "@pegaycobra/sim";
-import { BOT_NAME, botShopPick, pickBotShot } from "./bot";
+import { BOT_NAME, botMovePick, botShopPick, pickBotShot } from "./bot";
 import { Game, MAX_PLAYERS, MIN_PLAYERS, type RoundSummary } from "./game";
 import { generateCode } from "./codes";
 import { FireState, GameState, PlayerState } from "./schema";
@@ -123,6 +123,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private botSerial = 0;
   private botRng: () => number = Math.random;
   private botPending = false;
+  /** Bots a los que otro les pegó en la ronda (daño, o tiro que les gastó el escudo). Se vacía al empezar la siguiente. */
+  private readonly botsHit = new Set<string>();
   /** Asientos guardados: se les cayó la conexión y todavía pueden volver. */
   private readonly away = new Set<string>();
 
@@ -151,14 +153,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.flush();
     });
 
-    this.onMessage("move", (client, message: unknown) => {
-      const to = this.game.move(client.sessionId, message);
-      if (!to) return; // ignorado
-      this.broadcast("moved", { id: client.sessionId, ...to });
-      this.log(`${this.nameOf(client.sessionId)} usa nafta -> (${to.x.toFixed(1)}, ${to.z.toFixed(1)})`);
-      this.flush();
-    });
-
+    this.onMessage("move", (client, message: unknown) => void this.onMove(client.sessionId, message));
     this.onMessage("fire", (client, message: unknown) => this.onFire(client.sessionId, message));
     this.onMessage("buy", (client, message: unknown) => this.onBuy(client.sessionId, message));
     this.onMessage("sell", (client, message: unknown) => {
@@ -189,9 +184,22 @@ export class GameRoom extends Room<{ state: GameState }> {
     }, 1000);
   }
 
+  /** false = ignorado. */
+  private onMove(id: string, message: unknown): boolean {
+    const to = this.game.move(id, message);
+    if (!to) return false;
+    this.broadcast("moved", { id, ...to });
+    this.log(`${this.nameOf(id)} usa nafta -> (${to.x.toFixed(1)}, ${to.z.toFixed(1)})`);
+    this.flush();
+    return true;
+  }
+
   private onFire(id: string, message: unknown): void {
     const shot = this.game.fire(id, message);
     if (!shot) return; // ignorado
+    for (const hit of [...shot.result.damage.map((d) => d.targetId), ...shot.result.blocked]) {
+      if (hit !== shot.shooterId && this.bots.has(hit)) this.botsHit.add(hit);
+    }
     const shotResult = shot.result.shot;
     // Lo que representa al tiro (cartel, "se fue"): él mismo, o la primera cabeza que explotó si la del medio se fue.
     const heads = shotResult.split?.heads;
@@ -265,13 +273,16 @@ export class GameRoom extends Room<{ state: GameState }> {
   private botAct(): void {
     const g = this.game;
     if (g.phase === "aiming" && g.turnId !== null && this.bots.has(g.turnId) && g.match) {
+      // Con nafta y un cerro de por medio, primero sube; el flush de onMove lo agenda de nuevo y ahí tira.
+      const to = g.movedThisTurn ? null : botMovePick(g.match, g.turnId);
+      if (to && this.onMove(g.turnId, { moveTo: to })) return;
       const shot = pickBotShot(g.match, g.turnId, this.botRng);
       if (shot) this.onFire(g.turnId, { yaw: shot.yaw, pitch: shot.pitch, power: shot.power, weapon: shot.weapon });
     } else if (g.phase === "shop") {
       for (const id of this.bots) {
         if (g.ready.has(id)) continue;
         const player = g.playerOf(id);
-        const item = player && botShopPick(player, this.botRng);
+        const item = player && botShopPick(player, this.botRng, this.botsHit.has(id));
         if (item) this.onBuy(id, { item });
         this.onReady(id);
       }
@@ -352,6 +363,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     }
     if (g.match && g.roundSerial !== this.sentRoundSerial) {
       this.sentRoundSerial = g.roundSerial;
+      this.botsHit.clear();
       this.broadcast("terrain", fullTerrain(g.match.terrain));
       const w = g.match.wind;
       this.log(`ronda ${g.round}/${g.rounds}, viento (${w.x.toFixed(1)}, ${w.z.toFixed(1)})`);

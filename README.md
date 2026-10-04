@@ -205,9 +205,11 @@ de la misma sala podrían caer en servidores distintos.
 - Los fuegos de Quema van en el estado de Colyseus (`fires`: centro y radio de cada disco), así
   todas las pestañas dibujan la misma mancha. Cada vez que empieza un turno, el server corre
   `burnTurn3D` del sim para ese tanque; si se quemó, manda `burn { id, damage, killed }`.
-- El bot compra en la tienda solo si no le queda ningún Misil: un pack de Misil o de Rodillo, a
-  cara o cruz. Tira lo que tenga (Misil, si no Rodillo, si no la Chispa) apuntando igual que
-  siempre. No compra Quema, Bombazo, Tierra, Racimo, Rebote, escudo, paracaídas ni nafta.
+- El bot compra en la tienda una sola cosa por ronda, si le alcanza: el escudo si le pegaron en la
+  ronda anterior y no tiene uno; si no, sortea entre Misil, Rodillo, Rebote y nafta. Tira lo que
+  tenga (Misil, si no Rebote, si no Rodillo, si no la Chispa) apuntando igual que siempre. La nafta
+  la usa antes de tirar si el rival está cerro de por medio y hay piso más alto a menos de 20
+  celdas: sube al punto más alto. No compra Quema, Bombazo, Tierra, Racimo ni paracaídas.
 - Otros mensajes del server: `moved` (alguien usó nafta), `skip` (turno perdido por tiempo),
   `burn` (a alguien le empezó el turno en el fuego) y `roundEnd` (lo que cobró cada uno al terminar
   la ronda).

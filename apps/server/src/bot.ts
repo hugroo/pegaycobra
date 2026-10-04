@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Bot para probar solo. Ocupa un asiento como cualquier jugador y la sala le pasa sus mensajes
-// por los mismos caminos que los de un cliente (Game.fire, Game.buy, Game.setReady).
+// por los mismos caminos que los de un cliente (Game.fire, Game.move, Game.buy, Game.setReady).
 // Acá solo se decide qué manda: el tiro sale de probar unas pocas punterías con el sim, descartar
 // las que se quedan en un cerro antes del rival y quedarse con la que cae más cerca; no busca hasta pegar.
 
@@ -9,13 +9,19 @@ import {
   cannotBuy,
   collisionDistance3D,
   explosionDamage,
+  FUEL_MOVE_RANGE,
   isAlive,
   POWER_MAX,
   simulateWeaponShot3D,
+  TANK_RADIUS,
+  terrainHeightAt,
+  validateMove,
   WEAPONS,
   type MatchState3D,
   type Player,
   type ShopItemId,
+  type Tank3D,
+  type Terrain,
   type WeaponId,
 } from "@pegaycobra/sim";
 
@@ -27,6 +33,10 @@ const YAW_SPREAD = 8;
 const PITCH_MIN = 40;
 const PITCH_MAX = 65;
 const POWER_MIN = 300;
+/** Lo que tira si tiene, en este orden. Si no tiene nada de esto, la Baby. */
+const BOT_WEAPONS: readonly WeaponId[] = ["missile", "leapfrog", "roller"];
+/** Lo que sortea en la tienda. El escudo va aparte (botShopPick). */
+const BOT_SHOP: readonly ShopItemId[] = ["missile", "roller", "leapfrog", "fuel"];
 
 export interface BotShot {
   yaw: number;
@@ -41,6 +51,10 @@ export interface BotShot {
   miss: number;
 }
 
+function nearestFoe(me: Tank3D, foes: readonly Tank3D[]): Tank3D {
+  return foes.reduce((a, b) => (Math.hypot(a.x - me.x, a.z - me.z) <= Math.hypot(b.x - me.x, b.z - me.z) ? a : b));
+}
+
 /** Las BOT_SAMPLES punterías sorteadas, cada una con dónde cae según el sim. */
 export function botCandidates(match: MatchState3D, botId: string, rng: () => number): BotShot[] {
   const alive = match.tanks.filter(isAlive);
@@ -49,11 +63,12 @@ export function botCandidates(match: MatchState3D, botId: string, rng: () => num
   const inventory = match.players.find((p) => p.id === botId)?.inventory;
   if (!me || !inventory || foes.length === 0) return [];
 
-  // Tira lo que compró: Missile si tiene, si no Roller, si no la Baby. Apunta igual con cualquiera.
-  // Lo que no compra (Racimo y Rebote incluidos) tampoco lo tira, aunque lo tenga.
-  const weapon: WeaponId = canFire(inventory, "missile") ? "missile" : canFire(inventory, "roller") ? "roller" : "babyMissile";
+  // Tira lo que compró: Missile si tiene, si no Rebote, si no Roller, si no la Baby. Apunta igual con
+  // cualquiera: el sim ya trae el pique del Rebote y la rodada del Roller.
+  // Lo que no compra (Napalm, Nuke, Tierra y Racimo) tampoco lo tira, aunque lo tenga.
+  const weapon: WeaponId = BOT_WEAPONS.find((id) => canFire(inventory, id)) ?? "babyMissile";
   const w = WEAPONS[weapon];
-  const nearest = foes.reduce((a, b) => (Math.hypot(a.x - me.x, a.z - me.z) <= Math.hypot(b.x - me.x, b.z - me.z) ? a : b));
+  const nearest = nearestFoe(me, foes);
   const bearing = (Math.atan2(nearest.z - me.z, nearest.x - me.x) * 180) / Math.PI;
 
   const out: BotShot[] = [];
@@ -91,12 +106,52 @@ export function pickBotShot(match: MatchState3D, botId: string, rng: () => numbe
   return best;
 }
 
+/** Hay cerro de por medio: la recta de un tanque al otro, a la altura del cañón, pasa por debajo del piso. */
+function hillBetween(terrain: Terrain, a: Tank3D, b: Tank3D): boolean {
+  const steps = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z));
+  for (let i = 1; i < steps; i++) {
+    const k = i / steps;
+    const sight = a.y + (b.y - a.y) * k + TANK_RADIUS;
+    if (terrainHeightAt(terrain, a.x + (b.x - a.x) * k, a.z + (b.z - a.z) * k) > sight) return true;
+  }
+  return false;
+}
+
 /**
- * En la tienda: si no le queda ningún Missile compra un pack, de Missile o de Roller a cara o
- * cruz, si le alcanza. Napalm, Nuke, Tierra, Racimo, Rebote, escudo, paracaídas y nafta, no. null = no compra nada.
+ * Nafta: si tiene, el rival más cercano está cerro de por medio y hay piso más alto que el suyo a
+ * menos de FUEL_MOVE_RANGE celdas, el punto más alto al que puede ir. null = se queda donde está.
  */
-export function botShopPick(player: Player, rng: () => number): ShopItemId | null {
-  if ((player.inventory.missile ?? 0) > 0) return null;
-  const item: ShopItemId = rng() < 0.5 ? "roller" : "missile";
-  return cannotBuy(player, item) === null ? item : null;
+export function botMovePick(match: MatchState3D, botId: string): { x: number; z: number } | null {
+  const alive = match.tanks.filter(isAlive);
+  const me = alive.find((t) => t.id === botId);
+  const foes = alive.filter((t) => t.id !== botId);
+  const fuel = match.players.find((p) => p.id === botId)?.inventory.fuel ?? 0;
+  if (!me || fuel <= 0 || foes.length === 0) return null;
+  if (!hillBetween(match.terrain, me, nearestFoe(me, foes))) return null;
+
+  let best: { x: number; z: number } | null = null;
+  let top = me.y;
+  for (let dz = -FUEL_MOVE_RANGE; dz <= FUEL_MOVE_RANGE; dz++) {
+    for (let dx = -FUEL_MOVE_RANGE; dx <= FUEL_MOVE_RANGE; dx++) {
+      if (Math.hypot(dx, dz) >= FUEL_MOVE_RANGE) continue;
+      const to = { x: me.x + dx, z: me.z + dz };
+      const check = validateMove(match, botId, to);
+      if (check.ok && check.y > top) {
+        top = check.y;
+        best = to;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * En la tienda compra una sola cosa por ronda, si le alcanza. Si le pegaron en la ronda anterior
+ * (`wasHit`) y no tiene escudo, el escudo. Si no, sortea entre lo que puede pagar de Missile,
+ * Roller, Rebote y nafta. Napalm, Nuke, Tierra, Racimo y paracaídas, no. null = no compra nada.
+ */
+export function botShopPick(player: Player, rng: () => number, wasHit = false): ShopItemId | null {
+  if (wasHit && cannotBuy(player, "shield") === null) return "shield";
+  const can = BOT_SHOP.filter((item) => cannotBuy(player, item) === null);
+  return can.length > 0 ? can[Math.floor(rng() * can.length)]! : null;
 }
