@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd C:\\pegaycobra && git add -A && (git diff --cached --quiet || git commit -m \"Claude implementation\") && git push origin main",
+            "command": "node C:/pegaycobra/.claude/hooks/commit-push.cjs",
             "timeout": 60,
             "statusMessage": "Committing and pushing changes to main"
           }
