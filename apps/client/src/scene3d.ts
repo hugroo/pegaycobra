@@ -40,6 +40,11 @@ const GHOST_DASH = 1.6;
 const GHOST_GAP = 1.2;
 /** [wu/s] */
 const GHOST_DASH_SPEED = 3;
+/** Flecha del viento: lo que mide por unidad de viento (20 wu con viento 5) y lo menos que mide. [wu] */
+const WIND_ARROW_LEN = 4;
+const WIND_ARROW_MIN = 3;
+/** A qué distancia del tanque del turno queda el centro de la flecha, hacia el centro del mapa. [wu] */
+const WIND_ARROW_AWAY = 14;
 /** Color del fogonazo de una explosión, y el del polvo que levanta la Tierra. */
 const BLAST = "#ffb347";
 const DUST = "#a8845a";
@@ -265,6 +270,10 @@ export class World {
   private readonly bounceDust: THREE.Mesh;
   private readonly impactLabel: CSS2DObject;
   private readonly windArrow: THREE.Mesh;
+  /** Con qué viento, tanque y piso se armó la flecha: se rearma recién cuando cambia (turno nuevo). */
+  private windKey = "";
+  /** Sube cada vez que cambia el piso. */
+  private terrainRev = 0;
   private readonly border: THREE.LineLoop;
 
   // Cámara orbital: mira a `target` desde una esfera de radio `dist`.
@@ -411,20 +420,13 @@ export class World {
     this.impactLabel.visible = false;
     this.scene.add(this.impactLabel);
 
-    // Flecha del viento, acostada en el piso. Apunta a +X antes de rotarla.
-    const s = new THREE.Shape();
-    s.moveTo(0, -0.6);
-    s.lineTo(3, -0.6);
-    s.lineTo(3, -1.4);
-    s.lineTo(5, 0);
-    s.lineTo(3, 1.4);
-    s.lineTo(3, 0.6);
-    s.lineTo(0, 0.6);
-    s.closePath();
+    // Flecha del viento, calcada sobre el piso. La forma la arma drawWind.
     this.windArrow = new THREE.Mesh(
-      new THREE.ShapeGeometry(s).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: "#9ad1ff", transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
+      new THREE.BufferGeometry(),
+      new THREE.MeshBasicMaterial({ color: "#9ad1ff", transparent: true, opacity: 0.9, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }),
     );
+    this.windArrow.frustumCulled = false;
+    this.windArrow.visible = false;
     this.scene.add(this.windArrow);
 
     this.resize();
@@ -455,6 +457,7 @@ export class World {
   setTerrain(t: Terrain, rect?: { x0: number; z0: number; w: number; d: number }, newRound = false): void {
     const fresh = !this.terrainMesh || !this.terrain || this.terrain.width !== t.width || this.terrain.depth !== t.depth;
     this.terrain = t;
+    this.terrainRev++;
     if (fresh) {
       this.buildTerrain(t);
       return;
@@ -716,10 +719,11 @@ export class World {
     return { phi: top, dist: Math.max(8, this.freeDistance(theta, top, dist) - 2) };
   }
 
-  private updateCamera(dt: number): void {
+  /** `hold`: la cámara está mirando un impacto; el giro pedido con lookAlong espera a que termine. */
+  private updateCamera(dt: number, hold: boolean): void {
     const k = 1 - Math.exp(-dt * 5);
     this.target.lerp(this.targetGoal, k);
-    if (this.thetaGoal !== null) {
+    if (this.thetaGoal !== null && !hold) {
       let d = this.thetaGoal - this.camTheta;
       d = Math.atan2(Math.sin(d), Math.cos(d));
       this.camTheta += d * k;
@@ -1197,21 +1201,56 @@ export class World {
     at.copy(sum.divideScalar(heads.length));
   }
 
+  /**
+   * Flecha del viento en el piso: apunta hacia donde sopla y mide lo que sopla. Va delante del tanque
+   * del turno, del lado del centro del mapa (el mismo lugar en todas las pestañas), y sigue el
+   * relieve para que una ladera no la tape. El viento cambia al empezar el turno: ahí se rearma.
+   */
   private drawWind(wind: { x: number; z: number }, anchor: TankModel | undefined): void {
+    const t = this.terrain;
     const speed = Math.hypot(wind.x, wind.z);
-    if (!anchor || speed < 0.05 || !this.terrain) {
-      this.windArrow.visible = false;
-      return;
+    this.windArrow.visible = !!anchor && !!t && speed >= 0.05;
+    if (!anchor || !t || speed < 0.05) return;
+    const key = `${wind.x}|${wind.z}|${anchor.x}|${anchor.z}|${this.terrainRev}`;
+    if (key === this.windKey) return;
+    this.windKey = key;
+    const ux = wind.x / speed;
+    const uz = wind.z / speed;
+    const len = Math.max(WIND_ARROW_MIN, speed * WIND_ARROW_LEN);
+    const head = Math.min(4.5, len / 2);
+    const shaft = len - head;
+    let nx = (t.width - 1) / 2 - anchor.x;
+    let nz = (t.depth - 1) / 2 - anchor.z;
+    const off = Math.hypot(nx, nz);
+    if (off < 1e-3) nx = 1;
+    else {
+      nx /= off;
+      nz /= off;
     }
-    // Al costado del tanque del turno, apoyada en el piso.
-    const side = Math.atan2(wind.z, wind.x) + Math.PI / 2;
-    const len = 5 * (1.2 + speed * 0.5); // 9 wu con viento 1, 18 wu con viento 5
-    const ax = anchor.x + Math.cos(side) * 10 - (wind.x / speed) * (len / 2);
-    const az = anchor.z + Math.sin(side) * 10 - (wind.z / speed) * (len / 2);
-    this.windArrow.scale.set(len / 5, 1, 1.6);
-    this.windArrow.position.set(ax, terrainHeightAt(this.terrain, ax, az) + 0.6, az);
-    this.windArrow.rotation.y = -Math.atan2(wind.z, wind.x);
-    this.windArrow.visible = true;
+    const cx = anchor.x + nx * WIND_ARROW_AWAY - ux * (len / 2);
+    const cz = anchor.z + nz * WIND_ARROW_AWAY - uz * (len / 2);
+    // Cortes a lo largo, uno por wu: [distancia desde la cola, medio ancho]. El asta y después la punta.
+    const cuts: [number, number][] = [];
+    const n = Math.max(1, Math.ceil(shaft));
+    for (let i = 0; i <= n; i++) cuts.push([(shaft * i) / n, head * 0.22]);
+    const m = Math.max(1, Math.ceil(head));
+    for (let i = 0; i <= m; i++) cuts.push([shaft + (head * i) / m, head * 0.6 * (1 - i / m)]);
+    const pos: number[] = [];
+    const index: number[] = [];
+    cuts.forEach(([d, half], i) => {
+      for (const side of [-1, 0, 1]) {
+        const x = cx + ux * d - uz * half * side;
+        const z = cz + uz * d + ux * half * side;
+        pos.push(x, terrainHeightAt(t, x, z) + 0.5, z);
+      }
+      if (i === 0) return;
+      const a = (i - 1) * 3;
+      index.push(a, a + 1, a + 4, a, a + 4, a + 3, a + 1, a + 2, a + 5, a + 1, a + 5, a + 4);
+    });
+    this.windArrow.geometry.dispose();
+    this.windArrow.geometry = new THREE.BufferGeometry();
+    this.windArrow.geometry.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    this.windArrow.geometry.setIndex(index);
   }
 
   private drawMove(m: MoveModel | null): void {
@@ -1251,13 +1290,15 @@ export class World {
     const drowning = this.drawSplashes(f.now);
 
     // Cámara: sigue al proyectil, se queda un momento en el impacto (para ver el cráter) y
-    // después vuelve al tanque del turno.
+    // después vuelve al tanque del turno. El turno nuevo llega antes de que termine ese momento:
+    // el giro para ponerse detrás del que juega espera, así el hoyo se mira con la cámara quieta.
     // Si el tiro levantó una loma, el punto de impacto quedó bajo tierra: se mira el piso nuevo.
     // Mientras alguien se ahoga, la cámara mira el chapuzón.
+    const onImpact = !!ball && !!f.shot && f.now - f.shot.start < f.shot.durationMs + LINGER_MS;
     if (drowning) this.focus(drowning.x, drowning.y + 2, drowning.z);
-    else if (ball && f.shot && f.now - f.shot.start < f.shot.durationMs + LINGER_MS) this.focus(ball.x, this.aboveGround(ball.x, ball.y, ball.z) + 2, ball.z);
+    else if (ball && onImpact) this.focus(ball.x, this.aboveGround(ball.x, ball.y, ball.z) + 2, ball.z);
     else if (turn) this.focus(turn.x, turn.y + 3, turn.z);
-    this.updateCamera(dt);
+    this.updateCamera(dt, onImpact || !!drowning);
 
     this.syncRivalMarkers(f.tanks);
     this.renderer.render(this.scene, this.camera);

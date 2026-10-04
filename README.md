@@ -68,7 +68,8 @@ Controles (la barra de abajo aparece solo en tu turno; un arma sin munición no 
 
 Tenés 20 s por turno; si no tirás, perdés el turno. El HUD flota sobre el cerro. Arriba, siempre:
 de quién es el turno (en ocre cuando es el tuyo), los segundos y el viento; la dirección del viento
-es la flecha celeste en el piso, al lado del tanque del turno. Abajo, solo en tu turno: arma,
+es la flecha celeste en el piso, delante del tanque del turno: apunta hacia donde sopla y mide lo
+que sopla (sigue el relieve, una ladera no la tapa). Abajo, solo en tu turno: arma,
 nafta, potencia, *Tirar*, tu plata y lo que tenés puesto (escudo, paracaídas). El panel de la
 izquierda muestra la ronda (2/5), la sala y la vida de cada jugador; en tu turno y en la tienda
 suma los puntos, los Misiles, los Rodillos y el escudo de cada uno. Si un tiro sale del mapa,
@@ -253,8 +254,8 @@ de la misma sala podrían caer en servidores distintos.
   (`apps/server/src/terrain-net.ts`). Así el cráter, o la loma de una Tierra, llega a todas las
   pestañas cuando el proyectil cae.
 - El cliente dibuja: el terreno es un mesh de ese heightmap, los tanques salen del estado y el
-  tiro de `path`. La cámara sigue al proyectil, se queda un momento en el impacto y vuelve al
-  tanque del turno. Si el cerro tapa la vista, la cámara se sube.
+  tiro de `path`. La cámara sigue al proyectil, se queda un momento quieta en el impacto (el giro
+  hacia el que juega espera) y vuelve al tanque del turno. Si el cerro tapa la vista, la cámara se sube.
 - En tu turno, el cliente corre `simulateShot3D` del sim para dibujar una **trayectoria
   fantasma** punteada con un anillo donde caería (con la Quema, el anillo es el disco que quedaría
   prendido: `fireFromShot`, la misma función que usa el server; con la Tierra, el pie de la loma;
