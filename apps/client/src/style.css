@@ -165,6 +165,18 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 /* El detalle de cada rival (puntos, munición, escudo) solo cuando te toca decidir. */
 .hud-players .extra { grid-column: 2 / -1; color: var(--muted); font-size: 12px; white-space: nowrap; display: none; }
 .screen.game.mine .hud-players .extra, .screen.game.shopping .hud-players .extra { display: block; }
+/* La flecha guarda la lista: queda ella sola y, si hay turno, quién juega. Sin barras de vida. */
+.corner-head { display: flex; align-items: center; gap: 8px; }
+.players-toggle {
+  flex: none; width: 32px; height: 32px; min-height: 0; padding: 0; border-radius: 10px; pointer-events: auto;
+  background: var(--glass); font-size: 16px; line-height: 1; touch-action: manipulation;
+}
+.corner.closed { display: flex; align-items: center; gap: 6px; }
+.corner.closed .players-toggle { transform: rotate(-90deg); }
+.corner.closed .meta, .corner.closed .hud-players li:not(.turn),
+.corner.closed .hud-players li > :not(.dot):not(:nth-child(2)) { display: none; }
+.corner.closed .hud-players { min-width: 0; }
+.corner.closed .hud-players li { grid-template-columns: 10px minmax(0, auto); }
 .bar { height: 6px; background: rgba(0, 0, 0, 0.5); border-radius: 3px; overflow: hidden; }
 .bar > i { display: block; height: 100%; }
 .minimap {
@@ -354,6 +366,7 @@ kbd {
   .top { left: 12px; right: 12px; transform: none; justify-content: center; }
   .pill { padding: 8px 14px; gap: 10px; min-width: 0; }
   .corner { top: 66px; max-width: calc(100% - 24px - 116px); }
+  .players-toggle { width: 36px; height: 36px; }
   .hud-players li { grid-template-columns: 10px minmax(0, auto) 44px 26px; padding: 4px 8px; }
   .hud-players li > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hud-players .extra { white-space: normal; }

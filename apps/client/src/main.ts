@@ -60,6 +60,8 @@ const ui = {
   hudInv: $("hud-inv"),
   hudCode: $("hud-code"),
   hudPlayers: $("hud-players"),
+  corner: $("corner"),
+  playersToggle: $<HTMLButtonElement>("players-toggle"),
   banner: $("banner"),
   dock: $("dock"),
   shop: $("shop"),
@@ -959,6 +961,37 @@ ui.power.addEventListener("input", () => setAim({ power: Number(ui.power.value) 
 // Pantalla chica (teléfono): giro y elevación van en el control de la izquierda, la potencia en el
 // de la derecha, y en el cerro un dedo solo toca; la cámara es de dos dedos. Misma consulta que el CSS.
 const compact = window.matchMedia("(max-width: 760px), (pointer: coarse) and (max-height: 520px)");
+
+// Lista de jugadores: la flecha la guarda y la vuelve a abrir. En pantalla chica el estado se
+// recuerda en el teléfono; en el escritorio ancho arranca siempre abierta.
+const PLAYERS_KEY = "pyc:players";
+function setPlayersOpen(open: boolean): void {
+  ui.corner.classList.toggle("closed", !open);
+  ui.playersToggle.setAttribute("aria-expanded", String(open));
+  ui.playersToggle.setAttribute("aria-label", open ? "Guardar la lista de jugadores" : "Abrir la lista de jugadores");
+}
+function restorePlayersOpen(): void {
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem(PLAYERS_KEY);
+  } catch {
+    // sin almacenamiento: abierta
+  }
+  setPlayersOpen(!(compact.matches && saved === "0"));
+}
+restorePlayersOpen();
+compact.addEventListener("change", restorePlayersOpen);
+ui.playersToggle.addEventListener("click", () => {
+  const open = ui.corner.classList.contains("closed");
+  setPlayersOpen(open);
+  ui.playersToggle.blur(); // las teclas vuelven al cañón
+  if (!compact.matches) return;
+  try {
+    localStorage.setItem(PLAYERS_KEY, open ? "1" : "0");
+  } catch {
+    // sin almacenamiento: vale hasta recargar
+  }
+});
 
 /** Para que arrastrar a la derecha mueva la punta del cañón hacia la derecha de la pantalla. */
 function yawSign(): number {

@@ -53,8 +53,11 @@
             <span id="hud-wind">0</span>
           </div>
         </div>
-        <div class="corner">
-          <div class="meta">Ronda <b id="hud-round">1/5</b> · Sala <b id="hud-code"></b></div>
+        <div id="corner" class="corner">
+          <div class="corner-head">
+            <button id="players-toggle" class="players-toggle" aria-expanded="true" aria-controls="hud-players" aria-label="Guardar la lista de jugadores">▾</button>
+            <div class="meta">Ronda <b id="hud-round">1/5</b> · Sala <b id="hud-code"></b></div>
+          </div>
           <ul id="hud-players" class="hud-players"></ul>
         </div>
         <canvas id="minimap" class="minimap" aria-label="Minimapa"></canvas>
