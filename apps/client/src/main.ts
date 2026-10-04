@@ -57,6 +57,7 @@ const ui = {
   colors: $("colors"),
   mapsHead: $("maps-head"),
   maps: $("maps"),
+  mapHint: $("map-hint"),
   clockHead: $("clock-head"),
   clockHint: $("clock-hint"),
   hudRound: $("hud-round"),
@@ -299,6 +300,8 @@ function paintMapPicker(shown: string, host: boolean): void {
   for (const btn of mapBtns) {
     btn.setAttribute("aria-checked", String(btn.dataset.map === shown));
     btn.disabled = !host;
+    // En el teléfono no hay tooltip: la línea del elegido va escrita abajo (style.css la muestra solo ahí).
+    if (btn.dataset.map === shown) ui.mapHint.textContent = btn.title;
   }
   ui.mapsHead.textContent = host ? "Mapa" : "Mapa · lo elige el anfitrión";
 }
@@ -314,6 +317,10 @@ const typedNumber = (input: HTMLInputElement): number | null => (/^\d+$/.test(in
 for (const input of clockInputs) {
   input.addEventListener("input", () => {
     room?.send("clock", Object.fromEntries(clockInputs.map((el) => [el.dataset.clock, typedNumber(el)])));
+  });
+  // Al entrar queda marcado lo que hay: se escribe encima, sin borrar antes (con dos cifras el campo ya está lleno).
+  input.addEventListener("focus", () => {
+    if (!input.readOnly) input.select();
   });
   // Al salir del campo se ve lo que quedó: si escribió 99, vuelve el 20.
   input.addEventListener("blur", () => {

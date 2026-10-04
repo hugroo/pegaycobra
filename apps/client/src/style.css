@@ -102,6 +102,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .map svg { width: 60px; height: 42px; border-radius: 8px; }
 .map[aria-checked="true"] { border-color: var(--ocre); background: var(--glass-3); color: var(--ocre); }
 .map[aria-checked="true"]:disabled { opacity: 1; cursor: default; }
+.map-hint { display: none; }
 /* Reloj: lo escribe el anfitrión; los demás ven el número. */
 .clock { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .clock input { width: 100%; min-width: 0; text-align: center; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -404,4 +405,16 @@ kbd {
   .tray-head button { grid-area: 1 / 2; min-width: 0; }
   .summary { grid-area: 2 / 1; overflow-x: auto; touch-action: pan-x; scrollbar-width: none; }
   .tray-head .money { grid-area: 2 / 2; justify-self: end; }
+
+  /* Espera, con el pulgar: el dibujo de cada mapa llena su botón y abajo se lee qué tiene el elegido.
+     El margen de abajo es el carril del botón de Chat: al final del scroll no pisa Arrancar ni Salir. */
+  #screen-lobby { padding: 12px 12px 68px; }
+  #screen-lobby .card { padding: 20px; }
+  #screen-lobby button { touch-action: manipulation; }
+  .map { padding: 6px 6px 8px; gap: 6px; }
+  .map svg { width: 100%; height: auto; }
+  .map-hint { display: block; margin-top: -6px; }
+  .clock input { min-height: 56px; font-size: 20px; }
+  /* Con el teclado abierto el Chat flota arriba de él y taparía el campo: se guarda mientras se escribe. */
+  body:has(.clock input:focus) .chat { display: none; }
 }

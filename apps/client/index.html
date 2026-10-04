@@ -42,11 +42,12 @@
           <button data-map="island" class="map" role="radio" aria-checked="false" title="Un cerro rodeado de lago: ojo con la orilla">Isla</button>
           <button data-map="hill" class="map" role="radio" aria-checked="true" title="Altura por todos lados: rinde el Rodillo">Cerro</button>
         </div>
+        <p id="map-hint" class="hint map-hint"></p>
         <div id="clock-head" class="hulls-head lbl">Reloj</div>
         <div class="clock">
-          <label>Turno (s)<input id="clock-turn" data-clock="turn" inputmode="numeric" maxlength="2" autocomplete="off" placeholder="20" title="De 10 a 60 segundos" /></label>
-          <label>Tienda (s)<input id="clock-shop" data-clock="shop" inputmode="numeric" maxlength="2" autocomplete="off" placeholder="30" title="De 10 a 90 segundos" /></label>
-          <label>Rondas<input id="clock-rounds" data-clock="rounds" inputmode="numeric" maxlength="1" autocomplete="off" placeholder="5" title="De 1 a 9 rondas" /></label>
+          <label>Turno (s)<input id="clock-turn" data-clock="turn" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" maxlength="2" autocomplete="off" placeholder="20" title="De 10 a 60 segundos" /></label>
+          <label>Tienda (s)<input id="clock-shop" data-clock="shop" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" maxlength="2" autocomplete="off" placeholder="30" title="De 10 a 90 segundos" /></label>
+          <label>Rondas<input id="clock-rounds" data-clock="rounds" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" maxlength="1" autocomplete="off" placeholder="5" title="De 1 a 9 rondas" /></label>
         </div>
         <p id="clock-hint" class="hint">Turno de 10 a 60 s, tienda de 10 a 90 s, de 1 a 9 rondas. Si lo dejás vacío o te vas de mambo, queda 20, 30 y 5.</p>
         <button id="btn-start" class="primary">Arrancar</button>
