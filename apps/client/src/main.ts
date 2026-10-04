@@ -580,10 +580,40 @@ function onTerrain(m: TerrainMessage): void {
 }
 
 function showBanner(text: string, ms: number): void {
+  tipUp = false;
   ui.banner.textContent = text;
   ui.banner.hidden = false;
   clearTimeout(bannerTimer);
   bannerTimer = window.setTimeout(() => (ui.banner.hidden = true), ms);
+}
+
+// La línea del mapa: una sola vez por sala, en el primer turno de la partida. Sale del mapa del
+// estado, así que todas las pestañas leen la misma. Va en el cartel de siempre: no frena nada.
+const MAP_TIP: Record<MapId, string> = {
+  island: "Ojo con la orilla.",
+  hill: "Si no llegás, usá el paso.",
+  valley: "El Misil es el que llega.",
+};
+const TIP_KEY = "pyc:tip";
+/** La sala en la que ya salió: ni la ronda 2 ni la revancha la traen de vuelta. */
+let tipRoom = "";
+/** El cartel a la vista es la línea del mapa: el primer tiro se la lleva. */
+let tipUp = false;
+
+function mapTip(phase: string): void {
+  if (!room || phase !== "aiming" || room.state.round !== 1 || tipRoom === room.roomId) return;
+  tipRoom = room.roomId;
+  try {
+    // Un refresco en medio de la partida tampoco la repite.
+    if (sessionStorage.getItem(TIP_KEY) === room.roomId) return;
+    sessionStorage.setItem(TIP_KEY, room.roomId);
+  } catch {
+    /* sin storage: vale hasta recargar */
+  }
+  const text = MAP_TIP[room.state.map as MapId];
+  if (!text) return;
+  showBanner(text, 4000);
+  tipUp = true;
 }
 
 function attach(r: Room<any>): void {
@@ -663,6 +693,10 @@ function attach(r: Room<any>): void {
                 : impactLabel(lands, m.damage, (m.blocked?.length ?? 0) > 0),
       };
       play("fire");
+      if (tipUp) {
+        tipUp = false;
+        ui.banner.hidden = true;
+      }
       // Cada cabeza de un Racimo explota cuando llega: el mismo "boom", una vez por cabeza.
       const steps = (path: number[]) => Math.max(0, path.length / 3 - 1);
       const total = steps(m.path) + Math.max(0, ...heads.map((h) => steps(h.path)));
@@ -796,6 +830,7 @@ function onState(): void {
     return;
   }
   if (screens.game.hidden) show("game");
+  mapTip(phase);
   renderHud(phase);
   renderShop(phase);
   renderEnd(phase);
