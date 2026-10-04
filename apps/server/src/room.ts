@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Sala de Colyseus: recibe mensajes, se los pasa a Game y copia el resultado al estado.
 //
-// Mensajes del cliente:  start · rematch · fillBots · map { map } · clock { turn, shop, rounds }
+// Mensajes del cliente:  start · rematch · fillBots · lobbyStep { step } · map { map } · clock { turn, shop, rounds }
 //                        fire { yaw, pitch, power, weapon }
 //                        move { moveTo: { x, z } } · step { moveTo: { x, z } } · buy { item } · sell { item } · ready · chat { text }
 // Los bots (bot.ts) no tienen conexión: la sala les pasa sus mensajes por los mismos métodos.
@@ -216,6 +216,12 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.onMessage("map", (client, message: unknown) => {
       if (!this.game.setMap(client.sessionId, (message as { map?: unknown } | null)?.map)) return; // ignorado
       this.log(`mapa: ${MAPS[this.game.map].name}`);
+      this.flush();
+    });
+
+    // Paso de la espera: { step: 1 | 2 | 3 }, solo el anfitrión y solo antes de arrancar. Los demás ven ese paso.
+    this.onMessage("lobbyStep", (client, message: unknown) => {
+      if (!this.game.setLobbyStep(client.sessionId, (message as { step?: unknown } | null)?.step)) return; // ignorado
       this.flush();
     });
 
@@ -499,6 +505,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     s.phase = g.phase;
     s.hostId = g.hostId ?? "";
     s.map = g.map;
+    s.lobbyStep = g.lobbyStep;
     s.turnId = g.turnId ?? "";
     s.timeLeft = g.timeLeft;
     s.round = g.round;

@@ -54,6 +54,10 @@ const ui = {
   fillBots: $<HTMLButtonElement>("btn-bots"),
   lobbyWait: $("lobby-wait"),
   lobbyLeave: $<HTMLButtonElement>("btn-lobby-leave"),
+  lobbyNav: $("lobby-nav"),
+  lobbyBack: $<HTMLButtonElement>("btn-lobby-back"),
+  lobbyNext: $<HTMLButtonElement>("btn-lobby-next"),
+  ownTank: $<HTMLButtonElement>("btn-own-tank"),
   hulls: $("hulls"),
   colors: $("colors"),
   mapsHead: $("maps-head"),
@@ -349,6 +353,42 @@ function paintClock(s: any, host: boolean): void {
   ui.clockHint.hidden = !host;
 }
 
+// Espera por pasos: 1 tanque, 2 mapa, 3 reloj. El paso es el del anfitrión (state.lobbyStep): él pasa
+// con Atrás y Siguiente y los demás ven el suyo. El tanque es de cada uno: el que no es anfitrión
+// puede abrir el paso 1 por su cuenta (ownTank) aunque el anfitrión ya esté en otro.
+const LOBBY_STEPS = 3;
+const stepMarks = [...document.querySelectorAll<HTMLElement>("#lobby-steps [data-step]")];
+const stepPanels = [...document.querySelectorAll<HTMLElement>("[data-step-panel]")];
+let ownTank = false;
+const lobbyStep = (): number => Math.min(LOBBY_STEPS, Math.max(1, Number(room?.state.lobbyStep) || 1));
+
+ui.lobbyBack.addEventListener("click", () => room?.send("lobbyStep", { step: lobbyStep() - 1 })); // se pasa cuando el server lo confirma en el estado
+ui.lobbyNext.addEventListener("click", () => room?.send("lobbyStep", { step: lobbyStep() + 1 }));
+ui.ownTank.addEventListener("click", () => {
+  ownTank = !ownTank;
+  if (room) renderLobby();
+});
+
+/** Muestra un solo paso y los botones que le tocan a cada uno. Arrancar aparece solo en el último. */
+function paintSteps(host: boolean): void {
+  const step = lobbyStep();
+  if (host || step === 1) ownTank = false;
+  const shown = ownTank ? 1 : step;
+  for (const li of stepMarks) {
+    const n = Number(li.dataset.step);
+    li.classList.toggle("done", n < step);
+    if (n === step) li.setAttribute("aria-current", "step");
+    else li.removeAttribute("aria-current");
+  }
+  for (const panel of stepPanels) panel.hidden = Number(panel.dataset.stepPanel) !== shown;
+  ui.lobbyBack.hidden = !host || step === 1;
+  ui.lobbyNext.hidden = !host || step === LOBBY_STEPS;
+  ui.start.hidden = !host || step !== LOBBY_STEPS;
+  ui.ownTank.hidden = host || step === 1;
+  ui.ownTank.textContent = ownTank ? "Volver al paso del anfitrión" : "Cambiar mi tanque";
+  ui.lobbyNav.hidden = !host && step === 1;
+}
+
 /** Con lo que se entra a una sala: nombre, silueta y, si eligió, color. */
 const joinOptions = () => ({ name: playerName(), hull: myHull, ...(myColor === null ? {} : { color: myColor }) });
 
@@ -557,6 +597,7 @@ function attach(r: Room<any>): void {
   lastRoundEnd = null;
   weapon = "babyMissile";
   moveMode = false;
+  ownTank = false;
   ui.lobbyCode.textContent = r.roomId;
   ui.hudCode.textContent = r.roomId;
   saveSeat(r);
@@ -879,16 +920,19 @@ function renderLobby(): void {
   const host = isMe(s.hostId);
   paintMapPicker(s.map, host);
   paintClock(s, host);
-  ui.start.hidden = !host;
+  paintSteps(host);
   ui.start.disabled = players.length < 2;
   // Los bots completan hasta 2: con 2 o más ya no hay nada que llenar.
   ui.fillBots.hidden = !host;
   ui.fillBots.disabled = players.length >= 2;
+  const step = lobbyStep();
   ui.lobbyWait.textContent = host
     ? players.length < 2
       ? "Esperando a que entre al menos otro jugador…"
-      : `${players.length} jugadores. Dale, arrancá.`
-    : "Esperando a que el anfitrión arranque…";
+      : step < LOBBY_STEPS
+        ? `${players.length} jugadores. Se arranca en el paso ${LOBBY_STEPS}.`
+        : `${players.length} jugadores. Dale, arrancá.`
+    : `El anfitrión va por el paso ${step} de ${LOBBY_STEPS}: ${["el tanque", "el mapa", "el reloj"][step - 1]}. Arranca él.`;
 }
 
 function chip(text: string): HTMLSpanElement {

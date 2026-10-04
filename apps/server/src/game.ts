@@ -55,6 +55,9 @@ function inRange(raw: unknown, [min, max]: readonly [number, number], fallback: 
   return typeof raw === "number" && Number.isInteger(raw) && raw >= min && raw <= max ? raw : fallback;
 }
 
+/** Pasos de la espera: tanque, mapa y reloj. */
+export const LOBBY_STEPS = 3;
+
 /** El cliente reproduce el tiro 1.5× más rápido que el tiempo real del original. */
 export const PLAYBACK_SPEED = 1.5;
 /** Tope de la animación, por si un tiro dura muchísimo (p. ej. "timeout"). [ms] */
@@ -218,6 +221,8 @@ export class Game {
   hostId: string | null = null;
   /** El mapa de la partida. Lo elige el anfitrión en la espera; al arrancar queda fijo, también para la revancha. */
   map: MapId = DEFAULT_MAP;
+  /** Paso de la espera en el que está el anfitrión: 1 tanque, 2 mapa, 3 reloj. Los demás ven ese. */
+  lobbyStep = 1;
   match: MatchState3D | null = null;
   turnId: string | null = null;
   /** Segundos que le quedan al turno o a la tienda. */
@@ -328,6 +333,14 @@ export class Game {
     const map = parseMap(raw);
     if (!map || this.phase !== "lobby" || byId !== this.hostId || map === this.map) return false;
     this.map = map;
+    return true;
+  }
+
+  /** El anfitrión pasa de paso en la espera (1..LOBBY_STEPS). De otro, o con la partida ya arrancada, se ignora. */
+  setLobbyStep(byId: string, raw: unknown): boolean {
+    const step = inRange(raw, [1, LOBBY_STEPS], 0);
+    if (!step || this.phase !== "lobby" || byId !== this.hostId || step === this.lobbyStep) return false;
+    this.lobbyStep = step;
     return true;
   }
 

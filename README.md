@@ -46,6 +46,11 @@ incógnito). En uno: escribí tu nombre y tocá *Crear sala*. Te da un código d
 otro: escribí el código y tocá *Entrar*. Cuando hay 2 o más, el anfitrión (el que creó la sala)
 toca *Arrancar*.
 
+La espera va en tres pasos, con el código de la sala siempre arriba: 1, el tanque (silueta y
+color); 2, el mapa; 3, el reloj, donde está *Arrancar*. El anfitrión pasa con *Siguiente* y vuelve
+con *Atrás*; los demás ven el paso en el que está él y no lo mueven. El que entró tarde igual
+elige su tanque con *Cambiar mi tanque*. *Llenar con bots*, *Salir* y el chat están en los tres.
+
 En la espera cada uno elige la silueta de su tanque: *Caja*, *Chato* (ancho y bajo) o *Torre*
 (con un mástil alto). Queda guardada en el navegador y sigue igual en la revancha. Solo cambia el
 dibujo: el tiro y el daño son los mismos. El bot usa Caja.
@@ -236,6 +241,7 @@ de la misma sala podrían caer en servidores distintos.
   |---|---|---|
   | `start` | lobby | que sea el anfitrión y haya 2 o más |
   | `fillBots` | lobby | que sea el anfitrión. Agrega bots hasta llegar a 2 jugadores |
+  | `lobbyStep { step }` | lobby | que sea el anfitrión y `step` sea 1 (tanque), 2 (mapa) o 3 (reloj). Va al estado: los demás ven ese paso |
   | `map { map }` | lobby | que sea el anfitrión y `map` sea `valley`, `island` o `hill`. Arrancada la partida se ignora, también en la revancha |
   | `clock { turn, shop, rounds }` | lobby | que sea el anfitrión. Cada número tiene que ser entero y estar en rango (`turn` 10–60, `shop` 10–90, `rounds` 1–9); el que no, vale 20, 30 o 5. El server corta el turno y la tienda con esos valores. Arrancada la partida se ignora, también en la revancha |
   | `fire { yaw, pitch, power, weapon }` | tu turno | `weapon` es `babyMissile`, `missile`, `roller`, `napalm`, `nuke`, `dirt`, `mirv` o `leapfrog` y tenés munición. Cualquier otro campo (daño, impacto, posición) se descarta sin llegar al sim. Otra arma: el mensaje se ignora entero |

@@ -993,6 +993,34 @@ describe("partida de 5 rondas por red", () => {
     await d.leave();
   });
 
+  it("espera por pasos: el anfitrión avanza y vuelve, el otro ve el mismo paso y no lo mueve", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto" });
+    for (const r of [a, b]) for (const type of ["terrain", "shot", "skip", "moved", "roundEnd", "burn"]) r.onMessage(type, () => {});
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    expect([a.state.lobbyStep, b.state.lobbyStep]).toEqual([1, 1]);
+
+    b.send("lobbyStep", { step: 3 }); // no es el anfitrión
+    a.send("lobbyStep", { step: 2 });
+    await until(() => b.state.lobbyStep === 2);
+    for (const junk of [{ step: 0 }, { step: 4 }, { step: 2.5 }, { step: "3" }, null, "x"]) a.send("lobbyStep", junk);
+    await sleep(100);
+    expect([a.state.lobbyStep, b.state.lobbyStep]).toEqual([2, 2]);
+    a.send("lobbyStep", { step: 3 });
+    await until(() => b.state.lobbyStep === 3);
+    a.send("lobbyStep", { step: 1 }); // se vuelve atrás
+    await until(() => b.state.lobbyStep === 1);
+
+    a.send("start");
+    await until(() => b.state.phase === "aiming");
+    a.send("lobbyStep", { step: 2 }); // arrancada, queda como estaba
+    await sleep(100);
+    expect(b.state.lobbyStep).toBe(1);
+    await a.leave();
+    await b.leave();
+  });
+
   it("mapa: el anfitrión elige Isla, el otro recibe el mismo terreno y nadie nace en el agua; arrancada no se cambia y la revancha la repite", async () => {
     const url = `ws://localhost:${PORT}`;
     const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });

@@ -75,6 +75,8 @@ export const GameState = schema(
     hostId: t.string().default(""),
     /** Mapa de la partida: "valley" (Valle), "island" (Isla) o "hill" (Cerro). Lo elige el anfitrión en la espera. */
     map: t.string().default("hill"),
+    /** Paso de la espera en el que está el anfitrión: 1 tanque, 2 mapa, 3 reloj. */
+    lobbyStep: t.uint8().default(1),
     players: t.map(PlayerState),
     /** Orden de turnos (orden de llegada). */
     order: t.array("string"),

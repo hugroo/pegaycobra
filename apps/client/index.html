@@ -25,35 +25,60 @@
     <!-- Pantalla 2: sala de espera -->
     <section id="screen-lobby" class="screen" hidden>
       <div class="card">
-        <p class="sub">Código de la sala</p>
-        <div id="lobby-code" class="code"></div>
-        <p class="hint">Pasale este código a los demás. Hacen falta entre 2 y 4 jugadores.</p>
-        <div class="hulls-head lbl">Tu tanque</div>
-        <div id="hulls" class="hulls" role="radiogroup" aria-label="Silueta del tanque">
-          <button data-hull="box" class="hull" role="radio" aria-checked="true">Caja</button>
-          <button data-hull="flat" class="hull" role="radio" aria-checked="false">Chato</button>
-          <button data-hull="tower" class="hull" role="radio" aria-checked="false">Torre</button>
+        <div class="lobby-head">
+          <p class="sub">Código de la sala</p>
+          <div id="lobby-code" class="code"></div>
+          <p class="hint">Pasale este código a los demás. Hacen falta entre 2 y 4 jugadores.</p>
         </div>
-        <div id="colors" class="colors" role="radiogroup" aria-label="Color del tanque"></div>
-        <ul id="lobby-players" class="players"></ul>
-        <div id="maps-head" class="hulls-head lbl">Mapa</div>
-        <div id="maps" class="maps" role="radiogroup" aria-labelledby="maps-head">
-          <button data-map="valley" class="map" role="radio" aria-checked="false" title="Agua en las orillas, piso al medio">Valle</button>
-          <button data-map="island" class="map" role="radio" aria-checked="false" title="Un cerro rodeado de lago: ojo con la orilla">Isla</button>
-          <button data-map="hill" class="map" role="radio" aria-checked="true" title="Altura por todos lados: rinde el Rodillo">Cerro</button>
+        <div class="lobby-main">
+          <!-- Tres pasos, de a uno: el anfitrión pasa y los demás ven el suyo (state.lobbyStep). -->
+          <ol id="lobby-steps" class="steps" aria-label="Pasos para armar la sala">
+            <li data-step="1"><b>1</b>Tanque</li>
+            <li data-step="2"><b>2</b>Mapa</li>
+            <li data-step="3"><b>3</b>Reloj</li>
+          </ol>
+          <div class="step" data-step-panel="1">
+            <div class="hulls-head lbl">Tu tanque</div>
+            <div id="hulls" class="hulls" role="radiogroup" aria-label="Silueta del tanque">
+              <button data-hull="box" class="hull" role="radio" aria-checked="true">Caja</button>
+              <button data-hull="flat" class="hull" role="radio" aria-checked="false">Chato</button>
+              <button data-hull="tower" class="hull" role="radio" aria-checked="false">Torre</button>
+            </div>
+            <div id="colors" class="colors" role="radiogroup" aria-label="Color del tanque"></div>
+          </div>
+          <div class="step" data-step-panel="2" hidden>
+            <div id="maps-head" class="hulls-head lbl">Mapa</div>
+            <div id="maps" class="maps" role="radiogroup" aria-labelledby="maps-head">
+              <button data-map="valley" class="map" role="radio" aria-checked="false" title="Agua en las orillas, piso al medio">Valle</button>
+              <button data-map="island" class="map" role="radio" aria-checked="false" title="Un cerro rodeado de lago: ojo con la orilla">Isla</button>
+              <button data-map="hill" class="map" role="radio" aria-checked="true" title="Altura por todos lados: rinde el Rodillo">Cerro</button>
+            </div>
+            <p id="map-hint" class="hint map-hint"></p>
+          </div>
+          <div class="step" data-step-panel="3" hidden>
+            <div id="clock-head" class="hulls-head lbl">Reloj</div>
+            <div class="clock">
+              <label>Turno (s)<input id="clock-turn" data-clock="turn" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" maxlength="2" autocomplete="off" placeholder="20" title="De 10 a 60 segundos" /></label>
+              <label>Tienda (s)<input id="clock-shop" data-clock="shop" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" maxlength="2" autocomplete="off" placeholder="30" title="De 10 a 90 segundos" /></label>
+              <label>Rondas<input id="clock-rounds" data-clock="rounds" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" maxlength="1" autocomplete="off" placeholder="5" title="De 1 a 9 rondas" /></label>
+            </div>
+            <p id="clock-hint" class="hint">Turno de 10 a 60 s, tienda de 10 a 90 s, de 1 a 9 rondas. Si lo dejás vacío o te vas de mambo, queda 20, 30 y 5.</p>
+          </div>
+          <div id="lobby-nav" class="step-nav">
+            <button id="btn-lobby-back">Atrás</button>
+            <button id="btn-lobby-next" class="primary">Siguiente</button>
+            <button id="btn-start" class="primary">Arrancar</button>
+            <button id="btn-own-tank"></button>
+          </div>
         </div>
-        <p id="map-hint" class="hint map-hint"></p>
-        <div id="clock-head" class="hulls-head lbl">Reloj</div>
-        <div class="clock">
-          <label>Turno (s)<input id="clock-turn" data-clock="turn" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" maxlength="2" autocomplete="off" placeholder="20" title="De 10 a 60 segundos" /></label>
-          <label>Tienda (s)<input id="clock-shop" data-clock="shop" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" maxlength="2" autocomplete="off" placeholder="30" title="De 10 a 90 segundos" /></label>
-          <label>Rondas<input id="clock-rounds" data-clock="rounds" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" maxlength="1" autocomplete="off" placeholder="5" title="De 1 a 9 rondas" /></label>
+        <div class="lobby-foot">
+          <ul id="lobby-players" class="players"></ul>
+          <p id="lobby-wait" class="hint"></p>
+          <div class="lobby-exit">
+            <button id="btn-bots">Llenar con bots</button>
+            <button id="btn-lobby-leave" class="ghost">Salir</button>
+          </div>
         </div>
-        <p id="clock-hint" class="hint">Turno de 10 a 60 s, tienda de 10 a 90 s, de 1 a 9 rondas. Si lo dejás vacío o te vas de mambo, queda 20, 30 y 5.</p>
-        <button id="btn-start" class="primary">Arrancar</button>
-        <button id="btn-bots">Llenar con bots</button>
-        <p id="lobby-wait" class="hint"></p>
-        <button id="btn-lobby-leave" class="ghost">Salir</button>
       </div>
     </section>
 
