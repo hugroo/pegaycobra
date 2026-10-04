@@ -803,6 +803,7 @@ function onState(): void {
   const open = !ui.dock.hidden ? ui.dock : !ui.shop.hidden ? ui.shop : null;
   if (world) world.edgeBottomInset = open ? open.offsetHeight + 12 : 0;
   liftChat(open ? open.offsetHeight + 8 : 0);
+  fitPlayers();
 }
 
 // ---------------------------------------------------------------------------
@@ -854,6 +855,7 @@ function setChatOpen(open: boolean): void {
     ui.chatInput.blur(); // las teclas vuelven al cañón
   }
   ui.chatLog.scrollTop = ui.chatLog.scrollHeight;
+  fitPlayers();
 }
 
 function resetChat(): void {
@@ -1345,7 +1347,29 @@ function setPlayersOpen(open: boolean): void {
   ui.corner.classList.toggle("closed", !open);
   ui.playersToggle.setAttribute("aria-expanded", String(open));
   ui.playersToggle.setAttribute("aria-label", open ? "Guardar la lista de jugadores" : "Abrir la lista de jugadores");
+  fitPlayers();
 }
+/** Con el teléfono acostado el botón de Chat queda a la altura de la lista. Si la pisa, la lista cede
+ *  el renglón de detalle ("snug"), después se afina ("slim") y, si ni así entra, el botón se corre al
+ *  costado de la lista (--dodge). Nada de esto pesa fuera del CSS de teléfono acostado. */
+function fitPlayers(): void {
+  if (chatOpen()) return; // abierto el chat sube arriba de todo: la lista queda como estaba
+  const c = ui.corner.classList;
+  c.remove("snug", "slim");
+  ui.chat.style.removeProperty("--dodge");
+  if (c.contains("closed")) return;
+  const hit = () => {
+    const chat = ui.chatToggle.getBoundingClientRect();
+    return chat.height > 0 && ui.corner.getBoundingClientRect().bottom + 6 > chat.top;
+  };
+  for (const step of ["snug", "slim"]) {
+    if (!hit()) return;
+    c.add(step);
+  }
+  if (!hit()) return;
+  ui.chat.style.setProperty("--dodge", `${Math.round(ui.corner.getBoundingClientRect().right)}px`);
+}
+window.addEventListener("resize", fitPlayers);
 function restorePlayersOpen(): void {
   let saved: string | null = null;
   try {

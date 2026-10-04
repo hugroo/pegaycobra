@@ -429,6 +429,18 @@ kbd {
   .angles { min-height: 0; }
   .arms { align-self: end; }
 
+  /* Acostado el botón de Chat cae a la altura de la lista. Lo que llega se lee al lado del botón, no
+     encima, y la lista le deja lugar (fitPlayers, main.ts): primero cede el renglón de detalle de
+     cada uno, después se afina y, si ni así entra (sala llena), el botón se corre al costado (--dodge). */
+  :not(#screen-lobby) > .chat:not(.open) { left: calc(12px + var(--dodge, 0px)); }
+  :not(#screen-lobby) > .chat:not(.open) { grid-template-columns: auto minmax(0, 1fr); align-items: end; }
+  :not(#screen-lobby) > .chat:not(.open) .chat-toggle { grid-area: 1 / 1; }
+  :not(#screen-lobby) > .chat:not(.open) .chat-log { grid-area: 1 / 2; }
+  .screen.game .corner.snug .hud-players .extra { display: none; }
+  .corner.slim { gap: 4px; }
+  .corner.slim .hud-players { gap: 2px; }
+  .corner.slim .hud-players li { padding: 2px 10px; }
+
   /* Tienda acostada: dos cartas y la punta de la tercera, pero bajas, para que el cerro se siga
      viendo: el texto a la izquierda y Comprá y Vendé apilados a la derecha, de 48 px cada uno.
      Vendé es hermano de la carta: va encimado en el hueco que la carta le deja abajo de Comprá. */
