@@ -9,6 +9,7 @@
 // cliente y en el bot.
 
 import { POWER_MAX, TANK_RADIUS } from "./constants";
+import { simulateSplitShot3D } from "./mirv";
 import { simulateShot3D, type Shot3DParams, type Shot3DResult, type ShotTank3D } from "./shot3d";
 import { terrainHeightAt, type Terrain } from "./terrain";
 import type { Weapon } from "./weapons";
@@ -89,7 +90,8 @@ export function simulateRoll(
  * El tiro de un arma, de la boca del cañón a donde explota. Para Baby Missile y Missile es
  * simulateShot3D con los factores del arma. Para el Roller, la potencia se multiplica por
  * `roll.powerFactor` y, si el vuelo termina en el piso, sigue la rodada: `landed` es donde tocó,
- * (x, y, z) donde terminó, y `ticks` y `path` incluyen los pasos rodando.
+ * (x, y, z) donde terminó, y `ticks` y `path` incluyen los pasos rodando. Para el MIRV, el vuelo se
+ * abre en la cima (simulateSplitShot3D, mirv.ts) y el resultado trae `split`.
  * `params.windFactor` y `params.gravityFactor` se ignoran: salen del arma.
  */
 export function simulateWeaponShot3D(
@@ -101,12 +103,9 @@ export function simulateWeaponShot3D(
 ): Shot3DResult {
   const roll = weapon.roll;
   const power = roll ? Math.min(POWER_MAX, Math.max(0, params.power)) * roll.powerFactor : params.power;
-  const flight = simulateShot3D(
-    terrain,
-    { ...params, power, windFactor: weapon.windFactor, gravityFactor: weapon.gravityFactor },
-    tanks,
-    options,
-  );
+  const launch = { ...params, power, windFactor: weapon.windFactor, gravityFactor: weapon.gravityFactor };
+  if (weapon.split) return simulateSplitShot3D(terrain, weapon.split, launch, tanks, options);
+  const flight = simulateShot3D(terrain, launch, tanks, options);
   if (!roll || flight.outcome !== "ground") return flight;
 
   const r = simulateRoll(terrain, flight, roll.maxCells, tanks, options);

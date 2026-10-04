@@ -11,6 +11,7 @@ export * from "./turn";
 export * from "./match";
 export * from "./terrain";
 export * from "./shot3d";
+export * from "./mirv";
 export * from "./roller";
 export * from "./napalm";
 export * from "./turn3d";

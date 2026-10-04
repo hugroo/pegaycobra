@@ -50,6 +50,7 @@ export function botCandidates(match: MatchState3D, botId: string, rng: () => num
   if (!me || !inventory || foes.length === 0) return [];
 
   // Tira lo que compró: Missile si tiene, si no Roller, si no la Baby. Apunta igual con cualquiera.
+  // Lo que no compra (Racimo incluido) tampoco lo tira, aunque lo tenga.
   const weapon: WeaponId = canFire(inventory, "missile") ? "missile" : canFire(inventory, "roller") ? "roller" : "babyMissile";
   const w = WEAPONS[weapon];
   const nearest = foes.reduce((a, b) => (Math.hypot(a.x - me.x, a.z - me.z) <= Math.hypot(b.x - me.x, b.z - me.z) ? a : b));
@@ -92,7 +93,7 @@ export function pickBotShot(match: MatchState3D, botId: string, rng: () => numbe
 
 /**
  * En la tienda: si no le queda ningún Missile compra un pack, de Missile o de Roller a cara o
- * cruz, si le alcanza. Napalm, Nuke, Tierra, escudo, paracaídas y nafta, no. null = no compra nada.
+ * cruz, si le alcanza. Napalm, Nuke, Tierra, Racimo, escudo, paracaídas y nafta, no. null = no compra nada.
  */
 export function botShopPick(player: Player, rng: () => number): ShopItemId | null {
   if ((player.inventory.missile ?? 0) > 0) return null;

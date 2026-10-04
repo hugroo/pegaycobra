@@ -21,6 +21,8 @@ const TANK_GLOW = 0.35;
 const PIVOT_Y = 1.05;
 const BARREL_LEN = 2.6;
 const EXPLOSION_MS = 450;
+/** Cuánto dura el destello donde se abre un Racimo. [ms] */
+const OPEN_MS = 320;
 /** Cuánto dura el cartel de daño en el punto de impacto. [ms] */
 const IMPACT_LABEL_MS = 1000;
 /** Cuánto se queda la cámara mirando el impacto después de que llega el proyectil. [ms] */
@@ -56,16 +58,24 @@ export interface GhostModel {
   shooter: TankModel;
   /** Radio de explosión del arma elegida. [wu] */
   radius: number;
+  /**
+   * Racimo: `path` llega hasta donde se abre y de ahí sale el recorrido de cada cabeza, con un
+   * anillo donde caería (null: esa se va del mapa).
+   */
+  heads?: { path: number[]; impact: { x: number; y: number; z: number } | null }[];
 }
 
 export interface ShotModel {
   path: number[];
   start: number;
+  /** Lo que dura el tiro entero: con un Racimo, hasta que cae la última cabeza. */
   durationMs: number;
   explodes: boolean;
   slot: number;
   /** Radio de explosión del arma disparada. [wu] */
   radius: number;
+  /** Racimo que se abrió: `path` llega hasta la apertura y de ahí sigue cada cabeza. `lands`: explota donde termina. */
+  heads?: { path: number[]; lands: boolean }[];
   /** El tiro no explota, levanta polvo (Tierra): el fogonazo es color tierra. */
   dust?: boolean;
   /** Dónde terminó el tiro y qué dice el cartel de impacto ("-40", "se fue"). Los dos vienen del server. */
@@ -143,9 +153,15 @@ export class World {
   private readonly ghostGone: CSS2DObject;
   private readonly moveRing: THREE.Mesh;
   private readonly moveMarker: THREE.Mesh;
+  /** Racimo en la fantasma: la marca donde se abre y, por cabeza, su línea y su anillo. Se crean al usarse. */
+  private readonly ghostOpen: THREE.Mesh;
+  private readonly ghostHeads: { line: THREE.Line; ring: THREE.Mesh }[] = [];
   private readonly shotLine: THREE.Line;
   private readonly shotBall: THREE.Mesh;
   private readonly blast: THREE.Mesh;
+  /** Racimo en vuelo: el destello de la apertura y, por cabeza, su estela, su bola y su fogonazo. */
+  private readonly openFlash: THREE.Mesh;
+  private readonly shotHeads: { line: THREE.Line; ball: THREE.Mesh; blast: THREE.Mesh }[] = [];
   private readonly impactLabel: CSS2DObject;
   private readonly windArrow: THREE.Mesh;
   private readonly border: THREE.LineLoop;
@@ -226,6 +242,13 @@ export class World {
     );
     this.ghostRing.renderOrder = 10;
     this.scene.add(this.ghostRing);
+    this.ghostOpen = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.8),
+      new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.85, depthTest: false }),
+    );
+    this.ghostOpen.renderOrder = 10;
+    this.ghostOpen.visible = false;
+    this.scene.add(this.ghostOpen);
 
     const goneEl = document.createElement("div");
     goneEl.className = "ghost-gone";
@@ -261,6 +284,12 @@ export class World {
       new THREE.MeshBasicMaterial({ color: BLAST, transparent: true, opacity: 0.9 }),
     );
     this.scene.add(this.blast);
+    this.openFlash = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 16, 12),
+      new THREE.MeshBasicMaterial({ color: "#fff4c2", transparent: true, opacity: 0.8 }),
+    );
+    this.openFlash.visible = false;
+    this.scene.add(this.openFlash);
     const impactEl = document.createElement("div");
     impactEl.className = "impact-label";
     this.impactLabel = new CSS2DObject(impactEl);
@@ -715,6 +744,7 @@ export class World {
   // -------------------------------------------------------------------------
 
   private drawGhost(g: GhostModel | null): void {
+    this.drawGhostHeads(g);
     if (!g || g.path.length < 6) {
       this.ghostLine.visible = false;
       this.ghostRing.visible = false;
@@ -767,6 +797,48 @@ export class World {
     }
   }
 
+  /**
+   * La apertura de un Racimo en la fantasma: una marca donde se abre y, de ahí, una línea punteada
+   * por cabeza con su anillo donde caería. Sin cabezas (cualquier otra arma, o un Racimo que no
+   * llega a abrirse) no dibuja nada.
+   */
+  private drawGhostHeads(g: GhostModel | null): void {
+    const heads = g && g.path.length >= 6 ? (g.heads ?? []) : [];
+    while (this.ghostHeads.length < heads.length) {
+      const line = new THREE.Line(new THREE.BufferGeometry(), this.ghostLine.material);
+      line.frustumCulled = false;
+      const ring = new THREE.Mesh(this.ghostRing.geometry, (this.ghostRing.material as THREE.Material).clone());
+      ring.renderOrder = 10;
+      this.scene.add(line, ring);
+      this.ghostHeads.push({ line, ring });
+    }
+    this.ghostOpen.visible = heads.length > 0;
+    if (g && heads.length > 0) {
+      this.ghostOpen.position.fromArray(g.path, g.path.length - 3);
+      (this.ghostOpen.material as THREE.MeshBasicMaterial).color.set(SLOT_COLORS[g.shooter.slot] ?? "#fff");
+    }
+    this.ghostHeads.forEach((v, i) => {
+      const h = heads[i];
+      v.line.visible = !!h && h.path.length >= 6;
+      v.ring.visible = !!h?.impact;
+      if (!g || !h) return;
+      if (v.line.visible) {
+        const n = h.path.length / 3;
+        const pts: THREE.Vector3[] = [];
+        for (let k = 0; k < n; k += 2) pts.push(new THREE.Vector3().fromArray(h.path, k * 3));
+        pts.push(new THREE.Vector3().fromArray(h.path, (n - 1) * 3));
+        v.line.geometry.dispose();
+        v.line.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+        v.line.computeLineDistances();
+      }
+      if (h.impact) {
+        v.ring.position.set(h.impact.x, h.impact.y + 0.15, h.impact.z);
+        v.ring.scale.setScalar(g.radius);
+        (v.ring.material as THREE.MeshBasicMaterial).color.set(SLOT_COLORS[g.shooter.slot] ?? "#fff");
+      }
+    });
+  }
+
   /** `y`, o la altura del piso en (x, z) si el piso quedó más arriba (una loma tapó ese punto). [wu] */
   private aboveGround(x: number, y: number, z: number): number {
     return this.terrain ? Math.max(y, terrainHeightAt(this.terrain, x, z)) : y;
@@ -778,11 +850,16 @@ export class World {
     this.shotBall.visible = false;
     this.blast.visible = false;
     this.impactLabel.visible = false;
+    this.openFlash.visible = false;
+    for (const v of this.shotHeads) v.line.visible = v.ball.visible = v.blast.visible = false;
     if (!s || s.path.length < 3) return null;
     const n = s.path.length / 3;
+    const heads = s.heads ?? [];
+    // Pasos del tiro entero: los de `path` y, si se abrió, los de la cabeza que más tarda en caer.
+    const total = n - 1 + Math.max(0, ...heads.map((h) => h.path.length / 3 - 1));
     const elapsed = now - s.start;
     const p = Math.min(1, elapsed / Math.max(1, s.durationMs));
-    const last = Math.min(n - 1, Math.floor(p * (n - 1)));
+    const last = Math.min(n - 1, Math.floor(p * total));
 
     const geo = this.shotLine.geometry as THREE.BufferGeometry;
     if (!geo.getAttribute("position") || geo.userData.src !== s.path) {
@@ -793,7 +870,14 @@ export class World {
     this.shotLine.visible = true;
     const at = new THREE.Vector3(s.path[last * 3]!, s.path[last * 3 + 1]!, s.path[last * 3 + 2]!);
 
-    if (p < 1) {
+    if (heads.length > 0) {
+      if (last < n - 1) {
+        this.shotBall.position.copy(at);
+        this.shotBall.visible = true;
+      } else {
+        this.drawShotHeads(s, heads, p * total - (n - 1), s.durationMs / Math.max(1, total), elapsed, at);
+      }
+    } else if (p < 1) {
       this.shotBall.position.copy(at);
       this.shotBall.visible = true;
     } else if (s.explodes && elapsed - s.durationMs < EXPLOSION_MS) {
@@ -815,6 +899,61 @@ export class World {
       this.impactLabel.visible = true;
     }
     return at;
+  }
+
+  /**
+   * Un Racimo ya abierto: el destello en el punto de apertura y cada cabeza con su estela, su bola
+   * mientras cae y su fogonazo cuando llega (cada una a su tiempo). `tick` son los pasos desde la
+   * apertura. Deja en `at` el centro de las cabezas, que es lo que sigue la cámara.
+   */
+  private drawShotHeads(s: ShotModel, heads: NonNullable<ShotModel["heads"]>, tick: number, msPerTick: number, elapsed: number, at: THREE.Vector3): void {
+    while (this.shotHeads.length < heads.length) {
+      const line = new THREE.Line(new THREE.BufferGeometry(), this.shotLine.material);
+      line.frustumCulled = false;
+      const ball = new THREE.Mesh(this.shotBall.geometry, this.shotBall.material);
+      ball.scale.setScalar(0.6);
+      const blast = new THREE.Mesh(this.blast.geometry, (this.blast.material as THREE.Material).clone());
+      this.scene.add(line, ball, blast);
+      this.shotHeads.push({ line, ball, blast });
+    }
+    const openedAt = (s.path.length / 3 - 1) * msPerTick;
+    if (elapsed - openedAt < OPEN_MS) {
+      const q = Math.max(0, elapsed - openedAt) / OPEN_MS;
+      this.openFlash.position.copy(at);
+      this.openFlash.scale.setScalar(0.8 + 2.4 * q);
+      (this.openFlash.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - q);
+      this.openFlash.visible = true;
+    }
+    const sum = new THREE.Vector3();
+    const pos = new THREE.Vector3();
+    heads.forEach((h, i) => {
+      const v = this.shotHeads[i]!;
+      const m = h.path.length / 3;
+      if (m < 1) return;
+      const k = Math.min(m - 1, Math.floor(tick));
+      const geo = v.line.geometry as THREE.BufferGeometry;
+      if (geo.userData.src !== h.path) {
+        geo.setAttribute("position", new THREE.BufferAttribute(Float32Array.from(h.path), 3));
+        geo.userData.src = h.path;
+      }
+      geo.setDrawRange(0, k + 1);
+      v.line.visible = true;
+      pos.fromArray(h.path, k * 3);
+      sum.add(pos);
+      if (k < m - 1) {
+        v.ball.position.copy(pos);
+        v.ball.visible = true;
+        return;
+      }
+      const since = elapsed - (openedAt + (m - 1) * msPerTick);
+      if (!h.lands || since >= EXPLOSION_MS) return;
+      const q = Math.max(0, since) / EXPLOSION_MS;
+      v.blast.position.copy(pos);
+      v.blast.scale.setScalar(s.radius * (0.35 + 0.9 * q));
+      (v.blast.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - q);
+      v.blast.visible = true;
+    });
+    at.copy(sum.divideScalar(heads.length));
   }
 
   private drawWind(wind: { x: number; z: number }, anchor: TankModel | undefined): void {

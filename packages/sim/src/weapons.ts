@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Parámetros de armas tomados de Scorched3D (c) 2000-2011, GPL-2.0-or-later:
-//   data/globalmods/none/data/accessories.xml  (<accessory> Baby Missile, Missile, Baby Nuke, Nuke, Dirt Ball)
+//   data/globalmods/none/data/accessories.xml  (<accessory> Baby Missile, Missile, Baby Nuke, Nuke, Dirt Ball, MIRV)
 // Campos que el XML no declara toman el default del parser:
 //   src/common/weapons/WeaponProjectile.cpp (windFactor/gravityFactor = 1)
 //   src/common/weapons/WeaponExplosion.cpp  (deformsize = size si no se declara)
@@ -13,10 +13,12 @@
 // El Nuke usa los números del XML. Que el escudo no lo frene es regla propia (turn3d.ts).
 // La Dirt Ball también usa los números del XML (<deform>up</deform>, <hurtamount>0.0</hurtamount>).
 // Regla propia: en el original la tierra tapa al tanque; acá el tanque sube con la loma (turn3d.ts).
+// Del MIRV se toman el armslevel y las 5 cabezas (<nowarheads>). El tamaño de cada cabeza, el precio
+// y cómo se abren son de este juego (mirv.ts).
 
 import { INFINITE_AMMO } from "./constants";
 
-export type WeaponId = "babyMissile" | "missile" | "roller" | "napalm" | "babyNuke" | "nuke" | "dirt";
+export type WeaponId = "babyMissile" | "missile" | "roller" | "napalm" | "babyNuke" | "nuke" | "dirt" | "mirv";
 
 /** Arma que no explota donde cae: toca el piso y rueda cuesta abajo (roller.ts). */
 export interface RollSpec {
@@ -37,6 +39,14 @@ export interface BurnSpec {
 /** Arma que no explota: donde cae suma tierra y levanta una loma (applyMoundTerrain, terrain.ts). */
 export interface MoundSpec {
   /** WeaponExplosion <size> con <deform>up</deform>: radio de la loma, sobre el piso (XZ). [wu] */
+  readonly radius: number;
+}
+
+/** Arma que se abre en el aire: en la cima de la parábola se parte en cabezas, y explota cada una (mirv.ts). */
+export interface SplitSpec {
+  /** WeaponMirv <nowarheads>: cuántas cabezas salen, contando la que sigue el tiro apuntado. */
+  readonly heads: number;
+  /** A qué distancia de esa cae cada una de las otras, sobre el piso (XZ), en terreno llano. [celdas = wu] */
   readonly radius: number;
 }
 
@@ -73,6 +83,8 @@ export interface Weapon {
   readonly piercesShield?: boolean;
   /** Solo la Dirt Ball: la loma que levanta donde cae. */
   readonly mound?: MoundSpec;
+  /** Solo el MIRV: cómo se abre en la cima. Los radios del arma son los de cada cabeza. */
+  readonly split?: SplitSpec;
 }
 
 export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
@@ -180,14 +192,34 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     gravityFactor: 1,
     mound: { radius: 10 }, // <size>10</size>
   },
+  mirv: {
+    id: "mirv",
+    name: "MIRV",
+    armsLevel: 6,
+    // El XML dice <cost>16000</cost> por <bundlesize>3</bundlesize>, con cabezas de <size>6</size>
+    // (un Missile cada una). Acá cada cabeza es más chica, y el precio acompaña.
+    cost: 2500,
+    bundleSize: 1,
+    startingNumber: 0,
+    // Cada cabeza explota como un Roller: lastima a 4.5 y deja un cráter chico. Con cráteres de
+    // radio 6 las cinco abrían un solo hoyo grande.
+    explosionRadius: 4.5,
+    craterRadius: 2,
+    hurtAmount: 1, // <hurtamount>1.0</hurtamount>
+    windFactor: 1,
+    gravityFactor: 1,
+    // <nowarheads>5</nowarheads>. A 7 celdas los hoyos (3 de radio) quedan separados, y un tanque
+    // parado entre dos cabezas las recibe a las dos.
+    split: { heads: 5, radius: 7 },
+  },
 });
 
 /**
  * Armas que se pueden disparar: la Baby Missile (infinita, no se compra), y el Missile, el Roller,
- * el Napalm, el Nuke y la Dirt Ball (se compran en la tienda, ver campaign.ts). La Baby Nuke existe
- * solo como datos.
+ * el Napalm, el Nuke, la Dirt Ball y el MIRV (se compran en la tienda, ver campaign.ts). La Baby
+ * Nuke existe solo como datos.
  */
-export const PLAYABLE_WEAPONS: readonly WeaponId[] = Object.freeze(["babyMissile", "missile", "roller", "napalm", "nuke", "dirt"]);
+export const PLAYABLE_WEAPONS: readonly WeaponId[] = Object.freeze(["babyMissile", "missile", "roller", "napalm", "nuke", "dirt", "mirv"]);
 
 export function isPlayable(id: WeaponId): boolean {
   return PLAYABLE_WEAPONS.includes(id);

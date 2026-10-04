@@ -23,18 +23,30 @@ export interface ShotBroadcast {
   yaw: number;
   pitch: number;
   power: number;
-  /** "babyMissile" | "missile" | "roller" | "napalm" | "nuke" | "dirt" */
+  /** "babyMissile" | "missile" | "roller" | "napalm" | "nuke" | "dirt" | "mirv" */
   weapon: string;
-  /** "ground" | "tank" | "offmap" | "timeout". Con "offmap" todos muestran "se fue". */
+  /**
+   * "ground" | "tank" | "offmap" | "timeout". Con "offmap" todos muestran "se fue". Con un Racimo
+   * abierto vale por el tiro entero: explotó si explotó alguna cabeza.
+   */
   outcome: string;
-  /** [x0, y0, z0, x1, y1, z1, ...] en wu, redondeado a 0.01. Con el Roller incluye la rodada. */
+  /**
+   * [x0, y0, z0, x1, y1, z1, ...] en wu, redondeado a 0.01. Con el Roller incluye la rodada; con un
+   * Racimo abierto llega hasta donde se abrió y sigue en `heads`.
+   */
   path: number[];
+  /** Solo Racimo que se abrió: cada cabeza, desde el punto de apertura hasta donde terminó. */
+  heads?: { path: number[]; outcome: string }[];
+  /** Lo que dura la animación entera, hasta que cae la última cabeza. */
   durationMs: number;
-  /** Dónde terminó el tiro. [wu] */
+  /** Dónde terminó el tiro: ahí va el cartel. Con un Racimo, la cabeza del medio (si se fue, la primera que explotó). [wu] */
   impact: { x: number; y: number; z: number };
-  /** Daño total que hizo el tiro (explosión + caídas), ya resuelto por el sim. [hp] */
+  /** Daño total que hizo el tiro (explosión + caídas, de todas las cabezas), ya resuelto por el sim. [hp] */
   damage: number;
-  /** Tanques cuyo escudo absorbió el tiro. Con alguno, el cartel dice "bloqueado". Con el Nuke, siempre vacío. */
+  /**
+   * Tanques cuyo escudo absorbió el tiro. Con alguno, el cartel dice "bloqueado". Con el Nuke, siempre
+   * vacío. Con el Racimo el escudo absorbe una cabeza: si otra le pegó, además hay daño.
+   */
   blocked: string[];
 }
 
@@ -127,7 +139,10 @@ export class GameRoom extends Room<{ state: GameState }> {
   private onFire(id: string, message: unknown): void {
     const shot = this.game.fire(id, message);
     if (!shot) return; // ignorado
-    const r = shot.result.shot;
+    const shotResult = shot.result.shot;
+    // Lo que representa al tiro (cartel, "se fue"): él mismo, o la primera cabeza que explotó si la del medio se fue.
+    const heads = shotResult.split?.heads;
+    const r = heads?.find((h) => h.outcome === "ground" || h.outcome === "tank") ?? shotResult;
     const payload: ShotBroadcast = {
       shooterId: shot.shooterId,
       yaw: shot.yaw,
@@ -135,12 +150,13 @@ export class GameRoom extends Room<{ state: GameState }> {
       power: shot.power,
       weapon: shot.weapon,
       outcome: r.outcome,
-      path: (r.path ?? []).map(round2),
+      path: (shotResult.path ?? []).map(round2),
       durationMs: shot.durationMs,
       impact: { x: round2(r.x), y: round2(r.y), z: round2(r.z) },
       damage: round2(shot.result.damage.reduce((sum, d) => sum + d.damage, 0)),
       blocked: shot.result.blocked,
     };
+    if (heads) payload.heads = heads.map((h) => ({ path: (h.path ?? []).map(round2), outcome: h.outcome }));
     this.flush();
     this.broadcast("shot", payload);
     const hits = shot.result.damage
@@ -344,6 +360,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         p.napalms = Math.max(0, player.inventory.napalm ?? 0);
         p.nukes = Math.max(0, player.inventory.nuke ?? 0);
         p.dirts = Math.max(0, player.inventory.dirt ?? 0);
+        p.mirvs = Math.max(0, player.inventory.mirv ?? 0);
         p.shield = player.inventory.shield ?? 0;
         p.parachute = player.inventory.parachute ?? 0;
         p.fuel = player.inventory.fuel ?? 0;

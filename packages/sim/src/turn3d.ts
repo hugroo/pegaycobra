@@ -6,12 +6,14 @@
 //   → caídas y daño de caída → plata para quien disparó (economy.ts).
 // El Napalm no abre cráter ni explota: deja un fuego (napalm.ts) que quema al empezar cada turno.
 // La Dirt Ball tampoco: levanta una loma (terrain.ts) y el tanque que quedó debajo sube con ella.
+// El MIRV se abre en el aire (mirv.ts) y cada cabeza es un golpe aparte, resuelto con estas mismas reglas.
 // Orígenes: Explosion.cpp, TargetDamageCalc.cpp, TargetDamage.cpp, TargetFalling.cpp, Wind.cpp.
 
 import { TANK_RADIUS } from "./constants";
 import { applyDamage, explosionDamage, fallDamage, isAlive, type Tank } from "./damage";
 import { canFire, clampMoney, consumeAmmo, moneyForDamage } from "./economy";
 import { TANK_START_HEIGHT_MAX, TANK_START_HEIGHT_MIN } from "./match";
+import { shotImpacts } from "./mirv";
 import { fireFromShot, inFire, type Fire } from "./napalm";
 import { simulateWeaponShot3D } from "./roller";
 import type { Shot3DResult, Wind } from "./shot3d";
@@ -66,7 +68,10 @@ export interface TurnResult3D {
   shot: Shot3DResult;
   damage: DamageEvent[];
   falls: FallEvent3D[];
-  /** Tanques a los que la explosión les iba a hacer daño y el escudo lo absorbió (y se gastó). */
+  /**
+   * Tanques a los que la explosión les iba a hacer daño y el escudo lo absorbió (y se gastó). Con el
+   * MIRV, el escudo absorbe una sola cabeza: el mismo tanque puede estar acá y también en `damage`.
+   */
   blocked: string[];
   /** El fuego que prendió este tiro (Napalm), ya agregado a state.fires. null si no prendió nada. */
   fire: Fire | null;
@@ -156,7 +161,7 @@ export function settleTank3D(
 
 /**
  * Resuelve un disparo 3D. Mismas validaciones que resolveTurn: jugador vivo, arma jugable
- * (Baby Missile, Missile, Roller, Napalm, Nuke, Dirt Ball) y con munición. No recibe daño ni impacto: los calcula.
+ * (Baby Missile, Missile, Roller, Napalm, Nuke, Dirt Ball, MIRV) y con munición. No recibe daño ni impacto: los calcula.
  *
  * Escudo (regla propia, campaign.ts): si la explosión (también la del Roller) le iba a sacar vida
  * a un tanque con escudo, el escudo absorbe ese tiro y se gasta. El cráter se abre igual y el
@@ -173,6 +178,11 @@ export function settleTank3D(
  * Dirt Ball (mound): donde termina el tiro el piso sube (applyMoundTerrain). No es un golpe: no saca
  * vida, no paga y el escudo ni la frena ni se gasta. Regla propia: en el original la tierra tapa al
  * tanque; acá el tanque que quedó debajo sube con la loma y queda apoyado arriba, con la vida que tenía.
+ *
+ * MIRV (split): si el tiro se abrió, cada cabeza es un golpe, y se resuelven de a uno en el orden en
+ * que caen: su cráter, su explosión y las caídas a ese cráter, con los tanques como los dejó el golpe
+ * anterior. El escudo absorbe la primera cabeza que le iba a sacar vida y se gasta ahí: la caída a
+ * ese cráter no duele, pero la cabeza siguiente pega como a cualquiera. El daño de todas va en `damage`.
  */
 export function resolveTurn3D(
   state: MatchState3D,
@@ -231,11 +241,14 @@ export function resolveTurn3D(
     damage.push({ targetId: target.id, cause, damage: r.dealt, killed: r.killed, money: reward });
   };
 
-  if (shot.outcome === "ground" || shot.outcome === "tank") {
+  // Un golpe por vuelta: uno solo, salvo el MIRV abierto, que trae uno por cabeza, en el orden en
+  // que caen. Cada uno se resuelve entero (cráter, explosión, caídas) antes de pasar al siguiente.
+  for (const hit of shotImpacts(shot)) {
+    if (hit.outcome !== "ground" && hit.outcome !== "tank") continue;
     fire = fireFromShot(weapon, shot, shooterTank.id);
-    if (weapon.craterRadius > 0) terrain = applyCraterTerrain(terrain, shot.x, shot.y, shot.z, weapon.craterRadius);
+    if (weapon.craterRadius > 0) terrain = applyCraterTerrain(terrain, hit.x, hit.y, hit.z, weapon.craterRadius);
     if (weapon.mound) {
-      terrain = applyMoundTerrain(terrain, shot.x, shot.y, shot.z, weapon.mound.radius);
+      terrain = applyMoundTerrain(terrain, hit.x, hit.y, hit.z, weapon.mound.radius);
       // Nadie queda enterrado: el tanque (o el resto de uno) que quedó bajo la loma sube con ella.
       for (let i = 0; i < tanks.length; i++) {
         const t = tanks[i]!;
@@ -243,15 +256,18 @@ export function resolveTurn3D(
         if (ground > t.y) tanks[i] = { ...t, y: ground };
       }
     }
+    /** Los escudos que se comieron este golpe (no uno anterior del mismo tiro). */
+    const absorbed: string[] = [];
     for (let i = 0; i < tanks.length; i++) {
       const t = tanks[i]!;
       if (!isAlive(t)) continue;
-      const amount = explosionDamage(collisionDistance3D(t, shot.x, shot.y, shot.z), weapon.explosionRadius, weapon.hurtAmount);
+      const amount = explosionDamage(collisionDistance3D(t, hit.x, hit.y, hit.z), weapon.explosionRadius, weapon.hurtAmount);
       const pi = players.findIndex((p) => p.id === t.id);
       const shield = players[pi]?.inventory.shield ?? 0;
       if (amount > 0 && shield > 0 && !weapon.piercesShield) {
         players[pi] = { ...players[pi]!, inventory: { ...players[pi]!.inventory, shield: shield - 1 } };
         blocked.push(t.id);
+        absorbed.push(t.id);
         continue;
       }
       hurt(i, amount, "explosion");
@@ -267,7 +283,7 @@ export function resolveTurn3D(
       // toda la ronda (campaign.ts), así que no se gasta por caída.
       const owner = state.players.find((p) => p.id === s.tank.id);
       const parachute = (owner?.inventory.parachute ?? 0) > 0;
-      const shielded = blocked.includes(s.tank.id);
+      const shielded = absorbed.includes(s.tank.id);
       falls.push({ tankId: s.tank.id, fromY: s.fall.fromY, toY: s.fall.toY, distance: s.fall.distance, parachute, shielded });
       hurt(i, parachute || shielded ? 0 : s.fall.damage, "fall");
     }

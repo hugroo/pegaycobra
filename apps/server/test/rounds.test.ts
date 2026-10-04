@@ -7,11 +7,12 @@ import {
   ROUND_MAX_TURNS,
   SCORE_PER_KILL,
   SHOP_ITEMS,
+  simulateWeaponShot3D,
   SURVIVOR_BONUS,
   terrainHeightAt,
   WEAPONS,
 } from "@pegaycobra/sim";
-import { Game, parseBuyMessage, parseMoveMessage, SHOP_SECONDS } from "../src/game";
+import { Game, parseBuyMessage, parseMoveMessage, SHOP_SECONDS, shotDurationMs } from "../src/game";
 import { changedRect } from "../src/terrain-net";
 
 function started(seed = 11, ids = ["A", "B"]) {
@@ -384,6 +385,95 @@ describe("Tierra en partida", () => {
     expect(shot.result.damage).toEqual([]);
     expect(g.board.A!.points).toBe(0);
     expect(g.turnId).toBe("B");
+  });
+});
+
+describe("Racimo en partida", () => {
+  const give = (g: Game, id: string, items: object) => {
+    g.match = { ...g.match!, players: g.match!.players.map((p) => (p.id === id ? { ...p, inventory: { ...p.inventory, ...items } } : p)) };
+  };
+  const tank = (g: Game, id: string) => g.match!.tanks.find((t) => t.id === id)!;
+  const MIRV = { yaw: 90, pitch: 45, power: 600, weapon: "mirv" };
+
+  /** Piso plano a 10, A en el centro y B donde diga el test. Le toca a A, que tiene un Racimo. */
+  function flat(b: { x: number; z: number }) {
+    const g = started();
+    const terrain = createFlatTerrain(257, 257, 10);
+    const at = (id: string, x: number, z: number) => ({ ...g.match!.tanks.find((t) => t.id === id)!, x, y: 10, z });
+    g.match = { ...g.match!, terrain, wind: { x: 0, z: 0 }, tanks: [at("A", 128, 128), at("B", b.x, b.z)] };
+    give(g, "A", { mirv: 1 });
+    expect(g.turnId).toBe("A");
+    return g;
+  }
+  /** Dónde cae cada cabeza de ese tiro, con nadie en el camino. */
+  const landings = () =>
+    simulateWeaponShot3D(createFlatTerrain(257, 257, 10), WEAPONS.mirv, { originX: 128, originY: 10, originZ: 128, ...MIRV, wind: { x: 0, z: 0 } }).split!.heads;
+
+  it("la tienda lo vende de a 1", () => {
+    const g = started();
+    killAndPass(g, "B");
+    const before = money(g, "B");
+    expect(g.buy("B", { item: "mirv" })).toBe(true);
+    expect(inv(g, "B").mirv).toBe(1);
+    expect(money(g, "B")).toBe(before - SHOP_ITEMS.mirv.price);
+  });
+
+  it("sin Racimo el tiro se ignora", () => {
+    const g = flat({ x: 30, z: 30 });
+    give(g, "A", { mirv: 0 });
+    expect(g.fire("A", MIRV)).toBeNull();
+    expect(g.phase).toBe("aiming");
+  });
+
+  it("el server resuelve las 5 cabezas: cinco hoyos en un solo parche, y la animación dura hasta la última", () => {
+    const g = flat({ x: 30, z: 30 });
+    const before = g.match!.terrain;
+
+    const shot = g.fire("A", MIRV)!;
+    const heads = shot.result.shot.split!.heads;
+    expect(shot.weapon).toBe("mirv");
+    expect(heads).toHaveLength(5);
+    expect(heads).toEqual(landings().map((h) => expect.objectContaining({ x: h.x, z: h.z, outcome: "ground" })));
+    expect(inv(g, "A").mirv).toBe(0); // gastado mientras vuela
+    expect(g.match!.terrain).toBe(before); // todavía no cayó ninguna
+    expect(shot.durationMs).toBe(shotDurationMs(Math.max(...heads.map((h) => h.ticks))));
+    g.finishShot();
+
+    // El parche que viaja a los clientes cubre los cinco hoyos, y adentro nada subió.
+    const after = g.match!.terrain;
+    const rect = changedRect(before, after)!;
+    for (const h of heads) {
+      const [x, z] = [Math.trunc(h.x), Math.trunc(h.z)];
+      expect(terrainHeightAt(after, x, z)).toBeLessThan(10 - 2);
+      expect(x).toBeGreaterThanOrEqual(rect.x0);
+      expect(x).toBeLessThan(rect.x0 + rect.w);
+      expect(z).toBeGreaterThanOrEqual(rect.z0);
+      expect(z).toBeLessThan(rect.z0 + rect.d);
+    }
+    expect(after.heights.every((h, i) => h <= before.heights[i]!)).toBe(true);
+    // Hoyos chicos: el parche es mucho más chico que el cráter de un Bombazo (37 de lado).
+    expect(Math.max(rect.w, rect.d)).toBeLessThan(2 * WEAPONS.nuke.craterRadius);
+    expect(g.turnId).toBe("B");
+  });
+
+  it("el escudo come una cabeza y la otra le pega: el daño se suma y da puntos", () => {
+    // B entre donde cae la del medio y una punta: lo alcanzan las dos.
+    const [mid, tip] = landings();
+    const g = flat({ x: (mid!.x + tip!.x) / 2, z: (mid!.z + tip!.z) / 2 });
+    give(g, "B", { shield: 1 });
+
+    const shot = g.fire("A", MIRV)!;
+    expect(shot.result.blocked).toEqual(["B"]);
+    expect(inv(g, "B").shield).toBe(1); // todavía vuela
+    expect(tank(g, "B").life).toBe(100);
+    g.finishShot();
+
+    expect(inv(g, "B").shield).toBe(0);
+    const dealt = shot.result.damage.reduce((sum, d) => sum + d.damage, 0);
+    expect(shot.result.damage.filter((d) => d.cause === "explosion")).toHaveLength(1);
+    expect(dealt).toBeGreaterThan(20);
+    expect(tank(g, "B").life).toBeCloseTo(100 - dealt, 6);
+    expect(g.board.A!.points).toBe(Math.round(dealt));
   });
 });
 

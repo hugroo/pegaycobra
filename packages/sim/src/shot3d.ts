@@ -4,6 +4,7 @@
 //   src/common/simactions/PlayMovesSimAction.cpp velocity = getVelocityVector(...) * (power + 1)
 //   src/common/engine/PhysicsParticleObject.cpp  setForces() (viento vectorial + gravedad), simulate()
 //   src/common/engine/Wind.cpp                   viento = dirección (sin a, cos a) × velocidad 0..5
+//   src/common/actions/ShotProjectile.cpp        la cima: venía subiendo (`up_`) y dejó de subir
 //
 // Mismas constantes y mismo paso que el perfil (projectile.ts): v += a; p += v / 100.
 // Convención de ángulos (propia, el original usa rotXY y rotYZ con z hacia arriba):
@@ -56,6 +57,19 @@ export interface ShotTank3D {
 
 export type Shot3DOutcome = "ground" | "tank" | "offmap" | "timeout";
 
+/** Una cabeza de un tiro que se abrió en el aire (mirv.ts): cómo terminó. */
+export interface ShotHead {
+  outcome: Shot3DOutcome;
+  x: number;
+  y: number;
+  z: number;
+  /** Contados desde la boca del cañón, como los del tiro. */
+  ticks: number;
+  tankId?: string;
+  /** Un trío por tick, desde el punto donde se abrió (incluido) hasta donde terminó. [wu] */
+  path?: number[];
+}
+
 export interface Shot3DResult {
   outcome: Shot3DOutcome;
   x: number;
@@ -67,6 +81,29 @@ export interface Shot3DResult {
   path?: number[];
   /** Solo Roller: dónde tocó el piso antes de rodar. (x, y, z) del resultado es donde terminó. [wu] */
   landed?: { x: number; y: number; z: number };
+  /**
+   * Solo MIRV que llegó a abrirse: dónde y en qué tick, y cada cabeza. heads[0] es la que sigue el
+   * tiro apuntado: outcome, (x, y, z) y tankId del resultado son los suyos. `ticks` es el de la
+   * última cabeza en terminar, y `path` llega hasta el punto donde se abrió.
+   */
+  split?: { x: number; y: number; z: number; tick: number; heads: ShotHead[] };
+}
+
+/** Un proyectil en vuelo: posición [wu] y velocidad [vu]. */
+export interface ShotBody {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+}
+
+/** Cómo terminó un tramo de vuelo. "apex": dejó de subir sin haber chocado (solo con `untilApex`). */
+export interface FlightEnd {
+  outcome: Shot3DOutcome | "apex";
+  ticks: number;
+  tankId?: string;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -112,35 +149,43 @@ export function shotAcceleration3D(wind: Wind, windFactor = 1, gravityFactor = 1
   };
 }
 
-/**
- * Simula el tiro hasta que pega en un tanque, en el suelo, sale del mapa o se agota.
- * Orden de chequeo después de cada paso: tanques, bordes, suelo (igual que el perfil).
- */
-export function simulateShot3D(
-  terrain: Terrain,
-  params: Shot3DParams,
-  tanks: readonly ShotTank3D[] = [],
-  options: { recordPath?: boolean; maxTicks?: number } = {},
-): Shot3DResult {
+/** El proyectil al salir de la boca del cañón. Tira RangeError si la puntería no es finita. */
+export function launchBody3D(params: Shot3DParams): ShotBody {
   for (const k of ["originX", "originY", "originZ", "yaw", "pitch", "power"] as const) {
     if (!Number.isFinite(params[k])) throw new RangeError(`${k} debe ser finito (recibido ${params[k]})`);
   }
+  return {
+    ...muzzlePosition3D(params.originX, params.originY, params.originZ, params.yaw, params.pitch),
+    ...launchVelocity3D(params.yaw, params.pitch, params.power),
+  };
+}
+
+/**
+ * Un tramo de vuelo: mueve `body` hasta que pega en un tanque, en el suelo, sale del mapa o se
+ * agota, y lo deja con la posición y la velocidad del final. Con `path`, le agrega un trío por paso.
+ * Orden de chequeo después de cada paso: tanques, bordes, suelo (igual que el perfil).
+ * Con `untilApex` corta además en la cima: el primer paso en que ya no sube, habiendo subido antes
+ * (ShotProjectile.cpp, `up_`). Un tiro que choca mientras sube no llega a la cima.
+ */
+export function flyShot3D(
+  terrain: Terrain,
+  body: ShotBody,
+  accel: { ax: number; ay: number; az: number },
+  tanks: readonly ShotTank3D[] = [],
+  options: { shooterId?: string; maxTicks?: number; path?: number[]; untilApex?: boolean } = {},
+): FlightEnd {
   const maxX = terrain.width - 1;
   const maxZ = terrain.depth - 1;
   const maxTicks = options.maxTicks ?? MAX_SHOT_TICKS;
-  const path = options.recordPath ? ([] as number[]) : undefined;
-
-  let { x, y, z } = muzzlePosition3D(params.originX, params.originY, params.originZ, params.yaw, params.pitch);
-  let { vx, vy, vz } = launchVelocity3D(params.yaw, params.pitch, params.power);
-  const { ax, ay, az } = shotAcceleration3D(params.wind, params.windFactor ?? 1, params.gravityFactor ?? 1);
+  const { path, shooterId, untilApex } = options;
+  const { ax, ay, az } = accel;
   const r2 = TANK_RADIUS * TANK_RADIUS;
-  path?.push(x, y, z);
+  let { x, y, z, vx, vy, vz } = body;
+  let up = false;
 
-  const done = (outcome: Shot3DOutcome, ticks: number, tankId?: string): Shot3DResult => {
-    const res: Shot3DResult = { outcome, x, y, z, ticks };
-    if (tankId !== undefined) res.tankId = tankId;
-    if (path) res.path = path;
-    return res;
+  const done = (outcome: FlightEnd["outcome"], ticks: number, tankId?: string): FlightEnd => {
+    Object.assign(body, { x, y, z, vx, vy, vz });
+    return tankId === undefined ? { outcome, ticks } : { outcome, ticks, tankId };
   };
 
   for (let tick = 1; tick <= maxTicks; tick++) {
@@ -153,7 +198,7 @@ export function simulateShot3D(
     path?.push(x, y, z);
 
     for (const t of tanks) {
-      if (t.id === params.shooterId) continue;
+      if (t.id === shooterId) continue;
       const dx = x - t.x;
       const dy = y - (t.y + TANK_RADIUS);
       const dz = z - t.z;
@@ -161,6 +206,25 @@ export function simulateShot3D(
     }
     if (x < 0 || x > maxX || z < 0 || z > maxZ) return done("offmap", tick);
     if (y <= terrainHeightAt(terrain, x, z)) return done("ground", tick);
+    if (vy > 0) up = true;
+    else if (up && untilApex) return done("apex", tick);
   }
   return done("timeout", maxTicks);
+}
+
+/** Simula el tiro hasta que pega en un tanque, en el suelo, sale del mapa o se agota. */
+export function simulateShot3D(
+  terrain: Terrain,
+  params: Shot3DParams,
+  tanks: readonly ShotTank3D[] = [],
+  options: { recordPath?: boolean; maxTicks?: number } = {},
+): Shot3DResult {
+  const body = launchBody3D(params);
+  const path = options.recordPath ? [body.x, body.y, body.z] : undefined;
+  const accel = shotAcceleration3D(params.wind, params.windFactor ?? 1, params.gravityFactor ?? 1);
+  const end = flyShot3D(terrain, body, accel, tanks, { shooterId: params.shooterId, maxTicks: options.maxTicks, path });
+  const res: Shot3DResult = { outcome: end.outcome as Shot3DOutcome, x: body.x, y: body.y, z: body.z, ticks: end.ticks };
+  if (end.tankId !== undefined) res.tankId = end.tankId;
+  if (path) res.path = path;
+  return res;
 }

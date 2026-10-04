@@ -21,6 +21,8 @@
 //     escudo no lo apaga.
 //   - El Nuke se vende de a 1 (el original, de a 2) y el escudo no lo frena (turn3d.ts).
 //   - La Dirt Ball se vende de a 1 (el original, de a 5) y no entierra: el tanque sube con la loma (turn3d.ts).
+//   - El MIRV (mirv.ts) se vende de a 1 (el original, de a 3), con precio propio: las cabezas son más
+//     chicas que las del original. El escudo absorbe una sola cabeza (turn3d.ts).
 
 import { INTEREST_RATE, MONEY_PER_ROUND, MONEY_WON_FOR_ROUND, TANK_MAX_LIFE } from "./constants";
 import { isAlive } from "./damage";
@@ -106,7 +108,7 @@ export function endRoundPayouts(players: readonly Player[], survivors: ReadonlyS
 // Tienda
 // ---------------------------------------------------------------------------
 
-export type ShopItemId = "missile" | "roller" | "napalm" | "nuke" | "dirt" | "shield" | "parachute" | "fuel";
+export type ShopItemId = "missile" | "roller" | "napalm" | "nuke" | "dirt" | "mirv" | "shield" | "parachute" | "fuel";
 
 export interface ShopItem {
   id: ShopItemId;
@@ -168,12 +170,22 @@ export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze(
       `Cae como un Misil, pero suma tierra: levanta una loma de radio ${WEAPONS.dirt.mound!.radius}. No saca vida y el escudo no la frena. ` +
       "El tanque que queda debajo sube con ella.",
   },
+  mirv: {
+    id: "mirv",
+    name: "Racimo",
+    price: WEAPONS.mirv.cost,
+    pack: WEAPONS.mirv.bundleSize,
+    description:
+      `Sale como un Misil y, en la cima, se abre en ${WEAPONS.mirv.split!.heads}: cada cabeza cae cerca y explota por su cuenta ` +
+      `(radio ${WEAPONS.mirv.explosionRadius}, cráter chico). El escudo frena una sola.`,
+  },
   shield: {
     id: "shield",
     name: "Escudo",
     price: 2000,
     pack: 1,
-    description: "Absorbe el próximo tiro que te alcance (explosión o Rodillo) y se gasta. Si te sacan el piso, caés igual. Al Bombazo no lo frena.",
+    description:
+      "Absorbe el próximo tiro que te alcance (explosión o Rodillo) y se gasta. Si te sacan el piso, caés igual. Al Bombazo no lo frena, y del Racimo frena una sola cabeza.",
   },
   parachute: {
     id: "parachute",

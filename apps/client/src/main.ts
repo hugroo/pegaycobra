@@ -81,6 +81,8 @@ const ui = {
   wNukeN: $("w-nuke-n"),
   wDirt: $<HTMLButtonElement>("w-dirt"),
   wDirtN: $("w-dirt-n"),
+  wMirv: $<HTMLButtonElement>("w-mirv"),
+  wMirvN: $("w-mirv-n"),
   fuelBtn: $<HTMLButtonElement>("btn-fuel"),
   fuelN: $("fuel-n"),
   aimPad: $("aim-pad"),
@@ -100,15 +102,15 @@ const minimap = new Minimap(ui.minimap);
 
 let room: Room<any> | null = null;
 /** Las armas que se pueden pedir en un "fire". */
-type Fireable = "babyMissile" | "missile" | "roller" | "napalm" | "nuke" | "dirt";
+type Fireable = "babyMissile" | "missile" | "roller" | "napalm" | "nuke" | "dirt" | "mirv";
 let aim = { yaw: 0, pitch: 45, power: 500 };
 let weapon: Fireable = "babyMissile";
 let moveMode = false;
 let moveHover: MoveModel["hover"] = null;
 let terrain: Terrain | null = null;
 let shotAnim: ShotModel | null = null;
-/** Dónde terminó el último tiro real (último punto del "shot" del server). Lo usa el minimapa. */
-let lastImpact: (NonNullable<MiniModel["impact"]> & { at: number }) | null = null;
+/** Dónde terminó el último tiro real (último punto del "shot" del server; con un Racimo, el de cada cabeza). Lo usa el minimapa. */
+let lastImpact: { spots: MiniModel["impacts"]; at: number } | null = null;
 let leavingOnPurpose = false;
 /** Se apaga la fantasma desde que apretás Tirar hasta tu próximo turno. */
 let ghostOff = false;
@@ -273,12 +275,16 @@ function attach(r: Room<any>): void {
       shooterId: string;
       outcome: string;
       weapon: Fireable;
+      /** Solo un Racimo que se abrió: `path` llega hasta la apertura y cada cabeza sigue desde ahí. */
+      heads?: { path: number[]; outcome: string }[];
       impact: { x: number; y: number; z: number };
       damage: number;
       blocked: string[];
     }) => {
       const shooter = r.state.players.get(m.shooterId);
-      const lands = m.outcome === "ground" || m.outcome === "tank";
+      const explodes = (outcome: string) => outcome === "ground" || outcome === "tank";
+      const lands = explodes(m.outcome);
+      const heads = (m.heads ?? []).map((h) => ({ path: h.path, lands: explodes(h.outcome) }));
       const w = WEAPONS[m.weapon] ?? WEAPONS.babyMissile;
       shotAnim = {
         path: m.path,
@@ -290,21 +296,33 @@ function attach(r: Room<any>): void {
         // tampoco: levanta polvo, color tierra, del tamaño de la loma.
         radius: w.burn?.radius ?? w.mound?.radius ?? w.explosionRadius,
         dust: !!w.mound,
+        heads: heads.length > 0 ? heads : undefined,
         impact: m.impact,
-        // El número y el "bloqueado" son del server; acá solo se redondea para mostrarlo.
+        // El número y el "bloqueado" son del server; acá solo se redondea para mostrarlo. Con un
+        // Racimo el número ya viene sumado: es un solo cartel para las cinco cabezas.
         label: lands && w.burn ? "fuego" : lands && w.mound ? "loma" : impactLabel(lands, m.damage, (m.blocked?.length ?? 0) > 0),
       };
       play("fire");
+      // Cada cabeza de un Racimo explota cuando llega: el mismo "boom", una vez por cabeza.
+      const steps = (path: number[]) => Math.max(0, path.length / 3 - 1);
+      const total = steps(m.path) + Math.max(0, ...heads.map((h) => steps(h.path)));
+      for (const h of heads) {
+        if (!h.lands) continue;
+        window.setTimeout(() => room === r && play("boom"), (m.durationMs * (steps(m.path) + steps(h.path))) / Math.max(1, total));
+      }
       window.setTimeout(() => {
         if (room !== r) return;
-        if (lands) play("boom");
+        if (lands && heads.length === 0) play("boom");
         if (m.damage > 0) play("hit");
       }, m.durationMs);
-      const n = m.path.length;
+      const end = (path: number[], ok: boolean) => ({ x: path[path.length - 3]!, z: path[path.length - 1]!, lands: ok });
       // La Tierra no deja estrella en el minimapa: taparía la loma, que es la marca.
       lastImpact =
-        n >= 3 && !(lands && w.mound)
-          ? { x: m.path[n - 3]!, z: m.path[n - 1]!, lands: shotAnim.explodes, slot: shotAnim.slot, at: shotAnim.start + m.durationMs }
+        m.path.length >= 3 && !(lands && w.mound)
+          ? {
+              spots: heads.length > 0 ? heads.filter((h) => h.path.length >= 3).map((h) => end(h.path, h.lands)) : [end(m.path, lands)],
+              at: shotAnim.start + m.durationMs,
+            }
           : null;
       if (m.weapon !== "babyMissile") showBanner(`${shooter?.name ?? "?"} manda ${SHOP_ITEMS[m.weapon]?.name ?? m.weapon}`, 1400);
       if (m.outcome === "offmap" || m.outcome === "timeout") {
@@ -339,12 +357,15 @@ function attach(r: Room<any>): void {
   onState();
 }
 
-/** Cartel en el punto de impacto: "se fue", el daño, o "bloqueado" si un escudo se comió el tiro (al Nuke no: dice el daño). */
+/**
+ * Cartel en el punto de impacto: "se fue", el daño, o "bloqueado" si un escudo se comió el tiro (al
+ * Nuke no: dice el daño). Con un Racimo el daño es el de todas las cabezas sumado.
+ */
 function impactLabel(lands: boolean, damage: number, blocked: boolean): string {
   if (!lands) return "se fue";
   const hurt = damage > 0 ? `-${Math.max(1, Math.round(damage))}` : "0";
   if (!blocked) return hurt;
-  return damage > 0 ? `bloqueado · ${hurt}` : "bloqueado"; // con daño: además lastimó a otro tanque
+  return damage > 0 ? `bloqueado · ${hurt}` : "bloqueado"; // con daño: además lastimó a otro tanque, o le pegó otra cabeza del Racimo
 }
 
 const isMe = (id: string) => room?.sessionId === id;
@@ -481,7 +502,7 @@ function renderHud(phase: string): void {
       const extra = document.createElement("span");
       extra.className = "extra";
       extra.textContent =
-        `${p.points} pts · M×${p.missiles}${p.rollers > 0 ? ` · R×${p.rollers}` : ""}${p.napalms > 0 ? ` · Quema×${p.napalms}` : ""}${p.nukes > 0 ? ` · Bombazo×${p.nukes}` : ""}${p.dirts > 0 ? ` · Tierra×${p.dirts}` : ""}` +
+        `${p.points} pts · M×${p.missiles}${p.rollers > 0 ? ` · R×${p.rollers}` : ""}${p.napalms > 0 ? ` · Quema×${p.napalms}` : ""}${p.nukes > 0 ? ` · Bombazo×${p.nukes}` : ""}${p.dirts > 0 ? ` · Tierra×${p.dirts}` : ""}${p.mirvs > 0 ? ` · Racimo×${p.mirvs}` : ""}` +
         `${p.shield > 0 ? " · escudo" : ""}${p.parachute > 0 ? " · ☂" : ""}${p.fuel > 0 ? ` · N×${p.fuel}` : ""}` +
         // Parado en un fuego (inFire, la misma cuenta del server): va a perder vida al empezar su turno.
         `${p.life > 0 && fires.some((f) => inFire(f, p)) ? " · en el fuego" : ""}`;
@@ -496,12 +517,14 @@ function renderHud(phase: string): void {
   const napalms = mp?.napalms ?? 0;
   const nukes = mp?.nukes ?? 0;
   const dirts = mp?.dirts ?? 0;
+  const mirvs = mp?.mirvs ?? 0;
   if (
     (weapon === "missile" && missiles <= 0) ||
     (weapon === "roller" && rollers <= 0) ||
     (weapon === "napalm" && napalms <= 0) ||
     (weapon === "nuke" && nukes <= 0) ||
-    (weapon === "dirt" && dirts <= 0)
+    (weapon === "dirt" && dirts <= 0) ||
+    (weapon === "mirv" && mirvs <= 0)
   ) {
     weapon = "babyMissile";
   }
@@ -510,13 +533,15 @@ function renderHud(phase: string): void {
   ui.wNapalmN.textContent = `×${napalms}`;
   ui.wNukeN.textContent = `×${nukes}`;
   ui.wDirtN.textContent = `×${dirts}`;
+  ui.wMirvN.textContent = `×${mirvs}`;
   // Un arma sin munición no ocupa lugar en la barra.
   ui.wMissile.hidden = missiles <= 0;
   ui.wRoller.hidden = rollers <= 0;
   ui.wNapalm.hidden = napalms <= 0;
   ui.wNuke.hidden = nukes <= 0;
   ui.wDirt.hidden = dirts <= 0;
-  for (const [btn, id] of [[ui.wBaby, "babyMissile"], [ui.wMissile, "missile"], [ui.wRoller, "roller"], [ui.wNapalm, "napalm"], [ui.wNuke, "nuke"], [ui.wDirt, "dirt"]] as const) {
+  ui.wMirv.hidden = mirvs <= 0;
+  for (const [btn, id] of [[ui.wBaby, "babyMissile"], [ui.wMissile, "missile"], [ui.wRoller, "roller"], [ui.wNapalm, "napalm"], [ui.wNuke, "nuke"], [ui.wDirt, "dirt"], [ui.wMirv, "mirv"]] as const) {
     btn.classList.toggle("on", weapon === id);
     btn.setAttribute("aria-checked", String(weapon === id));
   }
@@ -536,6 +561,7 @@ const SHOP_LINE: Record<ShopItemId, string> = {
   napalm: "Fuego toda la ronda",
   nuke: "El escudo no lo frena",
   dirt: "Levanta una loma",
+  mirv: "Se abre en 5 en el aire",
   shield: "Frena el próximo tiro",
   parachute: "Caer no te hace daño",
   fuel: "Mové el tanque",
@@ -589,9 +615,9 @@ function renderShop(phase: string): void {
 
   // Cartas: la validación de plata es la misma del server (cannotBuy del sim). Se redibujan solo
   // si cambió la plata o el inventario, así un clic no cae sobre una carta recién reemplazada.
-  const inventory = { parachute: mp.parachute, fuel: mp.fuel, missile: mp.missiles, roller: mp.rollers, napalm: mp.napalms, nuke: mp.nukes, dirt: mp.dirts, shield: mp.shield };
+  const inventory = { parachute: mp.parachute, fuel: mp.fuel, missile: mp.missiles, roller: mp.rollers, napalm: mp.napalms, nuke: mp.nukes, dirt: mp.dirts, mirv: mp.mirvs, shield: mp.shield };
   const asPlayer = { id: mp.id, money: mp.money, inventory };
-  const itemsKey = `${mp.money}|${mp.parachute}|${mp.fuel}|${mp.missiles}|${mp.rollers}|${mp.napalms}|${mp.nukes}|${mp.dirts}|${mp.shield}`;
+  const itemsKey = `${mp.money}|${mp.parachute}|${mp.fuel}|${mp.missiles}|${mp.rollers}|${mp.napalms}|${mp.nukes}|${mp.dirts}|${mp.mirvs}|${mp.shield}`;
   if (ui.shopItems.dataset.key === itemsKey) return;
   ui.shopItems.dataset.key = itemsKey;
   ui.shopItems.replaceChildren(
@@ -691,6 +717,7 @@ function selectWeapon(w: Fireable): void {
   if (w === "napalm" && (me()?.napalms ?? 0) <= 0) return;
   if (w === "nuke" && (me()?.nukes ?? 0) <= 0) return;
   if (w === "dirt" && (me()?.dirts ?? 0) <= 0) return;
+  if (w === "mirv" && (me()?.mirvs ?? 0) <= 0) return;
   weapon = w;
   onState();
 }
@@ -700,6 +727,7 @@ ui.wRoller.addEventListener("click", () => selectWeapon("roller"));
 ui.wNapalm.addEventListener("click", () => selectWeapon("napalm"));
 ui.wNuke.addEventListener("click", () => selectWeapon("nuke"));
 ui.wDirt.addEventListener("click", () => selectWeapon("dirt"));
+ui.wMirv.addEventListener("click", () => selectWeapon("mirv"));
 
 function toggleMoveMode(): void {
   if (!myTurn() || (me()?.fuel ?? 0) <= 0 || room?.state.moved) return;
@@ -952,6 +980,9 @@ window.addEventListener("keydown", (e) => {
     case "6":
       selectWeapon("dirt");
       break;
+    case "7":
+      selectWeapon("mirv");
+      break;
     case "n":
     case "N":
       toggleMoveMode();
@@ -983,7 +1014,8 @@ function firesOf(s: any): { x: number; z: number; radius: number }[] {
  * Fantasma: el mismo simulateWeaponShot3D que usa el server, corrido acá solo para dibujar. Con el
  * Roller el recorrido sigue por el piso hasta donde termina la rodada. Con el Napalm el anillo es
  * el disco que quedaría prendido, sacado del mismo fireFromShot que usa el server. Con la Tierra,
- * el anillo es el pie de la loma.
+ * el anillo es el pie de la loma. Con el Racimo el recorrido llega hasta donde se abre y de ahí
+ * sale el de cada cabeza, con un anillo donde caería cada una.
  * Se recalcula únicamente cuando cambia la puntería, el arma, el terreno o la posición.
  */
 let ghostKey = "";
@@ -1001,15 +1033,19 @@ function computeGhost(mine: TankModel | undefined, tanks: TankModel[], wind: { x
       tanks.filter((t) => t.life > 0),
       { recordPath: true },
     );
-    const lands = r.outcome === "ground" || r.outcome === "tank";
+    const explodes = (h: { outcome: string }) => h.outcome === "ground" || h.outcome === "tank";
+    const heads = r.split?.heads;
+    const lands = heads ? heads.some(explodes) : explodes(r);
     const fire = fireFromShot(w, r, mine.id);
     ghostCache = {
       path: r.path ?? [],
-      // El fuego queda en el piso aunque el tiro haya pegado en un tanque, más arriba.
-      impact: fire ? { x: fire.x, y: terrainHeightAt(terrain, fire.x, fire.z), z: fire.z } : lands ? { x: r.x, y: r.y, z: r.z } : null,
+      // El fuego queda en el piso aunque el tiro haya pegado en un tanque, más arriba. Un Racimo
+      // abierto no tiene un impacto solo: tiene uno por cabeza.
+      impact: fire ? { x: fire.x, y: terrainHeightAt(terrain, fire.x, fire.z), z: fire.z } : lands && !heads ? { x: r.x, y: r.y, z: r.z } : null,
       gone: !lands,
       shooter: mine,
       radius: fire ? fire.radius : (w.mound?.radius ?? w.explosionRadius),
+      heads: heads?.map((h) => ({ path: h.path ?? [], impact: explodes(h) ? { x: h.x, y: h.y, z: h.z } : null })),
     };
   }
   if (ghostCache) ghostCache.shooter = mine;
@@ -1069,11 +1105,22 @@ function frame(now: number): void {
   });
 
   // Minimapa: mismo terreno, mismos tanques y el mismo "shot" que la vista 3D.
-  let ball: MiniModel["ball"] = null;
+  const balls: MiniModel["balls"] = [];
   if (shotAnim && shotAnim.path.length >= 3 && now < shotAnim.start + shotAnim.durationMs) {
     const n = shotAnim.path.length / 3;
-    const i = Math.min(n - 1, Math.floor(((now - shotAnim.start) / Math.max(1, shotAnim.durationMs)) * (n - 1)));
-    ball = { x: shotAnim.path[i * 3]!, z: shotAnim.path[i * 3 + 2]! };
+    const heads = shotAnim.heads ?? [];
+    // Los mismos pasos que la vista 3D: los del tiro y, si se abrió, los de la cabeza que más tarda.
+    const total = n - 1 + Math.max(0, ...heads.map((h) => h.path.length / 3 - 1));
+    const tick = Math.floor(((now - shotAnim.start) / Math.max(1, shotAnim.durationMs)) * total);
+    if (tick < n - 1 || heads.length === 0) {
+      const i = Math.min(n - 1, tick);
+      balls.push({ x: shotAnim.path[i * 3]!, z: shotAnim.path[i * 3 + 2]! });
+    } else {
+      for (const h of heads) {
+        const i = tick - (n - 1);
+        if (i < h.path.length / 3 - 1) balls.push({ x: h.path[i * 3]!, z: h.path[i * 3 + 2]! });
+      }
+    }
   }
   minimap.draw({
     terrain: terrain!,
@@ -1081,9 +1128,11 @@ function frame(now: number): void {
     tanks: tanks.map((t) => ({ x: t.x, z: t.z, slot: t.slot, alive: t.life > 0, isMe: t.isMe })),
     wind,
     fires,
-    ghost: ghost ? { path: ghost.path, lands: !ghost.gone, slot: ghost.shooter.slot } : null,
-    ball,
-    impact: lastImpact && now >= lastImpact.at ? lastImpact : null,
+    ghost: ghost
+      ? { path: ghost.path, lands: !ghost.gone, slot: ghost.shooter.slot, heads: ghost.heads?.map((h) => ({ path: h.path, lands: !!h.impact })) }
+      : null,
+    balls,
+    impacts: lastImpact && now >= lastImpact.at ? lastImpact.spots : [],
   });
 }
 requestAnimationFrame(frame);

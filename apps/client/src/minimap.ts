@@ -23,12 +23,18 @@ export interface MiniModel {
   wind: { x: number; z: number };
   /** Fuegos de Napalm prendidos en la ronda: discos en el piso. [wu] */
   fires: { x: number; z: number; radius: number }[];
-  /** Fantasma de mi turno: recorrido [x, y, z, ...] y si termina dentro del mapa. */
-  ghost: { path: number[]; lands: boolean; slot: number } | null;
-  /** Proyectil real en vuelo. */
-  ball: { x: number; z: number } | null;
-  /** Último tiro real, ya terminado. `lands` false = se fue del mapa. Una Tierra no deja marca: la loma ya está en el terreno. */
-  impact: { x: number; z: number; lands: boolean; slot: number } | null;
+  /**
+   * Fantasma de mi turno: recorrido [x, y, z, ...] y si termina dentro del mapa. Con un Racimo,
+   * `path` llega hasta donde se abre y `heads` trae el recorrido de cada cabeza.
+   */
+  ghost: { path: number[]; lands: boolean; slot: number; heads?: { path: number[]; lands: boolean }[] } | null;
+  /** Proyectil real en vuelo: uno, o las cabezas de un Racimo ya abierto. */
+  balls: { x: number; z: number }[];
+  /**
+   * Último tiro real, ya terminado: dónde explotó (un Racimo, una marca por cabeza, más chicas).
+   * `lands` false = se fue del mapa. Una Tierra no deja marca: la loma ya está en el terreno.
+   */
+  impacts: { x: number; z: number; lands: boolean }[];
 }
 
 const WIND_COLOR = "#9ad1ff";
@@ -114,16 +120,17 @@ export class Minimap {
     }
 
     // Último tiro real: estrella amarilla donde explotó, o cruz en el borde por donde se fue.
-    if (m.impact) {
-      const [x, y] = at(m.impact.x, m.impact.z);
+    const star = m.impacts.length > 1 ? 0.5 : 1;
+    for (const impact of m.impacts) {
+      const [x, y] = at(impact.x, impact.z);
       ctx.lineWidth = 2;
       ctx.strokeStyle = "#ffcf5a";
       ctx.fillStyle = "#ffcf5a";
-      if (m.impact.lands) {
+      if (impact.lands) {
         ctx.beginPath();
         for (let i = 0; i < 8; i++) {
           const a = (i * Math.PI) / 4;
-          const r = i % 2 ? 3 : 7.5;
+          const r = (i % 2 ? 3 : 7.5) * star;
           ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
         }
         ctx.closePath();
@@ -131,7 +138,7 @@ export class Minimap {
         ctx.lineWidth = 1;
         ctx.strokeStyle = "#1a1305";
         ctx.stroke();
-      } else cross(x, y, 5);
+      } else cross(x, y, 5 * star);
     }
 
     // Fantasma: recorrido punteado y, al final, el punto de caída (o "se fue" en el borde).
@@ -145,10 +152,33 @@ export class Minimap {
       for (let i = 0; i < n; i += 4) ctx.lineTo(...at(p[i * 3]!, p[i * 3 + 2]!));
       const [ex, ey] = at(p[(n - 1) * 3]!, p[(n - 1) * 3 + 2]!);
       ctx.lineTo(ex, ey);
+      // Racimo: desde donde se abre, un trazo por cabeza.
+      const heads = m.ghost.heads ?? [];
+      for (const h of heads) {
+        ctx.moveTo(ex, ey);
+        for (let i = 4; i < h.path.length / 3; i += 4) ctx.lineTo(...at(h.path[i * 3]!, h.path[i * 3 + 2]!));
+        ctx.lineTo(...at(h.path[h.path.length - 3]!, h.path[h.path.length - 1]!));
+      }
       ctx.stroke();
       ctx.setLineDash([]);
       const color = SLOT_COLORS[m.ghost.slot] ?? "#fff";
-      if (m.ghost.lands) {
+      if (heads.length > 0) {
+        // Un punto donde cae cada cabeza (o una cruz chica en el borde por donde se va).
+        for (const h of heads) {
+          const [hx, hy] = at(h.path[h.path.length - 3]!, h.path[h.path.length - 1]!);
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = color;
+          if (!h.lands) {
+            cross(hx, hy, 2.5);
+            continue;
+          }
+          ctx.fillStyle = "#fff";
+          ctx.beginPath();
+          ctx.arc(hx, hy, 2.6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+      } else if (m.ghost.lands) {
         ctx.lineWidth = 3.5;
         ctx.strokeStyle = "#000";
         ctx.beginPath();
@@ -202,8 +232,8 @@ export class Minimap {
       ctx.stroke();
     }
 
-    if (m.ball) {
-      const [x, y] = at(m.ball.x, m.ball.z);
+    for (const ball of m.balls) {
+      const [x, y] = at(ball.x, ball.z);
       ctx.fillStyle = "#fff4c2";
       ctx.strokeStyle = "#000";
       ctx.lineWidth = 1;

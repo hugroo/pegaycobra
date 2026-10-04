@@ -363,6 +363,104 @@ describe("partida de 5 rondas por red", () => {
     await b.leave();
   }, 60_000);
 
+  it("Racimo: los dos clientes ven la apertura, los mismos hoyos y el daño sumado", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto" });
+    const ta = trackTerrain(a);
+    const tb = trackTerrain(b);
+    const shotsSeenByA: any[] = [];
+    const shotsSeenByB: any[] = [];
+    a.onMessage("shot", (m) => shotsSeenByA.push(m));
+    b.onMessage("shot", (m) => shotsSeenByB.push(m));
+    for (const r of [a, b]) for (const type of ["skip", "moved", "roundEnd", "burn"]) r.onMessage(type, () => {});
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    a.send("start");
+    await until(() => a.state.phase === "aiming" && tb.fulls === 1);
+
+    const rooms: Record<string, Room<any>> = { [a.sessionId]: a, [b.sessionId]: b };
+    const seenBy = (r: Room<any>, id: string) => r.state.players.get(id);
+    /** El del turno manda `msg` (por defecto una Baby para atrás, lejos de todos) y espera a que termine el tiro. */
+    async function turn(id: string, msg?: object): Promise<void> {
+      await until(() => a.state.phase === "aiming" && a.state.turnId === id);
+      rooms[id]!.send("fire", msg ?? { yaw: seenBy(a, id).yaw + 180, pitch: 60, power: 250 });
+      await until(() => a.state.phase !== "aiming" || a.state.turnId !== id);
+      await until(() => a.state.phase !== "animating");
+    }
+
+    // Ronda 1: nadie le apunta a nadie, hasta que corta por tiros. En la tienda Ana compra un Racimo.
+    while (a.state.phase !== "shop") await turn(a.state.turnId);
+    const money = seenBy(b, a.sessionId).money;
+    a.send("buy", { item: "mirv" });
+    await until(() => seenBy(b, a.sessionId).mirvs === 1);
+    expect(seenBy(b, a.sessionId).money).toBe(money - SHOP_ITEMS.mirv.price);
+    a.send("ready");
+    b.send("ready");
+    await until(() => a.state.round === 2 && a.state.phase === "aiming" && ta.fulls === 2 && tb.fulls === 2);
+
+    // Ronda 2: Beto tira para atrás y Ana busca, con el sim, un Racimo que se abra, caiga entero en
+    // el mapa y cuya cabeza del medio le explote cerca a Beto.
+    await turn(b.sessionId);
+    const me = seenBy(a, a.sessionId);
+    const foe = seenBy(a, b.sessionId);
+    const tanks = [me, foe].map((p) => ({ id: p.id as string, x: p.x as number, y: p.y as number, z: p.z as number }));
+    const wind = { x: a.state.windX, z: a.state.windZ };
+    const base = (Math.atan2(foe.z - me.z, foe.x - me.x) * 180) / Math.PI;
+    const landed = (h: { outcome: string }) => h.outcome === "ground" || h.outcome === "tank";
+    let aim: { yaw: number; pitch: number; power: number } | null = null;
+    search: for (let pitch = 35; pitch <= 80; pitch += 5) {
+      for (let power = 300; power <= 1000; power += 5) {
+        for (let d = 0; d <= 12; d += 0.5) {
+          for (const yaw of [base + d, base - d]) {
+            const r = simulateWeaponShot3D(ta.terrain!, WEAPONS.mirv, { originX: me.x, originY: me.y, originZ: me.z, yaw, pitch, power, wind, shooterId: me.id }, tanks);
+            if (r.split?.heads.every(landed) && Math.hypot(r.x - foe.x, r.z - foe.z) <= 3) {
+              aim = { yaw, pitch, power };
+              break search;
+            }
+          }
+        }
+      }
+    }
+    expect(aim).not.toBeNull();
+
+    const heights = tb.terrain!.heights.slice();
+    const patches = [ta.patches, tb.patches];
+    const foeLife = foe.life as number;
+    await turn(a.sessionId, { ...aim, weapon: "mirv" });
+
+    // Los dos reciben el mismo tiro: el recorrido hasta donde se abre, en el aire, y de ahí cinco cabezas.
+    const shot = shotsSeenByB.at(-1);
+    expect(shot).toEqual(shotsSeenByA.at(-1));
+    expect(shot).toMatchObject({ shooterId: a.sessionId, weapon: "mirv" });
+    expect(shot.heads).toHaveLength(WEAPONS.mirv.split!.heads);
+    const open = shot.path.slice(-3) as number[];
+    const ends = (shot.heads as { path: number[] }[]).map((h) => h.path.slice(-3));
+    for (const h of shot.heads) expect(h.path.slice(0, 3)).toEqual(open);
+    for (const end of ends) expect(open[1]!).toBeGreaterThan(end[1]! + 10); // se abrió bien arriba de donde cayeron
+    // Los impactos no son el mismo punto.
+    expect(new Set(ends.map((e) => `${Math.round(e[0]!)},${Math.round(e[2]!)}`)).size).toBe(ends.length);
+
+    // Un solo parche de terreno, el mismo para los dos, y bajó el piso donde cayó cada cabeza: los mismos hoyos.
+    await until(() => ta.patches === patches[0]! + 1 && tb.patches === patches[1]! + 1);
+    expect(ta.terrain!.heights).toEqual(tb.terrain!.heights);
+    expect(tb.terrain!.heights.every((h, i) => h <= heights[i]!)).toBe(true);
+    for (const [x, , z] of ends) {
+      const at = Math.trunc(x!) + Math.trunc(z!) * tb.terrain!.width;
+      expect(tb.terrain!.heights[at]!).toBeLessThan(heights[at]!);
+    }
+
+    // El cartel trae el daño de todas las cabezas sumado: es la vida que perdió Beto, y lo ven igual los dos.
+    await until(() => seenBy(a, b.sessionId).life < foeLife && seenBy(b, b.sessionId).life < foeLife);
+    expect(seenBy(b, b.sessionId).life).toBe(seenBy(a, b.sessionId).life);
+    expect(shot.damage).toBeGreaterThan(0);
+    expect(shot.damage).toBeCloseTo(foeLife - seenBy(b, b.sessionId).life, 1);
+    expect(seenBy(b, a.sessionId).points).toBeGreaterThan(0);
+    expect(seenBy(b, a.sessionId).mirvs).toBe(0);
+
+    await a.leave();
+    await b.leave();
+  }, 60_000);
+
   it("si uno se va en plena partida, el otro gana", async () => {
     const url = `ws://localhost:${PORT}`;
     const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
