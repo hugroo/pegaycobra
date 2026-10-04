@@ -5,6 +5,7 @@
 //   → daño de explosión (damage.ts), salvo a quien lo tapa un escudo (al Nuke no lo tapa)
 //   → caídas y daño de caída → plata para quien disparó (economy.ts).
 // El Napalm no abre cráter ni explota: deja un fuego (napalm.ts) que quema al empezar cada turno.
+// La Dirt Ball tampoco: levanta una loma (terrain.ts) y el tanque que quedó debajo sube con ella.
 // Orígenes: Explosion.cpp, TargetDamageCalc.cpp, TargetDamage.cpp, TargetFalling.cpp, Wind.cpp.
 
 import { TANK_RADIUS } from "./constants";
@@ -16,6 +17,7 @@ import { simulateWeaponShot3D } from "./roller";
 import type { Shot3DResult, Wind } from "./shot3d";
 import {
   applyCraterTerrain,
+  applyMoundTerrain,
   flattenTerrainUnder,
   terrainHeightAt,
   type Terrain,
@@ -154,7 +156,7 @@ export function settleTank3D(
 
 /**
  * Resuelve un disparo 3D. Mismas validaciones que resolveTurn: jugador vivo, arma jugable
- * (Baby Missile, Missile, Roller, Napalm, Nuke) y con munición. No recibe daño ni impacto: los calcula.
+ * (Baby Missile, Missile, Roller, Napalm, Nuke, Dirt Ball) y con munición. No recibe daño ni impacto: los calcula.
  *
  * Escudo (regla propia, campaign.ts): si la explosión (también la del Roller) le iba a sacar vida
  * a un tanque con escudo, el escudo absorbe ese tiro y se gasta. El cráter se abre igual y el
@@ -167,6 +169,10 @@ export function settleTank3D(
  *
  * Napalm: donde termina el tiro queda un fuego (fireFromShot) y nada más. Sin cráter el terreno es
  * el mismo objeto que entró, nadie cae, y como no hay explosión tampoco se gasta ningún escudo.
+ *
+ * Dirt Ball (mound): donde termina el tiro el piso sube (applyMoundTerrain). No es un golpe: no saca
+ * vida, no paga y el escudo ni la frena ni se gasta. Regla propia: en el original la tierra tapa al
+ * tanque; acá el tanque que quedó debajo sube con la loma y queda apoyado arriba, con la vida que tenía.
  */
 export function resolveTurn3D(
   state: MatchState3D,
@@ -228,6 +234,15 @@ export function resolveTurn3D(
   if (shot.outcome === "ground" || shot.outcome === "tank") {
     fire = fireFromShot(weapon, shot, shooterTank.id);
     if (weapon.craterRadius > 0) terrain = applyCraterTerrain(terrain, shot.x, shot.y, shot.z, weapon.craterRadius);
+    if (weapon.mound) {
+      terrain = applyMoundTerrain(terrain, shot.x, shot.y, shot.z, weapon.mound.radius);
+      // Nadie queda enterrado: el tanque (o el resto de uno) que quedó bajo la loma sube con ella.
+      for (let i = 0; i < tanks.length; i++) {
+        const t = tanks[i]!;
+        const ground = terrainHeightAt(terrain, t.x, t.z);
+        if (ground > t.y) tanks[i] = { ...t, y: ground };
+      }
+    }
     for (let i = 0; i < tanks.length; i++) {
       const t = tanks[i]!;
       if (!isAlive(t)) continue;
@@ -241,8 +256,8 @@ export function resolveTurn3D(
       }
       hurt(i, amount, "explosion");
     }
-    // Sin cráter (Napalm) no hay a dónde caer: el terreno no se toca ni para aplanar.
-    const cratered = terrain !== state.terrain;
+    // Sin cráter (Napalm, Dirt Ball) no hay a dónde caer: el terreno no se toca ni para aplanar.
+    const cratered = weapon.craterRadius > 0;
     for (let i = 0; cratered && i < tanks.length; i++) {
       const s = settleTank3D(terrain, tanks[i]!);
       if (!s.fall) continue;

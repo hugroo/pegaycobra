@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Envío del heightmap por la red. Son 257 × 257 float32 (~264 KB): se manda entero una vez al
-// arrancar y, después de cada tiro, solo el rectángulo que cambió (cráter + aplanado).
+// arrancar y, después de cada tiro, solo el rectángulo que cambió (cráter + aplanado, o loma).
 
 import type { Terrain } from "@pegaycobra/sim";
 

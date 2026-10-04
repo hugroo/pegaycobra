@@ -4,7 +4,8 @@
 //   src/common/landscapemap/HeightMapModifier.cpp
 //     generateTerrain(), addCirclePeak(), scale(), smooth() (matriz 5x5), levelSurround()
 //   src/common/landscapemap/DeformLandscape.cpp
-//     DeformLandscapeCacheItem + deformLandscapeInternal() (cráter = disco), flattenAreaInternal()
+//     DeformLandscapeCacheItem + deformLandscapeInternal() (cráter = disco; con down = false, loma),
+//     flattenAreaInternal()
 //   data/globalmods/none/data/landscapes/defnhilly.xml (parámetros por defecto)
 //
 // Ejes: el original usa (x, y) en el piso y z como altura. Acá el piso es (x, z) y la altura es y,
@@ -248,6 +249,42 @@ export function applyCraterTerrain(t: Terrain, cx: number, cy: number, cz: numbe
       let next = current > cy + depth ? current - 2 * depth : cy - depth;
       if (next < MIN_LAND_HEIGHT) next = current < MIN_LAND_HEIGHT ? current : MIN_LAND_HEIGHT;
       h[i] = next;
+    }
+  }
+  return out;
+}
+
+/**
+ * Loma: sube un disco centrado en (cx, cz) con el centro de la esfera a altura cy.
+ * DeformLandscape::deformLandscapeInternal(), down = false. Mismo disco y mismo perfil que el
+ * cráter (depth = sin(((r - dist) / r) · π/2) · r, con r = trunc(radius) + 1, tope 49):
+ *   suelo por debajo de cy + depth → sube depth; si no → no se toca (ya asoma sobre la esfera).
+ * Diferencia deliberada: la celda que sube no pasa de cy + depth. En el original sí pasa, y en una
+ * ladera queda un escalón contra la celda de al lado, que por estar apenas más alta no se tocó.
+ * No tiene techo: tierra sobre tierra sigue subiendo. Bordes del mapa intactos.
+ */
+export function applyMoundTerrain(t: Terrain, cx: number, cy: number, cz: number, radius: number): Terrain {
+  if (![cx, cy, cz, radius].every(Number.isFinite)) {
+    throw new RangeError(`loma con coordenadas no finitas (${cx}, ${cy}, ${cz}, r=${radius})`);
+  }
+  const h = t.heights.slice();
+  const out: Terrain = { width: t.width, depth: t.depth, heights: h };
+  const r = Math.min(craterIntRadius(radius), CRATER_MAX_RADIUS);
+  if (r === 0) return out;
+  const mapW = t.width - 1;
+  const mapD = t.depth - 1;
+  const ix = Math.trunc(cx);
+  const iz = Math.trunc(cz);
+  for (let dz = -r; dz <= r; dz++) {
+    for (let dx = -r; dx <= r; dx++) {
+      const depth = craterDepthAt(radius, Math.sqrt(dx * dx + dz * dz));
+      if (depth === 0) continue;
+      const ax = ix + dx;
+      const az = iz + dz;
+      if (ax <= 0 || ax >= mapW || az <= 0 || az >= mapD) continue;
+      const i = ax + az * t.width;
+      const top = cy + depth;
+      if (h[i]! < top) h[i] = Math.min(h[i]! + depth, top);
     }
   }
   return out;

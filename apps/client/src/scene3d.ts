@@ -27,6 +27,9 @@ const IMPACT_LABEL_MS = 1000;
 export const LINGER_MS = 1300;
 /** Llamas que se dibujan sobre cada fuego de Napalm. */
 const FLAMES_PER_FIRE = 11;
+/** Color del fogonazo de una explosión, y el del polvo que levanta la Tierra. */
+const BLAST = "#ffb347";
+const DUST = "#a8845a";
 
 export interface TankModel {
   id: string;
@@ -63,6 +66,8 @@ export interface ShotModel {
   slot: number;
   /** Radio de explosión del arma disparada. [wu] */
   radius: number;
+  /** El tiro no explota, levanta polvo (Tierra): el fogonazo es color tierra. */
+  dust?: boolean;
   /** Dónde terminó el tiro y qué dice el cartel de impacto ("-40", "se fue"). Los dos vienen del server. */
   impact: { x: number; y: number; z: number };
   label: string;
@@ -253,7 +258,7 @@ export class World {
     this.scene.add(this.shotBall);
     this.blast = new THREE.Mesh(
       new THREE.SphereGeometry(1, 24, 16),
-      new THREE.MeshBasicMaterial({ color: "#ffb347", transparent: true, opacity: 0.9 }),
+      new THREE.MeshBasicMaterial({ color: BLAST, transparent: true, opacity: 0.9 }),
     );
     this.scene.add(this.blast);
     const impactEl = document.createElement("div");
@@ -300,7 +305,7 @@ export class World {
   // -------------------------------------------------------------------------
 
   /**
-   * Crea o actualiza el mesh. `rect` limita qué vértices se recalculan (parche de cráter).
+   * Crea o actualiza el mesh. `rect` limita qué vértices se recalculan (parche de cráter o de loma).
    * `newRound`: el terreno es de una ronda nueva, se borran las marcas de quemado.
    */
   setTerrain(t: Terrain, rect?: { x0: number; z0: number; w: number; d: number }, newRound = false): void {
@@ -323,6 +328,8 @@ export class World {
         const now = t.heights[i]!;
         // Quemado: lo que bajó un cráter queda oscuro (en el original, DeformTextures + scorch).
         if (!newRound && now < before - 0.05) this.scorch[i] = Math.min(1, (this.scorch[i] ?? 0) + Math.min(1, (before - now) / 3));
+        // Lo que subió es tierra nueva (una loma): tapa lo quemado.
+        else if (!newRound && now > before + 0.05) this.scorch[i] = 0;
         pos.setY(i, now);
       }
     }
@@ -760,6 +767,11 @@ export class World {
     }
   }
 
+  /** `y`, o la altura del piso en (x, z) si el piso quedó más arriba (una loma tapó ese punto). [wu] */
+  private aboveGround(x: number, y: number, z: number): number {
+    return this.terrain ? Math.max(y, terrainHeightAt(this.terrain, x, z)) : y;
+  }
+
   /** Dibuja el tiro real. Devuelve la posición actual del proyectil (para la cámara) o null. */
   private drawShot(s: ShotModel | null, now: number): THREE.Vector3 | null {
     this.shotLine.visible = false;
@@ -788,7 +800,9 @@ export class World {
       const q = (elapsed - s.durationMs) / EXPLOSION_MS;
       this.blast.position.copy(at);
       this.blast.scale.setScalar(s.radius * (0.35 + 0.9 * q));
-      (this.blast.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - q);
+      const mat = this.blast.material as THREE.MeshBasicMaterial;
+      mat.color.set(s.dust ? DUST : BLAST);
+      mat.opacity = 0.9 * (1 - q);
       this.blast.visible = true;
     }
     // Cartel de daño: anclado al punto de impacto en el mundo, así sigue a la cámara.
@@ -797,7 +811,7 @@ export class World {
       const el = this.impactLabel.element;
       if (el.textContent !== s.label) el.textContent = s.label;
       el.style.opacity = String(Math.min(1, (1 - q) * 3));
-      this.impactLabel.position.set(s.impact.x, s.impact.y + 3 + 4 * q, s.impact.z);
+      this.impactLabel.position.set(s.impact.x, this.aboveGround(s.impact.x, s.impact.y, s.impact.z) + 3 + 4 * q, s.impact.z);
       this.impactLabel.visible = true;
     }
     return at;
@@ -856,7 +870,8 @@ export class World {
 
     // Cámara: sigue al proyectil, se queda un momento en el impacto (para ver el cráter) y
     // después vuelve al tanque del turno.
-    if (ball && f.shot && f.now - f.shot.start < f.shot.durationMs + LINGER_MS) this.focus(ball.x, ball.y + 2, ball.z);
+    // Si el tiro levantó una loma, el punto de impacto quedó bajo tierra: se mira el piso nuevo.
+    if (ball && f.shot && f.now - f.shot.start < f.shot.durationMs + LINGER_MS) this.focus(ball.x, this.aboveGround(ball.x, ball.y, ball.z) + 2, ball.z);
     else if (turn) this.focus(turn.x, turn.y + 3, turn.z);
     this.updateCamera(dt);
 

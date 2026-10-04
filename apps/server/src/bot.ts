@@ -92,7 +92,7 @@ export function pickBotShot(match: MatchState3D, botId: string, rng: () => numbe
 
 /**
  * En la tienda: si no le queda ningún Missile compra un pack, de Missile o de Roller a cara o
- * cruz, si le alcanza. Napalm, Nuke, escudo, paracaídas y nafta, no. null = no compra nada.
+ * cruz, si le alcanza. Napalm, Nuke, Tierra, escudo, paracaídas y nafta, no. null = no compra nada.
  */
 export function botShopPick(player: Player, rng: () => number): ShopItemId | null {
   if ((player.inventory.missile ?? 0) > 0) return null;

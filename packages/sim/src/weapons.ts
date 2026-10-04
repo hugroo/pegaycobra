@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Parámetros de armas tomados de Scorched3D (c) 2000-2011, GPL-2.0-or-later:
-//   data/globalmods/none/data/accessories.xml  (<accessory> Baby Missile, Missile, Baby Nuke, Nuke)
+//   data/globalmods/none/data/accessories.xml  (<accessory> Baby Missile, Missile, Baby Nuke, Nuke, Dirt Ball)
 // Campos que el XML no declara toman el default del parser:
 //   src/common/weapons/WeaponProjectile.cpp (windFactor/gravityFactor = 1)
 //   src/common/weapons/WeaponExplosion.cpp  (deformsize = size si no se declara)
@@ -11,10 +11,12 @@
 // El Napalm también: el original lo tiene (WeaponNapalm.cpp, corre cuesta abajo y quema por tiempo);
 // acá es un disco fijo que quema por turno (napalm.ts), con números de este juego.
 // El Nuke usa los números del XML. Que el escudo no lo frene es regla propia (turn3d.ts).
+// La Dirt Ball también usa los números del XML (<deform>up</deform>, <hurtamount>0.0</hurtamount>).
+// Regla propia: en el original la tierra tapa al tanque; acá el tanque sube con la loma (turn3d.ts).
 
 import { INFINITE_AMMO } from "./constants";
 
-export type WeaponId = "babyMissile" | "missile" | "roller" | "napalm" | "babyNuke" | "nuke";
+export type WeaponId = "babyMissile" | "missile" | "roller" | "napalm" | "babyNuke" | "nuke" | "dirt";
 
 /** Arma que no explota donde cae: toca el piso y rueda cuesta abajo (roller.ts). */
 export interface RollSpec {
@@ -30,6 +32,12 @@ export interface BurnSpec {
   readonly radius: number;
   /** Vida que pierde un tanque parado en el disco, cada vez que empieza su turno. [hp / turno] */
   readonly damagePerTurn: number;
+}
+
+/** Arma que no explota: donde cae suma tierra y levanta una loma (applyMoundTerrain, terrain.ts). */
+export interface MoundSpec {
+  /** WeaponExplosion <size> con <deform>up</deform>: radio de la loma, sobre el piso (XZ). [wu] */
+  readonly radius: number;
 }
 
 export interface Weapon {
@@ -63,6 +71,8 @@ export interface Weapon {
   readonly burn?: BurnSpec;
   /** Solo el Nuke: el escudo no absorbe su explosión ni se gasta. */
   readonly piercesShield?: boolean;
+  /** Solo la Dirt Ball: la loma que levanta donde cae. */
+  readonly mound?: MoundSpec;
 }
 
 export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
@@ -154,13 +164,30 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     gravityFactor: 1,
     piercesShield: true,
   },
+  dirt: {
+    id: "dirt",
+    name: "Dirt Ball",
+    armsLevel: 9,
+    cost: 5750,
+    bundleSize: 5,
+    startingNumber: 0,
+    // <hurtamount>0.0</hurtamount> y <deform>up</deform>: no saca vida ni abre cráter. El <size>
+    // del XML es el radio de la loma, no el de una explosión.
+    explosionRadius: 0,
+    craterRadius: 0,
+    hurtAmount: 0,
+    windFactor: 1,
+    gravityFactor: 1,
+    mound: { radius: 10 }, // <size>10</size>
+  },
 });
 
 /**
  * Armas que se pueden disparar: la Baby Missile (infinita, no se compra), y el Missile, el Roller,
- * el Napalm y el Nuke (se compran en la tienda, ver campaign.ts). La Baby Nuke existe solo como datos.
+ * el Napalm, el Nuke y la Dirt Ball (se compran en la tienda, ver campaign.ts). La Baby Nuke existe
+ * solo como datos.
  */
-export const PLAYABLE_WEAPONS: readonly WeaponId[] = Object.freeze(["babyMissile", "missile", "roller", "napalm", "nuke"]);
+export const PLAYABLE_WEAPONS: readonly WeaponId[] = Object.freeze(["babyMissile", "missile", "roller", "napalm", "nuke", "dirt"]);
 
 export function isPlayable(id: WeaponId): boolean {
   return PLAYABLE_WEAPONS.includes(id);

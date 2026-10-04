@@ -95,11 +95,12 @@ describe("puntería del bot", () => {
     expect(botShopPick(armed, () => 0.9)).toBeNull();
   });
 
-  it("no compra Napalm ni Nuke, tenga la plata que tenga y salga lo que salga en el sorteo", () => {
+  it("no compra Napalm, Nuke ni Tierra, tenga la plata que tenga y salga lo que salga en el sorteo", () => {
     const g = started();
     const rich = { ...g.playerOf("B")!, money: 999_999 };
     expect(rich.money).toBeGreaterThan(SHOP_ITEMS.napalm.price);
     expect(rich.money).toBeGreaterThan(SHOP_ITEMS.nuke.price);
+    expect(rich.money).toBeGreaterThan(SHOP_ITEMS.dirt.price);
     const rng = createRng(3);
     const picks = new Set(Array.from({ length: 200 }, () => botShopPick(rich, rng)));
     expect([...picks].sort()).toEqual(["missile", "roller"]);

@@ -8,9 +8,11 @@ import {
   SCORE_PER_KILL,
   SHOP_ITEMS,
   SURVIVOR_BONUS,
+  terrainHeightAt,
   WEAPONS,
 } from "@pegaycobra/sim";
 import { Game, parseBuyMessage, parseMoveMessage, SHOP_SECONDS } from "../src/game";
+import { changedRect } from "../src/terrain-net";
 
 function started(seed = 11, ids = ["A", "B"]) {
   const g = new Game(30, SHOP_SECONDS);
@@ -316,6 +318,72 @@ describe("Napalm en partida", () => {
     expect(g.round).toBe(2);
     expect(g.match!.fires).toBeUndefined();
     expect(g.takeBurns()).toHaveLength(1);
+  });
+});
+
+describe("Tierra en partida", () => {
+  const give = (g: Game, id: string, items: object) => {
+    g.match = { ...g.match!, players: g.match!.players.map((p) => (p.id === id ? { ...p, inventory: { ...p.inventory, ...items } } : p)) };
+  };
+  const tank = (g: Game, id: string) => g.match!.tanks.find((t) => t.id === id)!;
+
+  /** Piso plano a 10, A en el centro y B donde cae yaw 90 / pitch 45 / power 600. Le toca a A, que tiene una Tierra. */
+  const B = { x: 128, z: 128 + 93 };
+  function flat() {
+    const g = started();
+    const terrain = createFlatTerrain(257, 257, 10);
+    const at = (id: string, z: number) => ({ ...g.match!.tanks.find((t) => t.id === id)!, x: 128, y: 10, z });
+    g.match = { ...g.match!, terrain, wind: { x: 0, z: 0 }, tanks: [at("A", 128), at("B", B.z)] };
+    give(g, "A", { dirt: 1 });
+    expect(g.turnId).toBe("A");
+    return g;
+  }
+  const DIRT = { yaw: 90, pitch: 45, power: 600, weapon: "dirt" };
+
+  it("la tienda la vende de a 1", () => {
+    const g = started();
+    killAndPass(g, "B");
+    const before = money(g, "B");
+    expect(g.buy("B", { item: "dirt" })).toBe(true);
+    expect(inv(g, "B").dirt).toBe(1);
+    expect(money(g, "B")).toBe(before - SHOP_ITEMS.dirt.price);
+  });
+
+  it("sin Tierra el tiro se ignora", () => {
+    const g = flat();
+    give(g, "A", { dirt: 0 });
+    expect(g.fire("A", DIRT)).toBeNull();
+    expect(g.phase).toBe("aiming");
+  });
+
+  it("la loma aparece cuando cae el tiro: el terreno sube, el de arriba sube con él y el escudo ni se entera", () => {
+    const g = flat();
+    give(g, "B", { shield: 1 });
+    const before = g.match!.terrain;
+
+    const shot = g.fire("A", DIRT)!;
+    expect(shot.weapon).toBe("dirt");
+    expect(inv(g, "A").dirt).toBe(0); // gastada mientras vuela
+    expect(g.match!.terrain).toBe(before); // todavía no cayó
+    expect(tank(g, "B").y).toBe(10);
+    g.finishShot();
+
+    // El parche que viaja a los clientes es el disco de la loma (centrado en la celda del impacto), y adentro nada bajó.
+    const after = g.match!.terrain;
+    const rect = changedRect(before, after)!;
+    const r = Math.trunc(WEAPONS.dirt.mound!.radius) + 1;
+    const hit = shot.result.shot;
+    expect(rect).toEqual({ x0: Math.trunc(hit.x) - r + 1, z0: Math.trunc(hit.z) - r + 1, w: 2 * r - 1, d: 2 * r - 1 });
+    expect(after.heights.every((h, i) => h >= before.heights[i]!)).toBe(true);
+    expect(terrainHeightAt(after, B.x, B.z)).toBeGreaterThan(10 + r - 1);
+
+    expect(tank(g, "B").y).toBe(terrainHeightAt(after, B.x, B.z));
+    expect(tank(g, "B").life).toBe(100);
+    expect(inv(g, "B").shield).toBe(1);
+    expect(shot.result.blocked).toEqual([]);
+    expect(shot.result.damage).toEqual([]);
+    expect(g.board.A!.points).toBe(0);
+    expect(g.turnId).toBe("B");
   });
 });
 

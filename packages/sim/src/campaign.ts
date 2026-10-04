@@ -20,6 +20,7 @@
 //   - El Napalm (napalm.ts): precio y efecto propios. Deja fuego hasta que termina la ronda; el
 //     escudo no lo apaga.
 //   - El Nuke se vende de a 1 (el original, de a 2) y el escudo no lo frena (turn3d.ts).
+//   - La Dirt Ball se vende de a 1 (el original, de a 5) y no entierra: el tanque sube con la loma (turn3d.ts).
 
 import { INTEREST_RATE, MONEY_PER_ROUND, MONEY_WON_FOR_ROUND, TANK_MAX_LIFE } from "./constants";
 import { isAlive } from "./damage";
@@ -105,7 +106,7 @@ export function endRoundPayouts(players: readonly Player[], survivors: ReadonlyS
 // Tienda
 // ---------------------------------------------------------------------------
 
-export type ShopItemId = "missile" | "roller" | "napalm" | "nuke" | "shield" | "parachute" | "fuel";
+export type ShopItemId = "missile" | "roller" | "napalm" | "nuke" | "dirt" | "shield" | "parachute" | "fuel";
 
 export interface ShopItem {
   id: ShopItemId;
@@ -156,6 +157,16 @@ export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze(
     description:
       `Un Misil enorme: explosión y cráter de radio ${WEAPONS.nuke.explosionRadius} (el Misil es ${WEAPONS.missile.explosionRadius}). ` +
       "El escudo no lo frena ni se gasta.",
+  },
+  dirt: {
+    id: "dirt",
+    name: "Tierra",
+    // accessories.xml Dirt Ball: <cost>5750</cost> por <bundlesize>5</bundlesize> → 1150 c/u; se vende de a 1.
+    price: WEAPONS.dirt.cost / WEAPONS.dirt.bundleSize,
+    pack: 1,
+    description:
+      `Cae como un Misil, pero suma tierra: levanta una loma de radio ${WEAPONS.dirt.mound!.radius}. No saca vida y el escudo no la frena. ` +
+      "El tanque que queda debajo sube con ella.",
   },
   shield: {
     id: "shield",

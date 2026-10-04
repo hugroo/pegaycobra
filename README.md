@@ -5,7 +5,7 @@ No es un port. El loop se escribe de nuevo y las reglas (física, cráter, daño
 del original.
 
 Estado: **jugable en 3D en el navegador, multijugador de 2 a 4, partida de 5 rondas con tienda.**
-Cinco armas (Chispa infinita; Misil, Rodillo, Quema y Bombazo comprados), escudo, paracaídas y nafta.
+Seis armas (Chispa infinita; Misil, Rodillo, Quema, Bombazo y Tierra comprados), escudo, paracaídas y nafta.
 
 ```
 packages/sim   TypeScript puro: terreno width × depth, tiro con yaw/pitch, cráter en disco, daño,
@@ -52,7 +52,7 @@ Controles (la barra de abajo aparece solo en tu turno; un arma sin munición no 
 |---|---|
 | Girar y elevar el cañón | Arrastrar con el botón izquierdo (horizontal = giro, vertical = elevación), o ← → / ↑ ↓ |
 | Potencia | Rueda del mouse (en tu turno), la barra, o PageUp / PageDown |
-| Elegir arma | Botones *Chispa* / *Misil* / *Rodillo* / *Quema* / *Bombazo*, o las teclas 1 / 2 / 3 / 4 / 5 |
+| Elegir arma | Botones *Chispa* / *Misil* / *Rodillo* / *Quema* / *Bombazo* / *Tierra*, o las teclas 1 / 2 / 3 / 4 / 5 / 6 |
 | Nafta (mover el tanque antes de tirar) | Botón *Nafta* o tecla N, y después un clic en el piso dentro del anillo amarillo |
 | Tirar | Espacio o el botón *Tirar* |
 | Mover la cámara | Arrastrar con el botón derecho (fuera de tu turno, también el izquierdo) |
@@ -70,6 +70,8 @@ Bombazo no: el escudo no lo frena y el cartel dice el daño).
 Un fuego de Quema es una mancha naranja con llamas en el piso y un disco naranja en el minimapa;
 el panel de la izquierda marca "en el fuego" al tanque parado adentro, y cuando le empieza el turno
 sale el cartel "se quema: -25".
+Una Tierra levanta una loma: el piso sube en la vista 3D y en el minimapa de todas las pestañas, el
+cartel del impacto dice "loma" y, si había un tanque ahí, queda parado arriba.
 
 ### La partida
 
@@ -89,6 +91,7 @@ sale el cartel "se quema: -25".
   | Rodillo ×2 | $1.500 | Vuela con la misma potencia que un Misil, toca el piso y rueda cuesta abajo hasta 60 celdas o hasta un tanque, y ahí explota (radio 4.5, cráter chico). En lo llano explota donde cae. Si vuelve rodando hasta vos, te pega |
   | Quema ×1 | $2.000 | Cae como un Misil, pero no explota ni abre cráter: deja fuego en un disco de radio 5 hasta que termina la ronda. Al caer no saca vida. El tanque que **empieza su turno** con la base adentro del disco pierde 25, todos los turnos, hasta que salga (con nafta) o se muera. Los puntos y la plata de ese daño son del que tiró la Quema |
   | Bombazo ×1 | $6.000 | Un Misil enorme: vuela igual, y la explosión y el cráter son de radio 18 (tres veces el Misil). No rueda ni prende fuego. El escudo no lo frena ni se gasta. Es el ítem más caro |
+  | Tierra ×1 | $1.150 | Cae como un Misil, pero suma tierra en vez de sacarla: levanta una loma de radio 10 (11 de alto en el centro) y el heightmap sube. No saca vida, no paga y el escudo no la frena. El tanque que queda debajo sube con la loma. Un Rodillo que pega en la ladera la baja rodando, y un Misil puede volver a abrirle un hoyo |
   | Escudo | $2.000 | Absorbe el próximo tiro cuya explosión te alcance (Chispa, Misil o Rodillo; el Bombazo no) y se gasta. Uno por vez; si nadie te pega, lo seguís teniendo la ronda siguiente |
   | Paracaídas | $1.250 | La ronda siguiente, caer no te hace daño. Uno por ronda |
   | Nafta | $3.000 | Antes de tirar, mové el tanque hasta 20 celdas. Una vez por turno |
@@ -102,11 +105,17 @@ sale el cartel "se quema: -25".
   escudo no se gasta. Un tiro que se fue del mapa tampoco lo gasta. Y no apaga el fuego: la Quema
   no es una explosión, así que el escudo ni lo frena ni se gasta, y el tanque se quema igual.
   Tampoco frena el Bombazo: la explosión y la caída a su cráter te sacan vida como si no tuvieras
-  escudo, el escudo queda puesto y el cartel dice el daño.
+  escudo, el escudo queda puesto y el cartel dice el daño. La Tierra no es un golpe: la loma sube
+  igual, con escudo o sin escudo, y el escudo no se gasta.
 
   **El fuego.** Dura lo que queda de la ronda: la ronda siguiente arranca limpia. No es terreno: el
   heightmap queda igual y nadie cae. Dos fuegos encimados queman dos veces. Tu propio fuego te quema
   a vos también. Si el fuego mata al que le tocaba el turno, juega el siguiente.
+
+  **La loma.** Es terreno de verdad: tapa tiros rasantes, el Rodillo la baja rodando y los cráteres
+  la abren. Tierra sobre tierra sigue subiendo. Ningún tanque queda enterrado: el que estaba abajo
+  (el tuyo también) sube con el piso y conserva la vida. No apaga un fuego: el disco sigue quemando
+  arriba de la loma. Dura lo que queda de la ronda, como todo el terreno.
 - **Gana quien tiene más puntos al final de la ronda 5.** Puntos = daño hecho a otros (1 por
   punto de vida) + 10 por kill. La plata no suma puntos: sirve solo para la tienda. Si hay
   empate en puntos desempatan kills y después daño; si sigue igual, es empate.
@@ -146,7 +155,7 @@ de la misma sala podrían caer en servidores distintos.
   |---|---|---|
   | `start` | lobby | que sea el anfitrión y haya 2 o más |
   | `fillBots` | lobby | que sea el anfitrión. Agrega bots hasta llegar a 2 jugadores |
-  | `fire { yaw, pitch, power, weapon }` | tu turno | `weapon` es `babyMisil`, `missile`, `roller`, `napalm` o `nuke` y tenés munición. Cualquier otro campo (daño, impacto, posición) se descarta sin llegar al sim. Otra arma: el mensaje se ignora entero |
+  | `fire { yaw, pitch, power, weapon }` | tu turno | `weapon` es `babyMissile`, `missile`, `roller`, `napalm`, `nuke` o `dirt` y tenés munición. Cualquier otro campo (daño, impacto, posición) se descarta sin llegar al sim. Otra arma: el mensaje se ignora entero |
   | `move { moveTo: { x, z } }` | tu turno, antes de tirar | que tengas nafta, no te hayas movido ya en el turno, y el destino esté a ≤ 20 celdas, dentro del mapa y no pegado a otro tanque (`validateMove` del sim) |
   | `buy { item }` | tienda | que el ítem exista y te alcance la plata (`cannotBuy` del sim) |
   | `ready` | tienda | — |
@@ -154,27 +163,27 @@ de la misma sala podrían caer en servidores distintos.
 - El server llama a `resolveTurn` del sim. Manda a todos un mensaje `shot` con el arma, la
   trayectoria (`path`, tríos x/y/z; con el Rodillo incluye la rodada por el piso), la duración de
   la animación, el daño y `blocked` (a quién le absorbió el tiro un escudo). La munición se
-  descuenta al disparar (todos ven el Misil gastado); la vida, la plata, los puntos, el cráter,
-  el fuego y los escudos gastados se aplican recién cuando termina la animación.
+  descuenta al disparar (todos ven el Misil gastado); la vida, la plata, los puntos, el cráter
+  (o la loma), el fuego y los escudos gastados se aplican recién cuando termina la animación.
 - Los fuegos de Quema van en el estado de Colyseus (`fires`: centro y radio de cada disco), así
   todas las pestañas dibujan la misma mancha. Cada vez que empieza un turno, el server corre
   `burnTurn3D` del sim para ese tanque; si se quemó, manda `burn { id, damage, killed }`.
 - El bot compra en la tienda solo si no le queda ningún Misil: un pack de Misil o de Rodillo, a
   cara o cruz. Tira lo que tenga (Misil, si no Rodillo, si no la Chispa) apuntando igual que
-  siempre. No compra Quema, Bombazo, escudo, paracaídas ni nafta.
+  siempre. No compra Quema, Bombazo, Tierra, escudo, paracaídas ni nafta.
 - Otros mensajes del server: `moved` (alguien usó nafta), `skip` (turno perdido por tiempo),
   `burn` (a alguien le empezó el turno en el fuego) y `roundEnd` (lo que cobró cada uno al terminar
   la ronda).
 - El heightmap (257 × 257 float32) no va en el estado de Colyseus: viaja en mensajes binarios
   `terrain`. Entero al empezar cada ronda, y después de cada tiro solo el rectángulo que cambió
-  (`apps/server/src/terrain-net.ts`). Así el cráter llega a todas las pestañas cuando el
-  proyectil cae.
+  (`apps/server/src/terrain-net.ts`). Así el cráter, o la loma de una Tierra, llega a todas las
+  pestañas cuando el proyectil cae.
 - El cliente dibuja: el terreno es un mesh de ese heightmap, los tanques salen del estado y el
   tiro de `path`. La cámara sigue al proyectil, se queda un momento en el impacto y vuelve al
   tanque del turno. Si el cerro tapa la vista, la cámara se sube.
 - En tu turno, el cliente corre `simulateShot3D` del sim para dibujar una **trayectoria
   fantasma** punteada con un anillo donde caería (con la Quema, el anillo es el disco que quedaría
-  prendido: `fireFromShot`, la misma función que usa el server). Es solo para mostrar: no se manda nada y el
+  prendido: `fireFromShot`, la misma función que usa el server; con la Tierra, el pie de la loma). Es solo para mostrar: no se manda nada y el
   daño sigue saliendo del server. Al tirar se apaga y se anima la trayectoria que manda el server.
   Como posiciones y viento viajan en float32, la fantasma puede diferir del tiro real en una
   fracción de wu.
@@ -215,15 +224,15 @@ pnpm typecheck
 | `projectile.ts` | `simulateShot()`: potencia + ángulo + viento + gravedad, en pasos fijos |
 | `crater.ts` | `applyCrater()` baja el heightmap; `flattenUnder()` aplana bajo un tanque que cayó |
 | `damage.ts` | Daño de explosión por distancia, daño de caída, `settleTank()` |
-| `weapons.ts` | Chispa, Misil, Rodillo, Quema, Baby Nuke, Bombazo. Se pueden disparar todas menos la Baby Nuke (Misil, Rodillo, Quema y Bombazo, si los compraste) |
+| `weapons.ts` | Chispa, Misil, Rodillo, Quema, Baby Nuke, Bombazo, Tierra. Se pueden disparar todas menos la Baby Nuke (Misil, Rodillo, Quema, Bombazo y Tierra, si los compraste) |
 | `economy.ts` | Premio por daño y por kill, interés de fin de ronda, munición |
 | `turn.ts` | `resolveTurn(state, { playerId, angleDeg, power }, { recordPath })`: lo que llama el server |
 | `match.ts` | Perfil: `rollWind()`, `placeTanks()`, `spreadTanks()` + `GAME_TERRAIN`. `matchOutcome()` (ganador, lo usan los dos modos) |
-| `terrain.ts` | **3D.** `generateTerrain(seed)`: grilla width × depth, semiesferas, scale, smooth 5×5. `terrainHeightAt()` bilineal. `applyCraterTerrain()` (disco), `flattenTerrainUnder()` |
+| `terrain.ts` | **3D.** `generateTerrain(seed)`: grilla width × depth, semiesferas, scale, smooth 5×5. `terrainHeightAt()` bilineal. `applyCraterTerrain()` (disco que baja), `applyMoundTerrain()` (disco que sube: la loma de la Tierra), `flattenTerrainUnder()` |
 | `shot3d.ts` | **3D.** `simulateShot3D()`: yaw 0–360 (0 = +X, 90 = +Z), pitch 0–90, potencia; viento `{x, z}`; gravedad en Y |
 | `roller.ts` | **3D.** `simulateRoll()`: la bola baja por el gradiente del terreno hasta un tanque, N celdas o quedarse sin pendiente. `simulateWeaponShot3D()`: el tiro de cualquier arma, con la rodada si es un Rodillo. Lo usan el server, la fantasma del cliente y el bot |
 | `napalm.ts` | **3D.** `fireFromShot()`: el fuego que deja un tiro de Quema (o null). `inFire()`: si un punto del piso está adentro del disco. Lo usan el server, la fantasma del cliente y el HUD |
-| `turn3d.ts` | **3D.** `rollWind3D()`, `placeTanks3D()`, `resolveTurn3D()`. `resolveTurn()` lo usa cuando el estado tiene `terrain`. Con paracaídas, la caída no daña. Con escudo, el próximo tiro que te alcanza no daña (`blocked`), salvo el Bombazo (`piercesShield`). Una Quema no toca el terreno y agrega un fuego a `state.fires`. `burnTurn3D()`: lo que pierde un tanque al empezar su turno parado en un fuego |
+| `turn3d.ts` | **3D.** `rollWind3D()`, `placeTanks3D()`, `resolveTurn3D()`. `resolveTurn()` lo usa cuando el estado tiene `terrain`. Con paracaídas, la caída no daña. Con escudo, el próximo tiro que te alcanza no daña (`blocked`), salvo el Bombazo (`piercesShield`). Una Quema no toca el terreno y agrega un fuego a `state.fires`. Una Tierra sube el terreno y, con él, al tanque que quedó debajo; no saca vida ni gasta escudos. `burnTurn3D()`: lo que pierde un tanque al empezar su turno parado en un fuego |
 | `campaign.ts` | **Partida.** `startRound3D()` (ronda nueva), `endRoundPayouts()` (premio por sobrevivir + interés), `SHOP_ITEMS`, `buyItem()` / `cannotBuy()`, `validateMove()` / `moveTank()` (nafta), `scoreTurn()`, `standings()`, `matchWinners()` |
 
 Todo son funciones puras: reciben el estado y devuelven uno nuevo. En 3D el heightmap es un
@@ -297,6 +306,7 @@ tanques son primitivas generadas.
 | Ubicación inicial de tanques | `src/common/landscapedef/LandscapeDefnTankStart.cpp` `LandscapeDefnTankStartHeight::placeTank()`; `defnhilly.xml` `<tankstart>` | `match.ts` `placeTanks()` |
 | **3D:** heightmap 2D por semiesferas, smooth 5×5, bordes a 0 | `HeightMapModifier.cpp` `generateTerrain()`, `addCirclePeak()` (con x e y), `scale()`, `smooth()`, `levelSurround()` | `terrain.ts` |
 | **3D:** cráter = disco | `DeformLandscape.cpp` `DeformLandscapeCacheItem`, `deformLandscapeInternal()` (recorre x e y, `dist = √(x² + y²)`) | `terrain.ts` `applyCraterTerrain()` |
+| **3D:** loma = disco que sube | `DeformLandscape.cpp` `deformLandscapeInternal()` con `down = false` (mismo `DeformLandscapeCacheItem` que el cráter) | `terrain.ts` `applyMoundTerrain()` |
 | **3D:** aplanar bajo el tanque (cuadrado 5×5) | `DeformLandscape.cpp` `flattenAreaInternal()` | `terrain.ts` `flattenTerrainUnder()` |
 | **3D:** dirección del tiro con dos ángulos | `TankLib.cpp` `getVelocityVector(xy, yz)` | `shot3d.ts` `aimDirection()` |
 | **3D:** viento como vector `(sin a, cos a) × velocidad` | `Wind.cpp` `newLevel()`, `updateDirection()`; `PhysicsParticleObject.cpp` `setForces()` | `turn3d.ts` `rollWind3D()`, `shot3d.ts` |
@@ -311,6 +321,7 @@ tanques son primitivas generadas.
 | **Partida:** la plata no da puntos | `OptionsGame.cpp` "ScorePerMoney" (0) | `scoreTurn()` |
 | **Tienda:** precio del Misil | `accessories.xml` Missile: `<cost>2000</cost>` por `<bundlesize>5</bundlesize>` → 400 c/u | `SHOP_ITEMS.missile` (3 × 400) |
 | **Tienda:** Bombazo: radio y precio | `accessories.xml` Nuke: `<size>18</size>`, `<cost>12000</cost>` por `<bundlesize>2</bundlesize>` → 6000 c/u | `WEAPONS.nuke`, `SHOP_ITEMS.nuke` (1 × 6000) |
+| **Tienda:** Tierra: radio y precio | `accessories.xml` Dirt Ball: `<deform>up</deform>`, `<size>10</size>`, `<hurtamount>0.0</hurtamount>`, `<cost>5750</cost>` por `<bundlesize>5</bundlesize>` → 1150 c/u | `WEAPONS.dirt`, `SHOP_ITEMS.dirt` (1 × 1150) |
 | **Tienda:** precio del paracaídas | `accessories.xml` Parachute: 10000 por 8 → 1250 c/u | `SHOP_ITEMS.parachute` |
 | **Tienda:** precio de la nafta | `accessories.xml` Fuel: 6000 por 40 unidades → 150 por celda | `SHOP_ITEMS.fuel` (20 × 150) |
 | **Paracaídas:** con paracaídas, caer no daña | `src/common/actions/TargetFalling.cpp` `collision()` | `turn3d.ts` |
@@ -350,6 +361,14 @@ tanques son primitivas generadas.
     (`WEAPONS.napalm`).
   - **El Bombazo pasa el escudo** y se vende de a 1 (el original lo vende de a 2). El radio (18) y el
     precio por unidad son los del original.
+  - **La Tierra no entierra** y se vende de a 1 (el original vende la Dirt Ball de a 5). En el
+    original la tierra tapa al tanque ("can be used to cover them"); acá el tanque que quedó debajo
+    sube con la loma y queda apoyado arriba, y el escudo ni la frena ni se gasta. El radio (10) y el
+    precio por unidad son los del original.
+  - **La loma no deja escalón.** El original le suma la altura del perfil a toda celda que esté
+    por debajo de la esfera y no toca las demás: en una ladera, la celda que subió queda varios
+    metros arriba de la de al lado, que no se tocó. Acá la celda que sube no pasa de la esfera
+    (`applyMoundTerrain`). En piso llano las dos reglas dan la misma loma.
   - **La nafta mueve antes de tirar** y el turno sigue. En el original, mover reemplaza al tiro.
     Una carga alcanza 20 celdas en línea recta (el original da 40 unidades, una por casillero,
     con un máximo de 50 por movimiento) y no hay límite de pendiente (`MaxClimbingDistance`).
@@ -382,7 +401,7 @@ tanques son primitivas generadas.
 - **La caída no se integra.** El original simula al tanque cayendo como partícula con gravedad.
   Como solo se mueve en vertical, la distancia caída es la diferencia de alturas, que es lo que
   se usa acá para el daño.
-- **Cinco armas jugables** (Chispa, Misil, Rodillo, Quema y Bombazo). La Baby Nuke es solo datos.
+- **Seis armas jugables** (Chispa, Misil, Rodillo, Quema, Bombazo y Tierra). La Baby Nuke es solo datos.
 - **RNG propio** (mulberry32) en lugar del `RandomGenerator` del original: lo que importa es que
   la misma semilla dé el mismo terreno en el server y en los tests.
 

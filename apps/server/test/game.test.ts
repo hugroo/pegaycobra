@@ -31,6 +31,7 @@ describe("mensaje de tiro", () => {
     });
     expect(parseFireMessage({ yaw: 30, pitch: 45, power: 600, weapon: "roller" })!.weapon).toBe("roller");
     expect(parseFireMessage({ yaw: 30, pitch: 45, power: 600, weapon: "napalm" })!.weapon).toBe("napalm");
+    expect(parseFireMessage({ yaw: 30, pitch: 45, power: 600, weapon: "dirt" })!.weapon).toBe("dirt");
   });
 
   it("cualquier otro campo (daño, impacto, posición) se ignora y no llega al sim", () => {

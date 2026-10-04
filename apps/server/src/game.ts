@@ -53,7 +53,7 @@ export interface Seat {
 }
 
 /** Armas que el cliente puede pedir. La Baby Nuke no existe para el juego. */
-const FIREABLE: readonly WeaponId[] = ["babyMissile", "missile", "roller", "napalm", "nuke"];
+const FIREABLE: readonly WeaponId[] = ["babyMissile", "missile", "roller", "napalm", "nuke", "dirt"];
 
 export interface FireMessage {
   yaw: number;
@@ -65,7 +65,7 @@ export interface FireMessage {
 /**
  * Del mensaje del cliente se leen solo yaw, pitch, power y weapon; cualquier otro campo (daño,
  * impacto, posición...) se ignora y no llega al sim. weapon puede faltar (= Baby Missile); si
- * nombra algo que no sea "babyMissile", "missile", "roller", "napalm" o "nuke", el mensaje entero se descarta.
+ * nombra algo que no sea "babyMissile", "missile", "roller", "napalm", "nuke" o "dirt", el mensaje entero se descarta.
  */
 export function parseFireMessage(raw: unknown): FireMessage | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
@@ -268,7 +268,7 @@ export class Game {
     }
     this.pending = { result, shooterId: byId };
     // La munición se descuenta ya (todos ven el Missile gastado al disparar). El resto del
-    // resultado (daño, plata, cráter, fuego, escudos gastados) se aplica recién en finishShot,
+    // resultado (daño, plata, cráter o loma, fuego, escudos gastados) se aplica recién en finishShot,
     // cuando cae el proyectil.
     const left = result.state.players.find((p) => p.id === byId)!.inventory[msg.weapon];
     this.match = {

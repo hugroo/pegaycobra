@@ -23,7 +23,7 @@ export interface ShotBroadcast {
   yaw: number;
   pitch: number;
   power: number;
-  /** "babyMissile" | "missile" | "roller" | "napalm" | "nuke" */
+  /** "babyMissile" | "missile" | "roller" | "napalm" | "nuke" | "dirt" */
   weapon: string;
   /** "ground" | "tank" | "offmap" | "timeout". Con "offmap" todos muestran "se fue". */
   outcome: string;
@@ -155,7 +155,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       const before = this.game.match?.terrain;
       const serial = this.game.roundSerial;
       this.game.finishShot();
-      // El cráter llega a todos recién ahora, junto con la vida y las posiciones nuevas.
+      // El cráter (o la loma) llega a todos recién ahora, junto con la vida y las posiciones nuevas.
       const after = this.game.match?.terrain;
       if (before && after && serial === this.game.roundSerial) {
         const rect = changedRect(before, after);
@@ -343,6 +343,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         p.rollers = Math.max(0, player.inventory.roller ?? 0);
         p.napalms = Math.max(0, player.inventory.napalm ?? 0);
         p.nukes = Math.max(0, player.inventory.nuke ?? 0);
+        p.dirts = Math.max(0, player.inventory.dirt ?? 0);
         p.shield = player.inventory.shield ?? 0;
         p.parachute = player.inventory.parachute ?? 0;
         p.fuel = player.inventory.fuel ?? 0;

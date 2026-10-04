@@ -27,7 +27,7 @@ export interface MiniModel {
   ghost: { path: number[]; lands: boolean; slot: number } | null;
   /** Proyectil real en vuelo. */
   ball: { x: number; z: number } | null;
-  /** Último tiro real, ya terminado. `lands` false = se fue del mapa. */
+  /** Último tiro real, ya terminado. `lands` false = se fue del mapa. Una Tierra no deja marca: la loma ya está en el terreno. */
   impact: { x: number; z: number; lands: boolean; slot: number } | null;
 }
 

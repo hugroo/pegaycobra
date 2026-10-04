@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
 import type { Server } from "@colyseus/core";
-import { fireFromShot, inFire, SHOP_ITEMS, simulateShot3D, simulateWeaponShot3D, WEAPONS, type Terrain } from "@pegaycobra/sim";
+import { fireFromShot, inFire, SHOP_ITEMS, simulateShot3D, simulateWeaponShot3D, terrainHeightAt, WEAPONS, type Terrain } from "@pegaycobra/sim";
 import { createServer, ROOM_NAME } from "../src/server";
 import { GameRoom, type RoundEndBroadcast } from "../src/room";
 import { applyTerrainMessage, type TerrainMessage } from "../src/terrain-net";
@@ -274,6 +274,90 @@ describe("partida de 5 rondas por red", () => {
     expect(burnsB).toHaveLength(2);
     expect(seenBy(a, b.sessionId).life).toBe(100 - 2 * BURN);
     expect(b.state.fires.length).toBe(1);
+
+    await a.leave();
+    await b.leave();
+  }, 60_000);
+
+  it("Tierra: los dos clientes ven subir el mismo terreno, y el tanque de abajo sube con la loma sin perder vida", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto" });
+    const ta = trackTerrain(a);
+    const tb = trackTerrain(b);
+    const shotsSeenByB: any[] = [];
+    b.onMessage("shot", (m) => shotsSeenByB.push(m));
+    a.onMessage("shot", () => {});
+    for (const r of [a, b]) for (const type of ["skip", "moved", "roundEnd", "burn"]) r.onMessage(type, () => {});
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    a.send("start");
+    await until(() => a.state.phase === "aiming" && tb.fulls === 1);
+
+    const rooms: Record<string, Room<any>> = { [a.sessionId]: a, [b.sessionId]: b };
+    const seenBy = (r: Room<any>, id: string) => r.state.players.get(id);
+    /** El del turno manda `msg` (por defecto una Baby para atrás, lejos de todos) y espera a que termine el tiro. */
+    async function turn(id: string, msg?: object): Promise<void> {
+      await until(() => a.state.phase === "aiming" && a.state.turnId === id);
+      rooms[id]!.send("fire", msg ?? { yaw: seenBy(a, id).yaw + 180, pitch: 60, power: 250 });
+      await until(() => a.state.phase !== "aiming" || a.state.turnId !== id);
+      await until(() => a.state.phase !== "animating");
+    }
+
+    // Ronda 1: nadie le apunta a nadie, hasta que corta por tiros. En la tienda Ana compra una Tierra.
+    while (a.state.phase !== "shop") await turn(a.state.turnId);
+    const money = seenBy(b, a.sessionId).money;
+    a.send("buy", { item: "dirt" });
+    await until(() => seenBy(b, a.sessionId).dirts === 1);
+    expect(seenBy(b, a.sessionId).money).toBe(money - SHOP_ITEMS.dirt.price);
+    a.send("ready");
+    b.send("ready");
+    await until(() => a.state.round === 2 && a.state.phase === "aiming" && ta.fulls === 2 && tb.fulls === 2);
+
+    // Ronda 2: Beto tira para atrás y Ana busca, con el sim, una Tierra que le caiga encima a Beto.
+    await turn(b.sessionId);
+    const me = seenBy(a, a.sessionId);
+    const foe = seenBy(a, b.sessionId);
+    const tanks = [me, foe].map((p) => ({ id: p.id as string, x: p.x as number, y: p.y as number, z: p.z as number }));
+    const wind = { x: a.state.windX, z: a.state.windZ };
+    const base = (Math.atan2(foe.z - me.z, foe.x - me.x) * 180) / Math.PI;
+    let aim: { yaw: number; pitch: number; power: number } | null = null;
+    search: for (let pitch = 35; pitch <= 80; pitch += 5) {
+      for (let power = 300; power <= 1000; power += 5) {
+        for (let d = 0; d <= 12; d += 0.5) {
+          for (const yaw of [base + d, base - d]) {
+            const r = simulateWeaponShot3D(ta.terrain!, WEAPONS.dirt, { originX: me.x, originY: me.y, originZ: me.z, yaw, pitch, power, wind, shooterId: me.id }, tanks);
+            if ((r.outcome === "ground" || r.outcome === "tank") && Math.hypot(r.x - foe.x, r.z - foe.z) <= 3) {
+              aim = { yaw, pitch, power };
+              break search;
+            }
+          }
+        }
+      }
+    }
+    expect(aim).not.toBeNull();
+
+    const heights = tb.terrain!.heights.slice();
+    const patches = [ta.patches, tb.patches];
+    const foeY = foe.y as number;
+    const lives = [me.life, foe.life];
+    await turn(a.sessionId, { ...aim, weapon: "dirt" });
+
+    // A los dos les llegó un parche de terreno, el mismo, y adentro todo subió: es una loma, no un cráter.
+    await until(() => ta.patches === patches[0]! + 1 && tb.patches === patches[1]! + 1);
+    expect(ta.terrain!.heights).toEqual(tb.terrain!.heights);
+    expect(tb.terrain!.heights.every((h, i) => h >= heights[i]!)).toBe(true);
+    const at = Math.round(foe.x) + Math.round(foe.z) * tb.terrain!.width;
+    expect(tb.terrain!.heights[at]!).toBeGreaterThan(heights[at]! + 5);
+
+    // Beto quedó arriba de la loma, apoyado en el piso nuevo, y lo ven igual los dos.
+    await until(() => seenBy(a, b.sessionId).y > foeY + 5 && seenBy(b, b.sessionId).y > foeY + 5);
+    expect(seenBy(b, b.sessionId).y).toBe(seenBy(a, b.sessionId).y);
+    expect(seenBy(b, b.sessionId).y).toBeCloseTo(terrainHeightAt(tb.terrain!, foe.x, foe.z), 3);
+    expect([seenBy(b, a.sessionId).life, seenBy(b, b.sessionId).life]).toEqual(lives);
+    expect(seenBy(b, a.sessionId).points).toBe(0);
+    expect(seenBy(b, a.sessionId).dirts).toBe(0);
+    const shot = shotsSeenByB.at(-1);
+    expect(shot).toMatchObject({ shooterId: a.sessionId, weapon: "dirt", damage: 0, blocked: [] });
 
     await a.leave();
     await b.leave();
