@@ -76,6 +76,8 @@ const ui = {
   overlayTitle: $("overlay-title"),
   overlaySub: $("overlay-sub"),
   scoresBody: $("scores-body"),
+  overlayWait: $("overlay-wait"),
+  again: $<HTMLButtonElement>("btn-again"),
   back: $<HTMLButtonElement>("btn-back"),
   wBaby: $<HTMLButtonElement>("w-baby"),
   wMissile: $<HTMLButtonElement>("w-missile"),
@@ -274,6 +276,7 @@ ui.start.addEventListener("click", () => room?.send("start"));
 ui.fillBots.addEventListener("click", () => room?.send("fillBots"));
 ui.lobbyLeave.addEventListener("click", () => void leave());
 ui.back.addEventListener("click", () => void leave());
+ui.again.addEventListener("click", () => room?.send("rematch"));
 ui.ready.addEventListener("click", () => room?.send("ready"));
 
 /** Al cargar: si esta pestaña tenía un asiento, vuelve. Si la sala murió o siguió sin vos, queda en el inicio. */
@@ -899,7 +902,14 @@ function renderEnd(phase: string): void {
   const s = room!.state;
   const winners: string[] = [...(s.winners ?? [])];
   const winner = s.winnerId ? s.players.get(s.winnerId) : null;
-  ui.overlayTitle.textContent = winner ? (isMe(winner.id) ? "¡Ganaste, buenardo!" : `Ganó ${winner.name}`) : "Empate";
+  // Sin ganador único es empate; si el ganador ya no está en la tabla (se fue y su lugar lo ocupó otro), no se nombra a nadie.
+  ui.overlayTitle.textContent = winner
+    ? isMe(winner.id)
+      ? "¡Ganaste, buenardo!"
+      : `Ganó ${winner.name}`
+    : s.winnerId
+      ? "Se terminó"
+      : "Empate";
   ui.overlaySub.textContent =
     s.endReason === "forfeit"
       ? "Se fueron los demás."
@@ -911,7 +921,8 @@ function renderEnd(phase: string): void {
     ...rows.map((p, i) => {
       const tr = document.createElement("tr");
       if (winners.includes(p.id)) tr.className = "win";
-      for (const v of [String(i + 1), `${p.name}${isMe(p.id) ? " (vos)" : ""}`, String(p.points), String(p.kills), String(p.damage), fmtMoney(p.money)]) {
+      const who = `${p.name}${isMe(p.id) ? " (vos)" : ""}${p.connected ? "" : " · se fue"}`;
+      for (const v of [String(i + 1), who, String(p.points), fmtMoney(p.money)]) {
         const td = document.createElement("td");
         td.textContent = v;
         tr.append(td);
@@ -919,6 +930,16 @@ function renderEnd(phase: string): void {
       return tr;
     }),
   );
+  // Revancha en la misma sala: la arranca el anfitrión, con al menos 2 sentados (el bot cuenta).
+  const host = isMe(s.hostId);
+  const here = rows.filter((p) => p.connected).length;
+  ui.again.hidden = !host;
+  ui.again.disabled = here < 2;
+  ui.overlayWait.textContent = !host
+    ? "Esperando a que el anfitrión mande otra…"
+    : here < 2
+      ? `Falta uno para la revancha. Pasá el código: ${room!.roomId}`
+      : "¿Va la revancha? Dale, otra vez.";
   if (ui.overlay.hidden && document.activeElement instanceof HTMLElement) document.activeElement.blur();
   ui.overlay.hidden = false;
 }
@@ -1328,7 +1349,8 @@ function computeGhost(mine: TankModel | undefined, tanks: TankModel[], wind: { x
 
 function frame(now: number): void {
   requestAnimationFrame(frame);
-  if (!room || screens.game.hidden || !world || !world.hasTerrain) return;
+  // Sin `terrain`: entró a una sala ya terminada y el terreno de esa sala todavía no llegó.
+  if (!room || screens.game.hidden || !world || !world.hasTerrain || !terrain) return;
   const s = room.state;
   const mine = myTurn();
 

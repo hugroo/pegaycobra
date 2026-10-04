@@ -6,6 +6,7 @@ import {
   createFlatTerrain,
   fireFromShot,
   inFire,
+  MONEY_START,
   resolveTurn3D,
   SHOP_ITEMS,
   simulateShot3D,
@@ -197,6 +198,28 @@ describe("partida de 5 rondas por red", () => {
       expect(b.state.winnerId).toBe("");
     }
     expect(rows.some((r) => r.points > 0)).toBe(true);
+
+    // Revancha en la misma sala: solo la arranca el anfitrión; los dos siguen siendo los mismos y todo vuelve al arranque.
+    const seats = (r: Room<any>) => [...r.state.players.values()].map((p: any) => `${p.id}:${p.name}:${p.slot}`);
+    const before = seats(b);
+    b.send("rematch");
+    await sleep(100);
+    expect(a.state.phase).toBe("ended");
+    a.send("rematch");
+    await until(() => b.state.phase === "aiming" && b.state.round === 1 && tb.fulls === 6 && ta.fulls === 6);
+    expect(b.roomId).toBe(a.roomId);
+    expect(seats(a)).toEqual(before);
+    expect(seats(b)).toEqual(before);
+    expect([...b.state.order]).toEqual([a.sessionId, b.sessionId]);
+    for (const p of b.state.players.values() as Iterable<any>) {
+      expect(p.money).toBe(MONEY_START);
+      expect(p.missiles).toBe(0);
+      expect(p.life).toBe(100);
+      expect(p.points).toBe(0);
+    }
+    expect(b.state.winnerId).toBe("");
+    expect([...b.state.winners]).toEqual([]);
+    expect(ta.terrain!.heights).toEqual(tb.terrain!.heights);
 
     await a.leave();
     await b.leave();

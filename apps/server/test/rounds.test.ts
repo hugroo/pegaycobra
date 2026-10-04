@@ -9,6 +9,7 @@ import {
   SCORE_PER_KILL,
   SHOP_ITEMS,
   simulateWeaponShot3D,
+  startingInventory,
   SURVIVOR_BONUS,
   terrainHeightAt,
   WEAPONS,
@@ -652,6 +653,65 @@ describe("fin de partida", () => {
     expect(g.phase).toBe("ended");
     expect(g.winnerId).toBeNull();
     expect(g.winners.sort()).toEqual(["A", "B"]);
+  });
+
+  /** Juega las 5 rondas: en todas queda vivo solo A. */
+  function playedOut(ids = ["A", "B"]) {
+    const g = started(11, ids);
+    for (let r = 1; r <= 5; r++) {
+      if (r > 1) for (const id of ids) g.setReady(id);
+      for (const id of ids.slice(1)) killAndPass(g, id);
+    }
+    expect(g.phase).toBe("ended");
+    return g;
+  }
+
+  it("revancha: los dos siguen siendo los mismos y todo vuelve al arranque, con terreno nuevo", () => {
+    const g = playedOut();
+    const seats = g.seats.map((s) => ({ ...s }));
+    const terrain = g.match!.terrain;
+    expect(money(g, "A")).toBeGreaterThan(MONEY_START);
+    g.match = { ...g.match!, players: g.match!.players.map((p) => ({ ...p, inventory: { ...p.inventory, missile: 3, shield: 1 } })) };
+    g.board = { ...g.board, A: { points: 80, kills: 1, damage: 30 } };
+
+    expect(g.rematch("B", 99)).toBe(false); // solo el anfitrión
+    expect(g.phase).toBe("ended");
+    expect(g.rematch("A", 99)).toBe(true);
+
+    expect(g.seats).toEqual(seats); // mismos ids, nombres y colores, en el mismo orden
+    expect(g.hostId).toBe("A");
+    expect(g.phase).toBe("aiming");
+    expect(g.round).toBe(1);
+    for (const id of ["A", "B"]) {
+      expect(money(g, id)).toBe(MONEY_START);
+      expect(inv(g, id)).toEqual(startingInventory());
+      expect(g.board[id]).toEqual({ points: 0, kills: 0, damage: 0 });
+    }
+    expect(g.match!.tanks.every((t) => t.life === 100)).toBe(true);
+    expect(g.match!.terrain.heights).not.toEqual(terrain.heights);
+    expect(g.winners).toEqual([]);
+    expect(g.winnerId).toBeNull();
+    expect(g.endReason).toBeNull();
+    expect(g.lastRound).toBeNull();
+    expect(g.rematch("A", 100)).toBe(false); // ya está en juego
+  });
+
+  it("revancha: si alguien se fue, no arranca hasta que haya 2; el asiento del que se fue se suelta", () => {
+    const g = playedOut();
+    g.removePlayer("B");
+    expect(g.rematch("A", 99)).toBe(false);
+    expect(g.phase).toBe("ended");
+    g.addPlayer("C", "C"); // entra otro con el código
+    expect(g.rematch("A", 99)).toBe(true);
+    expect(g.seats.map((s) => s.id)).toEqual(["A", "C"]);
+    expect(g.match!.tanks.map((t) => t.id).sort()).toEqual(["A", "C"]);
+    expect(money(g, "C")).toBe(MONEY_START);
+
+    // De 3, se va uno: quedan 2 y arranca sin él.
+    const h = playedOut(["A", "B", "C"]);
+    h.removePlayer("C");
+    expect(h.rematch("A", 99)).toBe(true);
+    expect(h.seats.map((s) => s.id)).toEqual(["A", "B"]);
   });
 
   it("si se van todos menos uno, ese gana aunque sea en la tienda", () => {

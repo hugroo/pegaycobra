@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Sala de Colyseus: recibe mensajes, se los pasa a Game y copia el resultado al estado.
 //
-// Mensajes del cliente:  start · fillBots · fire { yaw, pitch, power, weapon }
+// Mensajes del cliente:  start · rematch · fillBots · fire { yaw, pitch, power, weapon }
 //                        move { moveTo: { x, z } } · buy { item } · sell { item } · ready · chat { text }
 // Los bots (bot.ts) no tienen conexión: la sala les pasa sus mensajes por los mismos métodos.
 // Mensajes del server:   terrain (binario) · shot · moved · skip · burn · roundEnd · chat
@@ -161,13 +161,16 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.setState(new GameState());
     this.state.code = this.roomId;
 
-    this.onMessage("start", (client) => {
-      const seed = GameRoom.seedOverride ?? Math.floor(Math.random() * 2 ** 31);
-      if (!this.game.start(client.sessionId, seed)) return;
-      this.botRng = createRng(seed ^ 0x51ed270b);
-      void this.lock(); // nadie más entra una vez arrancada
-      this.flush();
-    });
+    // "rematch" es el "Otra vez" del final: otra partida con los mismos asientos, sin pasar por el lobby.
+    for (const type of ["start", "rematch"] as const) {
+      this.onMessage(type, (client) => {
+        const seed = GameRoom.seedOverride ?? Math.floor(Math.random() * 2 ** 31);
+        if (!this.game[type](client.sessionId, seed)) return;
+        this.botRng = createRng(seed ^ 0x51ed270b);
+        void this.lock(); // nadie más entra una vez arrancada
+        this.flush();
+      });
+    }
 
     this.onMessage("fillBots", (client) => {
       if (this.game.phase !== "lobby" || client.sessionId !== this.game.hostId) return;
@@ -327,6 +330,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.log(`sale ${BOT_NAME}`);
     }
     const seat = this.game.addPlayer(client.sessionId, options?.name); // tira si ya empezó o está llena
+    // Entró con la partida terminada, a esperar la revancha: ve el terreno como quedó.
+    if (this.game.match) client.send("terrain", fullTerrain(this.game.match.terrain));
     this.sync();
     this.log(`entra ${seat.name}`);
   }
@@ -400,6 +405,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     const before = `${this.state.phase}:${this.state.turnId}`;
     this.sync();
     if (`${this.state.phase}:${this.state.turnId}` !== before) this.logTurn();
+    // Terminada, la sala se abre de nuevo: si falta gente para la revancha, se entra con el código.
+    if (g.phase === "ended" && this.locked) void this.unlock();
     this.driveBots();
   }
 

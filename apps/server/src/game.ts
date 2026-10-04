@@ -184,7 +184,9 @@ export class Game {
   }
 
   addPlayer(id: string, rawName: unknown): Seat {
-    if (this.phase !== "lobby") throw new Error("la partida ya empezó");
+    if (this.phase !== "lobby" && this.phase !== "ended") throw new Error("la partida ya empezó");
+    // Con la partida terminada, el que se fue no vuelve: si hace falta el lugar, se libera.
+    if (this.phase === "ended" && this.seats.length >= MAX_PLAYERS) this.seats = this.connectedSeats;
     if (this.seats.length >= MAX_PLAYERS) throw new Error("la sala está llena");
     const used = new Set(this.seats.map((s) => s.slot));
     let slot = 0;
@@ -207,6 +209,27 @@ export class Game {
     const players = ids.map((id) => ({ id, money: MONEY_START, inventory: startingInventory() }));
     this.startRound(players);
     return true;
+  }
+
+  canRematch(byId: string): boolean {
+    return this.phase === "ended" && byId === this.hostId && this.connectedSeats.length >= MIN_PLAYERS;
+  }
+
+  /**
+   * Revancha en la misma sala: los que quedan siguen en su asiento (mismo id, nombre y color) y la
+   * partida arranca de cero, como un start. Los asientos de los que se fueron se sueltan.
+   */
+  rematch(byId: string, seed: number): boolean {
+    if (!this.canRematch(byId)) return false;
+    this.seats = this.connectedSeats;
+    this.round = 0;
+    this.winners = [];
+    this.winnerId = null;
+    this.endReason = null;
+    this.lastRound = null;
+    this.burned = [];
+    this.phase = "lobby";
+    return this.start(byId, seed);
   }
 
   /** Semilla de cada ronda: derivada de la del arranque, así una partida se puede reproducir. */
