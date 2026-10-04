@@ -250,8 +250,8 @@ describe("resolveTurn con yaw", () => {
     expect(shot.tankId).toBe("B");
     expect(shot.path!.length % 3).toBe(0);
     expect(state.tanks.find((t) => t.id === "B")!.life).toBe(0);
-    expect(damage.find((d) => d.killed)!.money).toBe(750 * WEAPONS.babyMissile.armsLevel);
-    expect(state.players[0]!.money).toBe(MONEY_START + 7500);
+    expect(damage.find((d) => d.killed)!.money).toBe(300 * WEAPONS.babyMissile.armsLevel);
+    expect(state.players[0]!.money).toBe(MONEY_START + 3000);
     expect(state.players[0]!.inventory.babyMissile).toBe(INFINITE_AMMO);
   });
 

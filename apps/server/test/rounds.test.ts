@@ -3,6 +3,7 @@ import {
   createFlatTerrain,
   FUEL_MOVE_RANGE,
   INTEREST_RATE,
+  MONEY_PER_ROUND,
   MONEY_START,
   ROUND_MAX_TURNS,
   SCORE_PER_KILL,
@@ -30,6 +31,8 @@ function killAndPass(g: Game, id: string) {
 
 const money = (g: Game, id: string) => g.playerOf(id)!.money;
 const inv = (g: Game, id: string) => g.playerOf(id)!.inventory;
+/** Lo que queda al terminar la ronda: la plata, su interés y el fijo. */
+const afterRound = (m: number) => m + Math.trunc(m * INTEREST_RATE) + MONEY_PER_ROUND;
 
 describe("rondas", () => {
   it("arranca en la ronda 1 de 5, sin tienda", () => {
@@ -47,8 +50,8 @@ describe("rondas", () => {
     expect(g.timeLeft).toBe(SHOP_SECONDS);
     expect(g.lastRound!.round).toBe(1);
     expect(g.lastRound!.survivors).toEqual(["A"]);
-    expect(money(g, "A")).toBe(Math.trunc((MONEY_START + SURVIVOR_BONUS) * (1 + INTEREST_RATE)));
-    expect(money(g, "B")).toBe(Math.trunc(MONEY_START * (1 + INTEREST_RATE)));
+    expect(money(g, "A")).toBe(afterRound(MONEY_START + SURVIVOR_BONUS));
+    expect(money(g, "B")).toBe(afterRound(MONEY_START));
   });
 
   it("si nadie muere, la ronda corta a los 15 tiros por jugador (MaxNumberOfRoundTurns)", () => {
@@ -105,7 +108,7 @@ describe("tienda", () => {
   it("compra con la plata de cada uno y no deja comprar de más", () => {
     const g = started();
     killAndPass(g, "B");
-    const before = money(g, "B"); // 11500
+    const before = money(g, "B"); // 6100
     expect(g.buy("B", { item: "missile" })).toBe(true);
     expect(money(g, "B")).toBe(before - SHOP_ITEMS.missile.price);
     expect(inv(g, "B").missile).toBe(3);
@@ -116,6 +119,51 @@ describe("tienda", () => {
     expect(bought).toBe(Math.floor(before / SHOP_ITEMS.missile.price));
     expect(g.buy("B", { item: "babyNuke" })).toBe(false);
     expect(parseBuyMessage({ item: "babyMissile" })).toBeNull();
+  });
+
+  it("vender devuelve la mitad; no se vende la Chispa, ni el Escudo puesto, ni fuera de la tienda", () => {
+    const g = started();
+    expect(g.sell("A", { item: "missile" })).toBe(false); // la tienda abre entre rondas
+    killAndPass(g, "B");
+    const before = money(g, "B");
+    expect(g.sell("B", { item: "missile" })).toBe(false); // no tiene
+    expect(g.buy("B", { item: "missile" })).toBe(true);
+    expect(g.sell("B", { item: "missile" })).toBe(true);
+    expect(money(g, "B")).toBe(before - SHOP_ITEMS.missile.price / 2);
+    expect(inv(g, "B").missile).toBe(0);
+    expect(money(g, "A")).toBe(afterRound(MONEY_START + SURVIVOR_BONUS)); // al otro no le toca nada
+
+    expect(g.buy("B", { item: "fuel" })).toBe(true);
+    expect(g.buy("B", { item: "shield" })).toBe(true);
+    const mid = money(g, "B");
+    expect(g.sell("B", { item: "shield" })).toBe(false); // ya está puesto
+    expect(g.sell("B", { item: "babyMissile" })).toBe(false);
+    expect(g.sell("B", { item: "babyNuke" })).toBe(false);
+    expect(g.sell("B", {})).toBe(false);
+    expect(g.sell("nadie", { item: "fuel" })).toBe(false);
+    expect(money(g, "B")).toBe(mid);
+    expect(inv(g, "B")).toMatchObject({ shield: 1, fuel: 1, babyMissile: -1 });
+    expect(g.sell("B", { item: "fuel" })).toBe(true); // la Nafta sin usar, sí
+    expect(money(g, "B")).toBe(mid + SHOP_ITEMS.fuel.price / 2);
+    expect(inv(g, "B").fuel).toBe(0);
+  });
+
+  it("un tiro que ya salió no se vende: mientras vuela no hay venta, y en la tienda vuelve solo lo que quedó", () => {
+    const g = started();
+    const shooter = g.turnId!;
+    const other = shooter === "A" ? "B" : "A";
+    g.match = { ...g.match!, players: g.match!.players.map((p) => (p.id === shooter ? { ...p, inventory: { ...p.inventory, missile: 3 } } : p)) };
+    expect(g.fire(shooter, { yaw: g.aims.get(shooter)!.yaw + 180, pitch: 60, power: 250, weapon: "missile" })).not.toBeNull();
+    expect(g.phase).toBe("animating");
+    expect(g.sell(shooter, { item: "missile" })).toBe(false);
+    g.finishShot();
+    expect(g.sell(shooter, { item: "missile" })).toBe(false); // sigue la ronda
+    killAndPass(g, other);
+    expect(g.phase).toBe("shop");
+    const before = money(g, shooter);
+    expect(g.sell(shooter, { item: "missile" })).toBe(true);
+    expect(inv(g, shooter).missile).toBe(0);
+    expect(money(g, shooter)).toBe(before + 2 * (SHOP_ITEMS.missile.price / 3 / 2)); // dos Misiles, no tres
   });
 
   it("si todos tocan listo, la tienda cierra antes", () => {

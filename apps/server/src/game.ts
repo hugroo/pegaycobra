@@ -7,6 +7,7 @@ import {
   burnTurn3D,
   buyItem,
   cannotBuy,
+  cannotSell,
   emptyScoreboard,
   endRoundPayouts,
   matchWinners,
@@ -17,6 +18,7 @@ import {
   ROUNDS_PER_MATCH,
   roundOver,
   scoreTurn,
+  sellItem,
   SHOP_ITEMS,
   startingInventory,
   startRound3D,
@@ -297,6 +299,17 @@ export class Game {
     if (!item || !player || cannotBuy(player, item)) return false;
     const bought = buyItem(player, item);
     this.match = { ...this.match, players: this.match.players.map((p) => (p.id === byId ? bought : p)) };
+    return true;
+  }
+
+  /** Vender en la tienda, a la mitad. En las demás fases se ignora: lo que ya salió no vuelve. */
+  sell(byId: string, raw: unknown): boolean {
+    if (this.phase !== "shop" || !this.match) return false;
+    const item = parseBuyMessage(raw);
+    const player = this.playerOf(byId);
+    if (!item || !player || cannotSell(player, item)) return false;
+    const sold = sellItem(player, item);
+    this.match = { ...this.match, players: this.match.players.map((p) => (p.id === byId ? sold : p)) };
     return true;
   }
 

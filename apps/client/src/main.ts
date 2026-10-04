@@ -7,6 +7,9 @@ import "./style.css";
 import { Client, type Room } from "@colyseus/sdk";
 import {
   cannotBuy,
+  cannotSell,
+  sellUnits,
+  sellValue,
   fireFromShot,
   FUEL_MOVE_RANGE,
   inFire,
@@ -696,7 +699,7 @@ function renderShop(phase: string): void {
         const gain = document.createElement("span");
         gain.className = "gain";
         gain.textContent = `+${fmtMoney(po.survivor + po.interest)}`;
-        who.title = `${lastRoundEnd?.survivors.includes(p.id) ? "Sobrevivió · " : ""}+${fmtMoney(po.survivor)} vivo · +${fmtMoney(po.interest)} interés`;
+        who.title = `${lastRoundEnd?.survivors.includes(p.id) ? "Sobrevivió · " : ""}+${fmtMoney(po.survivor)} vivo · +${fmtMoney(po.interest)} interés y fijo`;
         who.append(gain);
       }
       if (p.ready) {
@@ -751,7 +754,23 @@ function renderShop(phase: string): void {
       foot.append(price, have);
       card.append(name, desc, foot);
       card.addEventListener("click", () => room?.send("buy", { item: id }));
-      return card;
+      // Debajo de la carta, lo que te devuelven si la vendés (sellValue del sim, la cuenta del server).
+      // El renglón está siempre, así la fila no salta cuando comprás.
+      const sell = document.createElement("button");
+      sell.className = "sell";
+      const units = sellUnits(asPlayer, id);
+      if (cannotSell(asPlayer, id) === null) {
+        sell.textContent = `Vendé${units > 1 ? ` ×${units}` : ""} +${fmtMoney(sellValue(asPlayer, id))}`;
+        sell.title = "Te devuelven la mitad";
+        sell.addEventListener("click", () => room?.send("sell", { item: id }));
+      } else {
+        sell.disabled = true;
+        if (id === "shield" && inventory.shield > 0) sell.textContent = "Ya está puesto";
+      }
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      slot.append(card, sell);
+      return slot;
     }),
   );
 }

@@ -128,6 +128,23 @@ describe("partida de 5 rondas por red", () => {
           a.send("buy", { item: "missile" });
           await until(() => b.state.players.get(a.sessionId).missiles === 3);
           expect(b.state.players.get(a.sessionId).money).toBe(before - SHOP_ITEMS.missile.price);
+          // Ana vende esos Misiles: le queda el neto de la mitad, y Beto ve la misma plata y el mismo inventario que ella.
+          a.send("sell", { item: "missile" });
+          await until(() => b.state.players.get(a.sessionId).missiles === 0);
+          expect(b.state.players.get(a.sessionId).money).toBe(before - SHOP_ITEMS.missile.price / 2);
+          await until(() => a.state.players.get(a.sessionId).missiles === 0);
+          const inventory = (p: any) => [p.money, p.missiles, p.rollers, p.napalms, p.nukes, p.dirts, p.mirvs, p.shield, p.parachute, p.fuel];
+          expect(inventory(b.state.players.get(a.sessionId))).toEqual(inventory(a.state.players.get(a.sessionId)));
+          // Un Rodillo: comprado y vendido, y la Chispa no se vende.
+          a.send("buy", { item: "roller" });
+          await until(() => b.state.players.get(a.sessionId).rollers === 2);
+          a.send("sell", { item: "roller" });
+          a.send("sell", { item: "babyMissile" });
+          await until(() => b.state.players.get(a.sessionId).rollers === 0);
+          expect(b.state.players.get(a.sessionId).money).toBe(before - SHOP_ITEMS.missile.price / 2 - SHOP_ITEMS.roller.price / 2);
+          // Y vuelve a comprar los Misiles, que los va a tirar en las rondas que siguen.
+          a.send("buy", { item: "missile" });
+          await until(() => b.state.players.get(a.sessionId).missiles === 3);
           // No se puede comprar de más: Beto intenta comprar más de lo que le alcanza.
           const bMoney = b.state.players.get(b.sessionId).money;
           const affordable = Math.floor(bMoney / SHOP_ITEMS.missile.price);

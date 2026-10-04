@@ -81,9 +81,11 @@ cinco hoyos chicos y el cartel del impacto es uno solo, con el daño de todas su
 - **5 rondas.** Cada ronda tiene terreno nuevo, viento sorteado de nuevo, tanques reubicados y
   vida llena. Empieza un jugador distinto cada ronda.
 - **La ronda termina** cuando queda un solo tanque vivo, o cuando cada jugador ya tiró 15 veces.
-- **Al terminar la ronda se cobra:** cada tanque que sigue vivo recibe $10.000, y después todos
-  reciben 15% de interés sobre la plata que tienen. Lo que gastaste en la tienda ya no está, así
-  que no da interés. El daño y los kills se cobran en el momento del tiro.
+- **Plata.** Se arranca con $4.000. El daño y los kills se cobran en el momento del tiro: con la
+  Chispa, $10 por punto de vida y $30 por punto en el tiro que mata (un kill de lleno, $3.000).
+- **Al terminar la ronda se cobra:** cada tanque que sigue vivo recibe $2.000, y después todos
+  reciben 15% de interés sobre la plata que tienen, más $1.500 fijos. Lo que gastaste en la tienda
+  ya no está, así que no da interés. No alcanza para comprar todo: hay que elegir.
 - **Tienda de 20 s entre rondas**, visible para todos, con la plata de cada uno: una fila de
   cartas abajo (precio y qué hace cada cosa), sin tapar el mapa. Cierra antes si
   todos tocan *Listo*. No se puede comprar más de lo que alcanza.
@@ -100,7 +102,12 @@ cinco hoyos chicos y el cartel del impacto es uno solo, con el daño de todas su
   | Paracaídas | $1.250 | La ronda siguiente, caer no te hace daño. Uno por ronda |
   | Nafta | $3.000 | Antes de tirar, mové el tanque hasta 20 celdas. Una vez por turno |
 
-  La Chispa es infinita y no se vende.
+  La Chispa es infinita y no está en la tienda.
+
+  **Vender.** Debajo de cada carta que tenés hay un renglón *Vendé*: te devuelven la mitad del
+  precio, al toque. Se vende de a un pack; si ya tiraste alguno, se vende lo que queda (de 3 Misiles
+  con uno tirado, vuelven $400 por los dos). El Escudo queda puesto desde que lo comprás y no se
+  vende; la Nafta y el Paracaídas sin usar, sí. Solo en la tienda.
 
   **Qué tapa el escudo y qué no.** Tapa el tiro entero: la explosión no te saca vida y, si el
   cráter de ese mismo tiro te deja sin piso, caés pero esa caída tampoco duele. No tapa la caída
@@ -170,6 +177,7 @@ de la misma sala podrían caer en servidores distintos.
   | `fire { yaw, pitch, power, weapon }` | tu turno | `weapon` es `babyMissile`, `missile`, `roller`, `napalm`, `nuke`, `dirt` o `mirv` y tenés munición. Cualquier otro campo (daño, impacto, posición) se descarta sin llegar al sim. Otra arma: el mensaje se ignora entero |
   | `move { moveTo: { x, z } }` | tu turno, antes de tirar | que tengas nafta, no te hayas movido ya en el turno, y el destino esté a ≤ 20 celdas, dentro del mapa y no pegado a otro tanque (`validateMove` del sim) |
   | `buy { item }` | tienda | que el ítem exista y te alcance la plata (`cannotBuy` del sim) |
+  | `sell { item }` | tienda | que tengas ese ítem y no sea el Escudo (`cannotSell` del sim). Devuelve la mitad |
   | `ready` | tienda | — |
   | `chat { text }` | siempre | que sea texto. Lo deja en una línea, sin caracteres de control, de hasta 120 caracteres; si no queda nada, se ignora |
 
@@ -253,7 +261,7 @@ pnpm typecheck
 | `mirv.ts` | **3D.** `simulateSplitShot3D()`: el tiro del Racimo, que vuela hasta la cima y ahí se abre en cabezas (`split` en el resultado). `splitDirection()`: para qué lado sale cada una. `shotImpacts()`: los golpes de un tiro en el orden en que caen (uno, o uno por cabeza) |
 | `napalm.ts` | **3D.** `fireFromShot()`: el fuego que deja un tiro de Quema (o null). `inFire()`: si un punto del piso está adentro del disco. Lo usan el server, la fantasma del cliente y el HUD |
 | `turn3d.ts` | **3D.** `rollWind3D()`, `placeTanks3D()`, `resolveTurn3D()`. `resolveTurn()` lo usa cuando el estado tiene `terrain`. Con paracaídas, la caída no daña. Con escudo, el próximo tiro que te alcanza no daña (`blocked`), salvo el Bombazo (`piercesShield`). Una Quema no toca el terreno y agrega un fuego a `state.fires`. Una Tierra sube el terreno y, con él, al tanque que quedó debajo; no saca vida ni gasta escudos. Un Racimo abierto se resuelve cabeza por cabeza, y el escudo absorbe una sola. `burnTurn3D()`: lo que pierde un tanque al empezar su turno parado en un fuego |
-| `campaign.ts` | **Partida.** `startRound3D()` (ronda nueva), `endRoundPayouts()` (premio por sobrevivir + interés), `SHOP_ITEMS`, `buyItem()` / `cannotBuy()`, `validateMove()` / `moveTank()` (nafta), `scoreTurn()`, `standings()`, `matchWinners()` |
+| `campaign.ts` | **Partida.** `startRound3D()` (ronda nueva), `endRoundPayouts()` (premio por sobrevivir + interés), `SHOP_ITEMS`, `buyItem()` / `cannotBuy()`, `sellItem()` / `cannotSell()`, `validateMove()` / `moveTank()` (nafta), `scoreTurn()`, `standings()`, `matchWinners()` |
 
 Todo son funciones puras: reciben el estado y devuelven uno nuevo. En 3D el heightmap es un
 `Float32Array` de width × depth con índice `x + z * width`; la altura es y. En perfil, el
@@ -334,7 +342,7 @@ tanques son primitivas generadas.
 | **Partida:** 5 rondas | `OptionsGame.cpp` "NumberOfRounds" (default 5) | `ROUNDS_PER_MATCH` |
 | **Partida:** 15 tiros por jugador por ronda | `OptionsGame.cpp` "MaxNumberOfRoundTurns" (15) | `ROUND_MAX_TURNS` |
 | **Partida:** la tienda abre antes de la ronda 2 | `OptionsGame.cpp` "MoneyBuyOnRound" (2) | `FIRST_SHOP_ROUND` |
-| **Partida:** premio al que sigue vivo | `OptionsGame.cpp` "MoneyWonForRound" (5000) + "MoneyWonForLives" (5000) × "PlayerLives" (1) | `SURVIVOR_BONUS` = 10000 |
+| **Partida:** premio al que sigue vivo | `OptionsGame.cpp` "MoneyWonForRound" + "MoneyWonForLives" × "PlayerLives" (1). Los montos son propios (1000 + 1000; el original, 5000 + 5000) | `SURVIVOR_BONUS` = 2000 |
 | **Partida:** primero el premio, después el interés | `src/common/simactions/ShowScoreSimAction.cpp` | `endRoundPayouts()` |
 | **Partida:** interés 15% | `OptionsGame.cpp` "MoneyInterest" (15) | `INTEREST_RATE` |
 | **Partida:** puntos por kill; matarse resta | `OptionsGame.cpp` "ScorePerKill" (10); `TargetDamage.cpp` (kill propio: kills − 1 y score − ScorePerKill) | `SCORE_PER_KILL`, `scoreTurn()` |
@@ -366,6 +374,12 @@ tanques son primitivas generadas.
   - **El puntaje es solo daño + kills.** 1 punto por punto de vida que le sacás a otro (regla
     propia) y 10 por kill (`ScorePerKill`). No se usa `ScoreWonForRound` (250 por ganar la
     ronda): sobrevivir paga plata, no puntos.
+  - **Menos plata.** Las opciones son las del original, los montos no: se arranca con $4.000
+    (`MoneyStarting` 10000), pegar paga 100 y matar 300 por armslevel (250 y 750), sobrevivir
+    $2.000 (10000) y hay un fijo de $1.500 por ronda (`MoneyPerRound` 0), que le deja al que perdió
+    con qué volver. Con los montos del original, el que gana la primera ronda compra la tienda entera.
+  - **Vender a la mitad.** El original tiene un `<sellprice>` por accesorio; acá es siempre la
+    mitad del precio y el Escudo no se vende.
   - **Misil de a 3.** El original lo vende de a 5 por $2000; acá el pack es de 3 al mismo
     precio por unidad.
   - **El paracaídas dura toda la ronda siguiente** y se compra de a uno. En el original se

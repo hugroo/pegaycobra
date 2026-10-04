@@ -37,8 +37,8 @@ export interface DamageReward {
 /**
  * Plata que gana (o pierde) quien disparó, por un evento de daño. [$]
  * TargetDamage::damageTarget():
- *   sin kill: MoneyWonPerHitPoint (250) · armslevel
- *   con kill: MoneyWonPerKillPoint (750) · armslevel
+ *   sin kill: MoneyWonPerHitPoint · armslevel
+ *   con kill: MoneyWonPerKillPoint · armslevel
  *   si MoneyPerHealthPoint: · trunc(daño) / 100 (división entera)
  *   daño propio: negativo
  */

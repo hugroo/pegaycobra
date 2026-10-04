@@ -2,18 +2,22 @@ import { describe, expect, it } from "vitest";
 import {
   buyItem,
   cannotBuy,
+  cannotSell,
   createFlatTerrain,
   endRoundPayouts,
   FUEL_MOVE_RANGE,
   INFINITE_AMMO,
   INTEREST_RATE,
   matchWinners,
+  MONEY_PER_ROUND,
   MONEY_START,
   moveTank,
   resolveTurn,
   ROUNDS_PER_MATCH,
   roundOver,
   scoreTurn,
+  sellItem,
+  sellValue,
   emptyScoreboard,
   SCORE_PER_KILL,
   SHOP_ITEMS,
@@ -68,12 +72,23 @@ describe("rondas", () => {
 });
 
 describe("plata de fin de ronda", () => {
-  it("el que sobrevive cobra MoneyWonForRound + MoneyWonForLives, y después todos cobran interés", () => {
+  it("el que sobrevive cobra MoneyWonForRound + MoneyWonForLives, y después todos cobran interés y el fijo", () => {
     const { players, payouts } = endRoundPayouts([fresh("A"), fresh("B")], new Set(["A"]));
-    expect(SURVIVOR_BONUS).toBe(10_000);
-    expect(payouts[0]).toEqual({ id: "A", before: 10_000, survivor: 10_000, interest: 3_000, after: 23_000 });
-    expect(payouts[1]).toEqual({ id: "B", before: 10_000, survivor: 0, interest: 1_500, after: 11_500 });
-    expect(players.map((p) => p.money)).toEqual([23_000, 11_500]);
+    expect([MONEY_START, SURVIVOR_BONUS, MONEY_PER_ROUND]).toEqual([4_000, 2_000, 1_500]);
+    expect(payouts[0]).toEqual({ id: "A", before: 4_000, survivor: 2_000, interest: 900 + 1_500, after: 8_400 });
+    expect(payouts[1]).toEqual({ id: "B", before: 4_000, survivor: 0, interest: 600 + 1_500, after: 6_100 });
+    expect(players.map((p) => p.money)).toEqual([8_400, 6_100]);
+  });
+
+  it("la plata no alcanza para todo: ni el que ganó la primera ronda con un kill compra la tienda entera", () => {
+    // Lo más que se junta en la ronda 1: un kill de lleno con la Chispa (3000) y sobrevivir.
+    const { players } = endRoundPayouts([{ ...fresh("A"), money: MONEY_START + 3_000 }, fresh("B")], new Set(["A"]));
+    const all = Object.values(SHOP_ITEMS).reduce((sum, it) => sum + it.price, 0);
+    expect(players[0]!.money).toBeLessThan(all);
+    expect(players[0]!.money).toBeGreaterThanOrEqual(SHOP_ITEMS.nuke.price); // pero un Bombazo sí
+    // Y el que perdió no queda afuera: le alcanza para un arma y una defensa.
+    expect(players[1]!.money).toBeGreaterThanOrEqual(SHOP_ITEMS.mirv.price + SHOP_ITEMS.shield.price);
+    expect(players[0]!.money / players[1]!.money).toBeLessThan(2);
   });
 
   it("el interés no se aplica a lo gastado", () => {
@@ -81,8 +96,8 @@ describe("plata de fin de ronda", () => {
     const saver = fresh("B");
     const { payouts } = endRoundPayouts([spender, saver], new Set());
     expect(payouts[0]!.before).toBe(MONEY_START - 1200);
-    expect(payouts[0]!.interest).toBe(Math.trunc((MONEY_START - 1200) * INTEREST_RATE)); // 1320, no 1500
-    expect(payouts[1]!.interest).toBe(Math.trunc(MONEY_START * INTEREST_RATE));
+    expect(payouts[0]!.interest).toBe(Math.trunc((MONEY_START - 1200) * INTEREST_RATE) + MONEY_PER_ROUND); // 420 de interés, no 600
+    expect(payouts[1]!.interest).toBe(Math.trunc(MONEY_START * INTEREST_RATE) + MONEY_PER_ROUND);
   });
 
   it("el paracaídas vence al terminar la ronda", () => {
@@ -94,14 +109,15 @@ describe("plata de fin de ronda", () => {
 
 describe("tienda", () => {
   it("vende Missile de a 3, paracaídas y nafta, y descuenta el precio", () => {
-    let a = fresh("A");
+    const wallet = 10_000; // con la plata del arranque no alcanza para los tres
+    let a: Player = { ...fresh("A"), money: wallet };
     a = buyItem(a, "missile");
     a = buyItem(a, "fuel");
     a = buyItem(a, "parachute");
     expect(a.inventory.missile).toBe(3);
     expect(a.inventory.fuel).toBe(1);
     expect(a.inventory.parachute).toBe(1);
-    expect(a.money).toBe(MONEY_START - SHOP_ITEMS.missile.price - SHOP_ITEMS.fuel.price - SHOP_ITEMS.parachute.price);
+    expect(a.money).toBe(wallet - SHOP_ITEMS.missile.price - SHOP_ITEMS.fuel.price - SHOP_ITEMS.parachute.price);
   });
 
   it("no se puede comprar de más", () => {
@@ -109,14 +125,68 @@ describe("tienda", () => {
     expect(cannotBuy(broke, "missile")).not.toBeNull();
     expect(() => buyItem(broke, "missile")).toThrow();
     let a = fresh("A");
-    for (let i = 0; i < 8; i++) a = buyItem(a, "missile"); // 9600
+    for (let i = 0; i < 3; i++) a = buyItem(a, "missile"); // 3600
     expect(() => buyItem(a, "missile")).toThrow(); // le quedan 400
-    expect(a.money).toBe(MONEY_START - 8 * SHOP_ITEMS.missile.price);
+    expect(a.money).toBe(MONEY_START - 3 * SHOP_ITEMS.missile.price);
     expect(() => buyItem(buyItem(fresh("B"), "parachute"), "parachute")).toThrow(); // uno por ronda
   });
 
   it("la Baby Missile no se vende", () => {
     expect(Object.keys(SHOP_ITEMS)).not.toContain("babyMissile");
+  });
+});
+
+describe("vender en la tienda", () => {
+  it("comprás un Misil y lo vendés: vuelve la mitad y el inventario queda como antes", () => {
+    const bought = buyItem(fresh("A"), "missile");
+    expect(sellValue(bought, "missile")).toBe(SHOP_ITEMS.missile.price / 2);
+    const sold = sellItem(bought, "missile");
+    expect(sold.money).toBe(MONEY_START - SHOP_ITEMS.missile.price / 2);
+    expect(sold.inventory.missile).toBe(0);
+    expect(() => sellItem(sold, "missile")).toThrow(); // no queda nada
+  });
+
+  it("cada carta vuelve a la mitad de su precio", () => {
+    for (const id of ["missile", "roller", "napalm", "nuke", "dirt", "mirv", "parachute", "fuel"] as const) {
+      const rich: Player = { ...fresh("A"), money: 50_000 };
+      const sold = sellItem(buyItem(rich, id), id);
+      expect(sold.money, id).toBe(50_000 - SHOP_ITEMS[id].price / 2);
+      expect(sold.inventory[id], id).toBe(0);
+    }
+  });
+
+  it("un tiro que ya salió no vuelve: del pack empezado se vende lo que queda", () => {
+    const armed = duel(128 + 200, [buyItem(fresh("A"), "missile"), fresh("B")]);
+    const a = resolveTurn(armed, { playerId: "A", yaw: 0, pitch: 45, power: 400, weaponId: "missile" }).state.players[0]!;
+    expect(a.inventory.missile).toBe(2);
+    expect(sellValue(a, "missile")).toBe(2 * 200); // 400 c/u, a la mitad
+    const sold = sellItem(a, "missile");
+    expect(sold.money).toBe(a.money + 400);
+    expect(sold.inventory.missile).toBe(0);
+  });
+
+  it("con más de un pack, vende de a uno", () => {
+    const two = buyItem(buyItem(fresh("A"), "roller"), "roller");
+    const sold = sellItem(two, "roller");
+    expect(sold.inventory.roller).toBe(2);
+    expect(sold.money).toBe(two.money + SHOP_ITEMS.roller.price / 2);
+  });
+
+  it("la Nafta sin usar se vende; el Escudo puesto y la Chispa, no", () => {
+    const a = buyItem(buyItem({ ...fresh("A"), money: 10_000 }, "fuel"), "shield");
+    expect(cannotSell(a, "fuel")).toBeNull();
+    expect(sellItem(a, "fuel").inventory.fuel).toBe(0);
+    expect(cannotSell(a, "shield")).not.toBeNull();
+    expect(() => sellItem(a, "shield")).toThrow();
+    expect(cannotSell(a, "babyMissile" as never)).not.toBeNull();
+    expect(a.inventory.babyMissile).toBe(INFINITE_AMMO);
+    expect(cannotSell(fresh("B"), "fuel")).not.toBeNull(); // no tiene
+  });
+
+  it("comprar y vender en ronda no da plata", () => {
+    let a = fresh("A");
+    for (let i = 0; i < 5; i++) a = sellItem(buyItem(a, "missile"), "missile");
+    expect(a.money).toBe(MONEY_START - 5 * (SHOP_ITEMS.missile.price / 2));
   });
 });
 
@@ -199,14 +269,14 @@ describe("nafta", () => {
 describe("puntaje", () => {
   it("es daño a otros + kills; la plata no suma", () => {
     let board = emptyScoreboard(["A", "B"]);
-    board = scoreTurn(board, "A", [{ targetId: "B", cause: "explosion", damage: 55.3, killed: false, money: 1375 }]);
-    board = scoreTurn(board, "A", [{ targetId: "B", cause: "explosion", damage: 44.7, killed: true, money: 7500 }]);
+    board = scoreTurn(board, "A", [{ targetId: "B", cause: "explosion", damage: 55.3, killed: false, money: 550 }]);
+    board = scoreTurn(board, "A", [{ targetId: "B", cause: "explosion", damage: 44.7, killed: true, money: 3000 }]);
     expect(board.A).toEqual({ points: 55 + 45 + SCORE_PER_KILL, kills: 1, damage: 100 });
     expect(board.B).toEqual({ points: 0, kills: 0, damage: 0 });
   });
 
   it("el daño propio no suma y matarse resta un kill", () => {
-    const board = scoreTurn(emptyScoreboard(["A"]), "A", [{ targetId: "A", cause: "explosion", damage: 100, killed: true, money: -7500 }]);
+    const board = scoreTurn(emptyScoreboard(["A"]), "A", [{ targetId: "A", cause: "explosion", damage: 100, killed: true, money: -3000 }]);
     expect(board.A).toEqual({ points: -SCORE_PER_KILL, kills: -1, damage: 0 });
   });
 

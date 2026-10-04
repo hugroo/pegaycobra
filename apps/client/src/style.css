@@ -237,6 +237,14 @@ kbd {
 .item .price { font-weight: 800; font-size: 17px; color: var(--ocre); }
 .item .have { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .item:hover:not(:disabled) { border-color: var(--ocre); }
+/* Cada carta con su renglón de venta abajo: una línea, finita, para que la tienda no crezca sobre el cerro. */
+.slot { display: grid; grid-template-rows: 1fr auto; gap: 4px; min-width: 0; }
+.sell {
+  min-height: 24px; padding: 2px 8px; border-radius: 8px; font-size: 12px; font-weight: 700; color: var(--turq);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sell:disabled { border-color: transparent; background: none; color: var(--muted); }
+.sell:hover:not(:disabled) { border-color: var(--turq); }
 .item:disabled .price { color: var(--muted); }
 
 /* Fin de partida */
@@ -316,6 +324,7 @@ kbd {
   .fire { grid-area: fire; min-width: 0; min-height: 64px; font-size: 22px; }
 
   .items { grid-auto-columns: minmax(132px, 1fr); touch-action: pan-x; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .sell { min-height: 32px; font-size: 13px; }
 
   /* Chat: cerrado es un botón arriba de la barra de tiro, con lo último que llegó encima un rato.
      Abierto sube arriba de todo, donde el teclado no lo tapa: la línea, Cerrar y abajo el historial. */

@@ -2,7 +2,7 @@
 // Sala de Colyseus: recibe mensajes, se los pasa a Game y copia el resultado al estado.
 //
 // Mensajes del cliente:  start · fillBots · fire { yaw, pitch, power, weapon }
-//                        move { moveTo: { x, z } } · buy { item } · ready · chat { text }
+//                        move { moveTo: { x, z } } · buy { item } · sell { item } · ready · chat { text }
 // Los bots (bot.ts) no tienen conexión: la sala les pasa sus mensajes por los mismos métodos.
 // Mensajes del server:   terrain (binario) · shot · moved · skip · burn · roundEnd · chat
 
@@ -150,6 +150,11 @@ export class GameRoom extends Room<{ state: GameState }> {
 
     this.onMessage("fire", (client, message: unknown) => this.onFire(client.sessionId, message));
     this.onMessage("buy", (client, message: unknown) => this.onBuy(client.sessionId, message));
+    this.onMessage("sell", (client, message: unknown) => {
+      if (!this.game.sell(client.sessionId, message)) return; // ignorado
+      this.log(`${this.nameOf(client.sessionId)} vende ${(message as { item?: string }).item}`);
+      this.flush();
+    });
     this.onMessage("ready", (client) => this.onReady(client.sessionId));
 
     // Chat de sala: en cualquier fase. Sale para todos en el orden en que llegó acá; no se guarda.

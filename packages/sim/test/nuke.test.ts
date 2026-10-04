@@ -92,9 +92,10 @@ describe("Nuke", () => {
     expect(isPlayable("nuke")).toBe(true);
     expect(SHOP_ITEMS.nuke.pack).toBe(1);
     for (const it of Object.values(SHOP_ITEMS)) if (it.id !== "nuke") expect(it.price).toBeLessThan(SHOP_ITEMS.nuke.price);
-    const a = buyItem(fresh("A"), "nuke");
+    expect(() => buyItem(fresh("A"), "nuke")).toThrow(); // con la plata del arranque no alcanza: hay que ganársela
+    const a = buyItem({ ...fresh("A"), money: SHOP_ITEMS.nuke.price + 500 }, "nuke");
     expect(a.inventory.nuke).toBe(1);
-    expect(a.money).toBe(MONEY_START - SHOP_ITEMS.nuke.price);
+    expect(a.money).toBe(500);
   });
 
   it("sin Nuke no se puede tirar", () => {

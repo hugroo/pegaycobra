@@ -4,7 +4,11 @@ import {
   createFlatHeightmap,
   endOfRoundMoney,
   INFINITE_AMMO,
+  INTEREST_RATE,
   MONEY_MAX,
+  MONEY_PER_HIT_POINT,
+  MONEY_PER_KILL_POINT,
+  MONEY_PER_ROUND,
   MONEY_START,
   moneyForDamage,
   resolveTurn,
@@ -37,7 +41,7 @@ function match(victimX: number): MatchState {
 const impactX = simulateShot(FLAT, { originX: 40, originY: 10, ...SHOT, wind: 0 }).x;
 
 describe("5. matar paga plata; el misil básico no se gasta", () => {
-  it("impacto directo: B muere y A cobra 750 · armslevel", () => {
+  it("impacto directo: B muere y A cobra MoneyWonPerKillPoint · armslevel", () => {
     const { state, shot, damage } = resolveTurn(match(Math.round(impactX)), { playerId: "A", ...SHOT });
 
     expect(shot.outcome).toBe("tank");
@@ -48,11 +52,12 @@ describe("5. matar paga plata; el misil básico no se gasta", () => {
 
     const kill = damage.find((d) => d.targetId === "B" && d.killed);
     expect(kill).toBeDefined();
-    // MoneyWonPerKillPoint 750 · armslevel 10 · (100 hp / 100) = 7500
-    expect(kill!.money).toBe(750 * WEAPONS.babyMissile.armsLevel);
+    // MoneyWonPerKillPoint 300 · armslevel 10 · (100 hp / 100) = 3000
+    expect(kill!.money).toBe(MONEY_PER_KILL_POINT * WEAPONS.babyMissile.armsLevel);
+    expect(kill!.money).toBe(3000);
 
     const a = state.players.find((p) => p.id === "A")!;
-    expect(a.money).toBe(MONEY_START + 7500);
+    expect(a.money).toBe(MONEY_START + 3000);
   });
 
   it("la Baby Missile es infinita: después de disparar sigue en -1", () => {
@@ -96,19 +101,21 @@ describe("5. matar paga plata; el misil básico no se gasta", () => {
 });
 
 describe("reglas de plata sueltas", () => {
-  it("premio por daño sin kill: 250 · armslevel · daño/100", () => {
-    expect(moneyForDamage({ damage: 50, killed: false, armsLevel: 10, friendly: false })).toBe(1250);
-    expect(moneyForDamage({ damage: 50.9, killed: false, armsLevel: 10, friendly: false })).toBe(1250);
+  it("premio por daño sin kill: MoneyWonPerHitPoint · armslevel · daño/100", () => {
+    expect(MONEY_PER_HIT_POINT).toBe(100);
+    expect(moneyForDamage({ damage: 50, killed: false, armsLevel: 10, friendly: false })).toBe(500);
+    expect(moneyForDamage({ damage: 50.9, killed: false, armsLevel: 10, friendly: false })).toBe(500);
   });
 
   it("dañarse a uno mismo resta", () => {
-    expect(moneyForDamage({ damage: 40, killed: false, armsLevel: 10, friendly: true })).toBe(-1000);
+    expect(moneyForDamage({ damage: 40, killed: false, armsLevel: 10, friendly: true })).toBe(-400);
   });
 
-  it("interés del 15% sobre lo no gastado al final de la ronda", () => {
-    expect(endOfRoundMoney(10_000)).toBe(11_500);
-    expect(endOfRoundMoney(333)).toBe(382); // 333 + trunc(49.95)
-    expect(endOfRoundMoney(0)).toBe(0);
+  it("al final de la ronda: interés del 15% sobre lo no gastado, más el fijo", () => {
+    expect(INTEREST_RATE).toBe(0.15);
+    expect(endOfRoundMoney(10_000)).toBe(11_500 + MONEY_PER_ROUND);
+    expect(endOfRoundMoney(333)).toBe(382 + MONEY_PER_ROUND); // 333 + trunc(49.95)
+    expect(endOfRoundMoney(0)).toBe(MONEY_PER_ROUND); // el que quedó seco igual cobra el fijo
     expect(endOfRoundMoney(MONEY_MAX)).toBe(MONEY_MAX);
   });
 

@@ -315,6 +315,6 @@ describe("tienda con Racimo", () => {
     const a = buyItem(fresh("A"), "mirv");
     expect(a.inventory.mirv).toBe(1);
     expect(a.money).toBe(MONEY_START - SHOP_ITEMS.mirv.price);
-    expect(buyItem(a, "mirv").inventory.mirv).toBe(2);
+    expect(buyItem({ ...a, money: MONEY_START }, "mirv").inventory.mirv).toBe(2);
   });
 });

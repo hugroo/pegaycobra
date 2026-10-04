@@ -23,6 +23,10 @@
 //   - La Dirt Ball se vende de a 1 (el original, de a 5) y no entierra: el tanque sube con la loma (turn3d.ts).
 //   - El MIRV (mirv.ts) se vende de a 1 (el original, de a 3), con precio propio: las cabezas son más
 //     chicas que las del original. El escudo absorbe una sola cabeza (turn3d.ts).
+//   - En la tienda se vende lo que no usaste a la mitad del precio (sellItem). En el original también
+//     se vende (<sellprice> de accessories.xml); acá la mitad es fija y el escudo no se vende.
+//   - La plata está ajustada para este juego (constants.ts): se arranca con menos, pegar y sobrevivir
+//     pagan menos y todos cobran un fijo por ronda. En el original sobra para comprar todo.
 
 import { INTEREST_RATE, MONEY_PER_ROUND, MONEY_WON_FOR_ROUND, TANK_MAX_LIFE } from "./constants";
 import { isAlive } from "./damage";
@@ -45,8 +49,8 @@ export const ROUND_MAX_TURNS = 15;
 export const FIRST_SHOP_ROUND = 2;
 /** OptionsGame "PlayerLives" default 1. */
 export const PLAYER_LIVES = 1;
-/** OptionsGame "MoneyWonForLives" default 5000, por cada vida que le queda al que sobrevive. [$] */
-export const MONEY_WON_FOR_LIVES = 5000;
+/** OptionsGame "MoneyWonForLives", por cada vida que le queda al que sobrevive. El original da 5000. [$] */
+export const MONEY_WON_FOR_LIVES = 1000;
 /** Lo que cobra cada tanque vivo al terminar la ronda: MoneyWonForRound + MoneyWonForLives × vidas. [$] */
 export const SURVIVOR_BONUS = MONEY_WON_FOR_ROUND + MONEY_WON_FOR_LIVES * PLAYER_LIVES;
 
@@ -223,6 +227,44 @@ export function buyItem(player: Player, item: ShopItemId): Player {
   const it = SHOP_ITEMS[item];
   const have = player.inventory[item] ?? 0;
   return { ...player, money: clampMoney(player.money - it.price), inventory: { ...player.inventory, [item]: have + it.pack } };
+}
+
+/** Lo que devuelve la tienda al vender: la mitad de lo que costó. Regla propia. [fracción] */
+export const SELL_FRACTION = 1 / 2;
+
+/** Unidades que se van en una venta: un pack, o lo que quede de él si ya tiraste alguno. */
+export function sellUnits(player: Player, item: ShopItemId): number {
+  const it = SHOP_ITEMS[item];
+  return it ? Math.min(it.pack, Math.max(0, player.inventory[item] ?? 0)) : 0;
+}
+
+/** Plata que vuelve por esa venta: la mitad del precio de cada unidad. Lo que ya tiraste no vuelve. [$] */
+export function sellValue(player: Player, item: ShopItemId): number {
+  const it = SHOP_ITEMS[item];
+  return it ? Math.trunc((it.price / it.pack) * sellUnits(player, item) * SELL_FRACTION) : 0;
+}
+
+/**
+ * Por qué no se puede vender, o null si se puede. La Chispa no está en la tienda, así que no llega
+ * acá. El escudo queda puesto en el tanque desde que se compra: no se vende.
+ */
+export function cannotSell(player: Player, item: ShopItemId): string | null {
+  if (!SHOP_ITEMS[item]) return "ese ítem no existe";
+  if (item === "shield") return "el escudo ya está puesto";
+  if (sellUnits(player, item) <= 0) return "no tenés ninguno";
+  return null;
+}
+
+/** Vende un pack (o lo que quede de él) a la mitad. Tira error si no hay nada para vender. */
+export function sellItem(player: Player, item: ShopItemId): Player {
+  const why = cannotSell(player, item);
+  if (why) throw new Error(why);
+  const have = player.inventory[item] ?? 0;
+  return {
+    ...player,
+    money: clampMoney(player.money + sellValue(player, item)),
+    inventory: { ...player.inventory, [item]: have - sellUnits(player, item) },
+  };
 }
 
 // ---------------------------------------------------------------------------

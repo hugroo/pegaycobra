@@ -104,18 +104,22 @@ export const MIN_FALL_DISTANCE = 5 / 10;
 // ---------------------------------------------------------------------------
 // Economía (src/common/common/OptionsGame.cpp, bloque "money")
 // ---------------------------------------------------------------------------
+// Las opciones son las del original; los valores de arranque, premios y fijo por ronda son de este
+// juego. Con los defaults del original (10000 de arranque, 7500 por kill, 10000 por sobrevivir) al
+// que gana la primera ronda le sobra para comprar toda la tienda. Acá la plata alcanza para elegir:
+// un kill con la Chispa paga 3000, y el fijo por ronda le deja al que perdió con qué volver.
 
-/** "MoneyStarting" default 10000. [$] */
-export const MONEY_START = 10_000;
+/** "MoneyStarting". El original arranca con 10000. [$] */
+export const MONEY_START = 4_000;
 
 /** src/common/tank/TankScore.cpp `static const int maxMoney = 999999`. [$] */
 export const MONEY_MAX = 999_999;
 
-/** "MoneyWonPerHitPoint" default 250, multiplicado por el armslevel del arma. [$ / armslevel] */
-export const MONEY_PER_HIT_POINT = 250;
+/** "MoneyWonPerHitPoint", multiplicado por el armslevel del arma. El original da 250. [$ / armslevel] */
+export const MONEY_PER_HIT_POINT = 100;
 
-/** "MoneyWonPerKillPoint" default 750, multiplicado por el armslevel del arma. [$ / armslevel] */
-export const MONEY_PER_KILL_POINT = 750;
+/** "MoneyWonPerKillPoint", multiplicado por el armslevel del arma. El original da 750. [$ / armslevel] */
+export const MONEY_PER_KILL_POINT = 300;
 
 /** "MoneyPerHealthPoint" default true: el premio se escala por (daño / 100). [bool] */
 export const MONEY_PER_HEALTH_POINT = true;
@@ -123,11 +127,11 @@ export const MONEY_PER_HEALTH_POINT = true;
 /** "MoneyInterest" default 15 (%), aplicado al efectivo al final de cada ronda. [fracción / ronda] */
 export const INTEREST_RATE = 15 / 100;
 
-/** "MoneyPerRound" default 0: plata fija extra al final de cada ronda. [$ / ronda] */
-export const MONEY_PER_ROUND = 0;
+/** "MoneyPerRound": plata fija para todos al final de cada ronda. El original da 0. [$ / ronda] */
+export const MONEY_PER_ROUND = 1_500;
 
-/** "MoneyWonForRound" default 5000: premio al ganador de la ronda. [$] */
-export const MONEY_WON_FOR_ROUND = 5_000;
+/** "MoneyWonForRound": premio al que termina la ronda vivo. El original da 5000. [$] */
+export const MONEY_WON_FOR_ROUND = 1_000;
 
 /** data/.../accessories.xml `<startingnumber>-1</startingnumber>`: munición infinita. */
 export const INFINITE_AMMO = -1;
