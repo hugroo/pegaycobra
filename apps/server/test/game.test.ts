@@ -52,6 +52,40 @@ describe("mensaje de tiro", () => {
   });
 });
 
+describe("marca del último tiro", () => {
+  /** Un recorrido de `n` puntos: el punto i es (i, i, i). */
+  const line = (n: number) => Array.from({ length: n * 3 }, (_, k) => Math.floor(k / 3));
+
+  it("un tiro común deja una línea raleada, de punta a punta, y un punto donde cayó", () => {
+    const mark = shotMark({ outcome: "ground", x: 30, y: 4, z: 50, ticks: 400, path: line(401) });
+    expect(mark.spots).toEqual([30, 50, 0]);
+    expect(mark.path.length).toBeLessThanOrEqual(42 * 3);
+    expect(mark.path.slice(0, 3)).toEqual([0, 0, 0]);
+    expect(mark.path.slice(-3)).toEqual([400, 400, 400]);
+  });
+
+  it("al agua: el punto queda donde se hundió, marcado como agua; el que se fue del mapa no deja punto", () => {
+    expect(shotMark({ outcome: "water", x: 10, y: 0.5, z: 20, ticks: 9, path: line(10) }).spots).toEqual([10, 20, 1]);
+    const gone = shotMark({ outcome: "offmap", x: -3, y: 9, z: 20, ticks: 9, path: line(10) });
+    expect(gone.spots).toEqual([]);
+    expect(gone.path).toEqual(line(10));
+  });
+
+  it("un Racimo deja el punto de cada cabeza y una sola línea, hasta donde se abrió", () => {
+    const head = (x: number, outcome: "ground" | "tank" | "water" | "offmap") => ({ outcome, x, y: 3, z: 7, ticks: 60, path: line(30) });
+    const heads = [head(1, "ground"), head(2, "water"), head(3, "offmap"), head(4, "tank"), head(5, "ground")];
+    const mark = shotMark({ outcome: "ground", x: 1, y: 3, z: 7, ticks: 60, path: line(31), split: { x: 30, y: 30, z: 30, tick: 30, heads } });
+    expect(mark.spots).toEqual([1, 7, 0, 2, 7, 1, 4, 7, 0, 5, 7, 0]);
+    expect(mark.path).toEqual(line(31)); // el recorrido de las cabezas no viaja
+  });
+
+  it("un Rebote conserva el punto donde picó", () => {
+    const mark = shotMark({ outcome: "ground", x: 9, y: 2, z: 9, ticks: 400, path: line(401), bounce: { x: 207, y: 207, z: 207, tick: 207 } });
+    const xs = mark.path.filter((_, k) => k % 3 === 0);
+    expect(xs).toContain(207);
+  });
+});
+
 /** Yaw con el que arranca el cañón del jugador (mirando al centro del mapa). */
 function aimYaw(g: Game, id: string): number {
   return g.aims.get(id)!.yaw;
