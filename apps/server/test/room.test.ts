@@ -757,6 +757,79 @@ describe("partida de 5 rondas por red", () => {
     await b.leave();
   }, 30_000);
 
+  it("al cierre de la partida los dos clientes reciben la cuenta de la última ronda, con el ahogo como kill de agua", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto" });
+    const ends: RoundEndBroadcast[][] = [[], []];
+    a.onMessage("roundEnd", (m) => ends[0]!.push(m));
+    b.onMessage("roundEnd", (m) => ends[1]!.push(m));
+    for (const r of [a, b]) for (const type of ["terrain", "shot", "skip", "moved", "burn"]) r.onMessage(type, () => {});
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    a.send("clock", { rounds: 2 });
+    await until(() => b.state.rounds === 2);
+    a.send("start");
+
+    const game = (matchMaker.getLocalRoomById(a.roomId) as any).game as Game;
+    const rooms: Record<string, Room<any>> = { [a.sessionId]: a, [b.sessionId]: b };
+    // El del turno ahoga al otro de una: piso plano y bajo (orilla), sin viento, los tanques a 50 celdas.
+    const drown = async (round: number): Promise<{ id: string; foe: string }> => {
+      await until(() => a.state.phase === "aiming" && b.state.phase === "aiming" && a.state.round === round);
+      const id = a.state.turnId as string;
+      const foe = [a, b].find((r) => r.sessionId !== id)!.sessionId;
+      game.match = {
+        ...game.match!,
+        terrain: createFlatTerrain(257, 257, 2),
+        wind: { x: 0, z: 0 },
+        tanks: game.match!.tanks.map((t) => ({ ...t, x: t.id === id ? 60 : 110, y: 2, z: 128 })),
+      };
+      let aim: { yaw: number; pitch: number; power: number } | null = null;
+      search: for (let yaw = -4; yaw <= 4; yaw += 0.5) {
+        for (let power = 300; power <= 1000; power += 1) {
+          const r = resolveTurn3D(game.match!, { playerId: id, yaw, pitch: 60, power });
+          if (!r.damage.some((d) => d.targetId === foe && d.cause === "water")) continue;
+          aim = { yaw, pitch: 60, power };
+          break search;
+        }
+      }
+      expect(aim).not.toBeNull();
+      rooms[id]!.send("fire", aim!);
+      return { id, foe };
+    };
+
+    // Ronda 1: termina en la tienda. Nadie compra: la plata con la que arranca la última es la de esa cuenta.
+    await drown(1);
+    await until(() => a.state.phase === "shop" && b.state.phase === "shop" && ends[0]!.length === 1 && ends[1]!.length === 1);
+    const start = new Map(ends[0]![0]!.payouts.map((p) => [p.id, p.after]));
+    a.send("ready");
+    b.send("ready");
+
+    // Ronda 2, la última: no hay tienda, y la cuenta llega igual, a los dos y la misma.
+    const { id, foe } = await drown(2);
+    await until(() => a.state.phase === "ended" && b.state.phase === "ended" && ends[0]!.length === 2 && ends[1]!.length === 2);
+    const last = ends[0]![1]!;
+    expect(ends[1]![1]).toEqual(last);
+    expect(last.round).toBe(2);
+    expect(last.survivors).toEqual([id]);
+    const mine = last.payouts.find((p) => p.id === id)!;
+    const theirs = last.payouts.find((p) => p.id === foe)!;
+    expect(mine.water).toBeGreaterThan(0);
+    expect(mine.kill).toBe(0);
+    expect(mine.survivor).toBe(SURVIVOR_BONUS);
+    expect(theirs).toMatchObject({ damage: 0, kill: 0, water: 0, survivor: 0 });
+    // La suma de cada uno es justo lo que juntó en la ronda, y cierra con la plata del estado, en las dos pestañas.
+    for (const p of [mine, theirs]) {
+      expect(p.damage + p.kill + p.water + p.survivor + p.interest).toBe(p.after - start.get(p.id)!);
+      for (const r of [a, b]) expect(r.state.players.get(p.id).money).toBe(p.after);
+    }
+    // No llega una tercera: la del cierre es la última.
+    await sleep(100);
+    expect([ends[0]!.length, ends[1]!.length]).toEqual([2, 2]);
+
+    await a.leave();
+    await b.leave();
+  }, 30_000);
+
   it("el viento se corre al empezar cada turno, nunca en pleno vuelo, y los dos clientes reciben el mismo", async () => {
     const url = `ws://localhost:${PORT}`;
     const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });

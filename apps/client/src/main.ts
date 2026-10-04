@@ -636,6 +636,37 @@ let payoutTimer = 0;
 function hidePayout(): void {
   clearTimeout(payoutTimer);
   ui.payout.hidden = true;
+  placePayout();
+}
+
+/** La cuenta de uno, una parte por `span`: una parte no se corta al medio, y el punto que las separa lo pone el CSS. */
+function payoutNodes(parts: string[]): (Node | string)[] {
+  return parts.flatMap((text, i) => {
+    const part = document.createElement("span");
+    part.textContent = text;
+    return i === 0 ? [part] : [" ", part];
+  });
+}
+
+/**
+ * Acomoda la cuenta sobre el cerro. Donde salen los avisos pueden estar la lista de jugadores (en la
+ * tienda es más alta: trae el detalle de cada uno) o el minimapa: si la cuenta cae encima de alguno,
+ * baja hasta pasarlo. Y si no entró en un renglón, se achica ("small").
+ */
+function placePayout(): void {
+  const notices = ui.payout.parentElement!;
+  notices.style.removeProperty("top");
+  ui.payout.classList.remove("small");
+  if (ui.payout.hidden) return;
+  const parts = ui.payout.children;
+  if (parts.length > 1 && (parts[0] as HTMLElement).offsetTop !== (parts[parts.length - 1] as HTMLElement).offsetTop) ui.payout.classList.add("small");
+  const box = ui.payout.getBoundingClientRect();
+  let top = box.top;
+  for (const el of [ui.corner, ui.minimap]) {
+    const r = el.getBoundingClientRect();
+    if (r.width > 0 && r.left < box.right && r.right > box.left) top = Math.max(top, r.bottom + 8);
+  }
+  if (top > box.top) notices.style.top = `${Math.round(notices.offsetTop + top - box.top)}px`;
 }
 
 /** Las partes de la cuenta de uno, en orden, sin las que dieron cero. Un monto negativo es plata que pagó por pegarse. */
@@ -665,10 +696,11 @@ function payoutLine(phase: string): void {
   payoutRound = lastRoundEnd.round;
   const parts = payoutParts(po);
   if (parts.length === 0) return;
-  ui.payout.textContent = parts.join(" · ");
+  ui.payout.replaceChildren(...payoutNodes(parts));
   ui.payout.hidden = false;
   clearTimeout(payoutTimer);
   payoutTimer = window.setTimeout(hidePayout, PAYOUT_MS);
+  placePayout();
 }
 
 function attach(r: Room<any>): void {
@@ -818,7 +850,9 @@ function attach(r: Room<any>): void {
   });
   r.onMessage("roundEnd", (m: RoundEndMsg) => {
     lastRoundEnd = m;
-    if (room === r) payoutLine(r.state.phase);
+    if (room !== r) return;
+    payoutLine(r.state.phase);
+    if (r.state.phase === "ended") renderEnd("ended"); // al que vuelve con la tabla ya abierta le llega después del estado
   });
   r.onMessage("chat", (m: ChatMsg) => {
     if (room === r) addChat(m);
@@ -898,6 +932,7 @@ function onState(): void {
   if (world) world.edgeBottomInset = open ? open.offsetHeight + 12 : 0;
   liftChat(open ? open.offsetHeight + 8 : 0);
   fitPlayers();
+  placePayout(); // la lista ya tiene el alto de esta fase
 }
 
 // ---------------------------------------------------------------------------
@@ -1340,8 +1375,12 @@ function renderEnd(phase: string): void {
   const rows = playersInOrder()
     .slice()
     .sort((a, b) => b.points - a.points || b.kills - a.kills || b.damage - a.damage);
+  // La última ronda no tiene tienda: su cuenta va acá, abajo de cada uno. Solo si la partida llegó
+  // al final (el que gana porque se fueron los demás no cobró ronda) y la cuenta es de esa ronda.
+  const last = s.endReason === "rounds" && lastRoundEnd?.round === s.round ? lastRoundEnd : null;
+  const pay = new Map((last?.payouts ?? []).map((p) => [p.id, p]));
   ui.scoresBody.replaceChildren(
-    ...rows.map((p, i) => {
+    ...rows.flatMap((p, i) => {
       const tr = document.createElement("tr");
       if (winners.includes(p.id)) tr.className = "win";
       const who = `${p.name}${isMe(p.id) ? " (vos)" : ""}${p.connected ? "" : " · se fue"}`;
@@ -1350,7 +1389,17 @@ function renderEnd(phase: string): void {
         td.textContent = v;
         tr.append(td);
       }
-      return tr;
+      const po = pay.get(p.id);
+      const parts = po ? payoutParts(po) : [];
+      if (parts.length === 0) return [tr];
+      const count = document.createElement("tr");
+      count.className = "count";
+      const td = document.createElement("td");
+      td.colSpan = 3;
+      td.className = "payout";
+      td.append(...payoutNodes([`Ronda ${s.round}`, ...parts]));
+      count.append(document.createElement("td"), td);
+      return [tr, count];
     }),
   );
   // Revancha en la misma sala: la arranca el anfitrión, con al menos 2 sentados (el bot cuenta).
@@ -1466,6 +1515,7 @@ function setPlayersOpen(open: boolean): void {
   ui.playersToggle.setAttribute("aria-expanded", String(open));
   ui.playersToggle.setAttribute("aria-label", open ? "Guardar la lista de jugadores" : "Abrir la lista de jugadores");
   fitPlayers();
+  placePayout();
 }
 /** Con el teléfono acostado el botón de Chat queda a la altura de la lista. Si la pisa, la lista cede
  *  el renglón de detalle ("snug"), después se afina ("slim") y, si ni así entra, el botón se corre al
@@ -1488,6 +1538,7 @@ function fitPlayers(): void {
   ui.chat.style.setProperty("--dodge", `${Math.round(ui.corner.getBoundingClientRect().right)}px`);
 }
 window.addEventListener("resize", fitPlayers);
+window.addEventListener("resize", placePayout);
 function restorePlayersOpen(): void {
   let saved: string | null = null;
   try {

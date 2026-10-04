@@ -136,6 +136,9 @@ continua, quieta y más pálida.
 - **La cuenta, al abrir la tienda:** cada uno ve en una línea de dónde salió su plata de la ronda
   (Daño, Kill, Kill de agua, Sobrevivir, Interés y Fijo; lo que dio cero no aparece). Se va a los
   6 s o cuando arranca la ronda siguiente. La suma es el `+$` que tiene cada uno en la tienda.
+  Sale sobre el cerro, debajo de la lista de jugadores y del minimapa; en el celular, si no entra en
+  un renglón, baja a un segundo y se achica. La última ronda no tiene tienda: su cuenta va en la tabla
+  final, un renglón abajo de cada jugador, hasta *Otra vez* o *Salir*.
 - **Tienda de 30 s entre rondas** (o lo que escribió el anfitrión), visible para todos, con la plata de cada uno: una fila de
   cartas abajo (precio y qué hace cada cosa), sin tapar el mapa. Cierra antes si
   todos tocan *Listo*. No se puede comprar más de lo que alcanza.
