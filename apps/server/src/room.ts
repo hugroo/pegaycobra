@@ -13,7 +13,7 @@
 import { Room, type Client } from "@colyseus/core";
 import { createRng, type TurnResult3D } from "@pegaycobra/sim";
 import { BOT_NAME, botMovePick, botShopPick, pickBotShot } from "./bot";
-import { Game, MAX_PLAYERS, MIN_PLAYERS, type RoundSummary } from "./game";
+import { Game, MAX_PLAYERS, MIN_PLAYERS, type RoundSummary, type ShotMark } from "./game";
 import { generateCode } from "./codes";
 import { FireState, GameState, PlayerState } from "./schema";
 import { changedRect, fullTerrain, terrainRect } from "./terrain-net";

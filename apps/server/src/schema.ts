@@ -40,6 +40,12 @@ export const PlayerState = schema(
     damage: t.uint32().default(0),
     /** Tocó "listo" en la tienda. */
     ready: t.boolean().default(false),
+    /**
+     * Marca de su último tiro (ShotMark de game.ts): el recorrido [x, y, z, ...] y dónde cayó
+     * [x, z, agua, ...]. Vacías hasta que cae un tiro suyo en la ronda, y mientras vuela el siguiente.
+     */
+    markPath: t.array("float32"),
+    markSpots: t.array("float32"),
   },
   "PlayerState",
 );

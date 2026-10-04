@@ -32,6 +32,7 @@ import {
   type RoundPayout,
   type Scoreboard,
   type ShopItemId,
+  type Shot3DResult,
   type TurnResult3D,
   type WeaponId,
 } from "@pegaycobra/sim";
@@ -124,6 +125,40 @@ export interface ShotEvent {
   durationMs: number;
 }
 
+/**
+ * Marca del último tiro de un tanque: lo que queda a la vista cuando cayó, para corregir el siguiente.
+ * La arma el server y viaja en el estado, así todas las pestañas ven la misma.
+ */
+export interface ShotMark {
+  /** Recorrido [x, y, z, ...], raleado. Con un Racimo llega hasta donde se abrió: una línea, no una por cabeza. [wu] */
+  path: number[];
+  /**
+   * Dónde cayó: un trío [x, z, agua] por golpe (uno, o uno por cabeza de un Racimo). agua = 1: se
+   * hundió en el lago; la marca queda ahí, sobre el agua, sin hoyo. Lo que se fue del mapa no deja punto.
+   */
+  spots: number[];
+}
+
+/** Tramos de la línea de una marca: alcanzan para que se lea la curva. */
+const MARK_SEGMENTS = 40;
+
+export function shotMark(shot: Shot3DResult): ShotMark {
+  const src = shot.path ?? [];
+  const n = src.length / 3;
+  const step = Math.max(1, Math.ceil((n - 1) / MARK_SEGMENTS));
+  const path: number[] = [];
+  for (let i = 0; i < n; i++) {
+    // El pique de un Rebote es una esquina del recorrido: no se saltea.
+    if (i % step === 0 || i === n - 1 || i === shot.bounce?.tick) path.push(src[i * 3]!, src[i * 3 + 1]!, src[i * 3 + 2]!);
+  }
+  const spots: number[] = [];
+  for (const hit of shot.split?.heads ?? [shot]) {
+    if (hit.outcome === "offmap" || hit.outcome === "timeout") continue;
+    spots.push(hit.x, hit.z, hit.outcome === "water" ? 1 : 0);
+  }
+  return { path, spots };
+}
+
 export interface Aim {
   yaw: number;
   pitch: number;
@@ -162,6 +197,8 @@ export class Game {
   movedThisTurn = false;
   /** Último yaw/pitch que usó cada jugador (solo para dibujar el cañón). */
   readonly aims = new Map<string, Aim>();
+  /** Marca del último tiro de cada tanque en la ronda: aparece cuando cae y dura hasta que ese jugador tira de nuevo. */
+  readonly marks = new Map<string, ShotMark>();
   private readonly turnsTaken = new Map<string, number>();
   private pending: { result: TurnResult3D; shooterId: string } | null = null;
   /** Lo que quemó el fuego desde la última vez que la sala lo leyó (takeBurns). */
@@ -252,6 +289,7 @@ export class Game {
       this.aims.set(t.id, { yaw, pitch: 45 });
     }
     this.turnsTaken.clear();
+    this.marks.clear(); // terreno y posiciones nuevos: las marcas de la ronda anterior no dicen nada
     this.ready.clear();
     this.movedThisTurn = false;
     // Empieza un jugador distinto cada ronda.
@@ -297,6 +335,7 @@ export class Game {
       return null;
     }
     this.pending = { result, shooterId: byId };
+    this.marks.delete(byId); // tira de nuevo: su marca vieja se va; la nueva llega cuando caiga
     // La munición se descuenta ya (todos ven el Missile gastado al disparar). El resto del
     // resultado (daño, plata, cráter o loma, fuego, escudos gastados) se aplica recién en finishShot,
     // cuando cae el proyectil.
@@ -316,6 +355,7 @@ export class Game {
     if (this.phase !== "animating" || !this.pending || !this.match) return;
     this.match = this.withLeaversDead(this.pending.result.state);
     this.board = scoreTurn(this.board, this.pending.shooterId, this.pending.result.damage);
+    this.marks.set(this.pending.shooterId, shotMark(this.pending.result.shot));
     this.pending = null;
     this.afterTurn();
   }
