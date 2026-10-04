@@ -27,7 +27,7 @@ import {
   type ShopItemId,
   type Terrain,
 } from "@pegaycobra/sim";
-import { play, toggleMute } from "./audio";
+import { fireSfx, play, toggleMute } from "./audio";
 import { Minimap, type MiniModel } from "./minimap";
 import { LINGER_MS, TANK_COLORS, World, type GhostModel, type Hull, type MarkModel, type MoveModel, type ShotModel, type TankModel } from "./scene3d";
 
@@ -699,7 +699,7 @@ function attach(r: Room<any>): void {
                 ? "Loma"
                 : impactLabel(lands, m.damage, (m.blocked?.length ?? 0) > 0),
       };
-      play("fire");
+      play(fireSfx(w.id));
       hideTip(); // el primer tiro se lleva la línea del mapa
       // Cada cabeza de un Racimo explota cuando llega: el mismo "boom", una vez por cabeza.
       const steps = (path: number[]) => Math.max(0, path.length / 3 - 1);

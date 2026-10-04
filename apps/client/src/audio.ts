@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Sonido generado acá con un oscilador por nota: sin archivos. Cinco eventos: disparo, explosión,
+// Sonido generado acá con un oscilador por nota: sin archivos. Cinco eventos: disparo (tres, según el arma), explosión,
 // impacto a un tanque, inicio de tu turno y chapuzón. El navegador no deja sonar nada hasta un gesto del
 // usuario: el primer clic (o tecla) crea y habilita el AudioContext; lo anterior queda mudo.
 
-export type Sfx = "fire" | "boom" | "hit" | "turn" | "splash";
+export type Sfx = "fire" | "fireLow" | "fireThud" | "boom" | "hit" | "turn" | "splash";
+
+/** El disparo según el arma: la Chispa, el Bombazo y, para todas las demás, el del Misil. */
+export function fireSfx(weapon: string): Sfx {
+  return weapon === "babyMissile" ? "fire" : weapon === "nuke" ? "fireThud" : "fireLow";
+}
 
 interface Note {
   type: OscillatorType;
@@ -19,6 +24,10 @@ interface Note {
 
 const SOUNDS: Record<Sfx, Note[]> = {
   fire: [{ type: "square", from: 260, to: 70, at: 0, dur: 0.16, gain: 0.16 }],
+  // El Misil: el mismo disparo, una octava abajo y un poco más largo.
+  fireLow: [{ type: "square", from: 130, to: 40, at: 0, dur: 0.24, gain: 0.18 }],
+  // El Bombazo: un golpe seco y bajo, sin cola.
+  fireThud: [{ type: "triangle", from: 95, to: 38, at: 0, dur: 0.09, gain: 0.5 }],
   boom: [{ type: "sawtooth", from: 120, to: 28, at: 0, dur: 0.55, gain: 0.3 }],
   hit: [{ type: "square", from: 900, to: 320, at: 0.06, dur: 0.14, gain: 0.14 }],
   turn: [
