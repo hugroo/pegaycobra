@@ -198,6 +198,9 @@ export function shotMark(shot: Shot3DResult): ShotMark {
   return { path, spots };
 }
 
+/** La vida de todos los tanques, sumada. [hp] */
+const totalLife = (m: MatchState3D): number => m.tanks.reduce((sum, t) => sum + Math.max(0, t.life), 0);
+
 export interface Aim {
   yaw: number;
   pitch: number;
@@ -249,6 +252,14 @@ export class Game {
   private pending: { result: TurnResult3D; shooterId: string } | null = null;
   /** Lo que quemó el fuego desde la última vez que la sala lo leyó (takeBurns). */
   private burned: BurnEvent[] = [];
+  /** Los que ya jugaron en la vuelta en curso. Una vuelta se cierra cuando jugaron todos los vivos. */
+  private readonly lapPlayed = new Set<string>();
+  /** Vida de todos los tanques, sumada, al empezar la vuelta: si al cerrarla es la misma, nadie perdió vida. [hp] */
+  private lapLife = 0;
+  /** Los que tienen sin gastar la Nafta de una vuelta sin daño: mientras la tengan no reciben otra, y no pasa a la tienda. */
+  private readonly giftFuel = new Set<string>();
+  /** Los que recibieron esa Nafta desde la última vez que la sala lo leyó (takeRefuel). */
+  private refueled: string[] = [];
   private baseSeed = 0;
   /** De acá sale cuánto se corre el viento en cada turno. Se rearma con la semilla de cada ronda. */
   private windRng: () => number = Math.random;
@@ -397,6 +408,10 @@ export class Game {
     this.ready.clear();
     this.movedThisTurn = false;
     this.steppedThisTurn = false;
+    this.lapPlayed.clear();
+    this.lapLife = totalLife(this.match);
+    this.giftFuel.clear();
+    this.refueled = [];
     // Empieza un jugador distinto cada ronda.
     const n = this.seats.length;
     const alive = new Set(tanks.filter((t) => t.life > 0).map((t) => t.id));
@@ -418,6 +433,7 @@ export class Game {
     const to = parseMoveMessage(raw);
     if (!to || !validateMove(this.match, byId, to).ok) return null;
     this.match = moveTank(this.match, byId, to);
+    this.giftFuel.delete(byId); // la regalada se gasta primero
     this.movedThisTurn = true;
     const t = this.match.tanks.find((tk) => tk.id === byId)!;
     return { x: t.x, y: t.y, z: t.z };
@@ -563,6 +579,8 @@ export class Game {
     this.movedThisTurn = false;
     this.steppedThisTurn = false;
     if (!this.match) return;
+    // El fuego de más abajo ya es de la vuelta que sigue: la que termina se cierra antes.
+    const quietLap = this.closeLap();
     // Si al que le toca lo mata el fuego al empezar, el turno sigue de largo al próximo.
     for (;;) {
       const next = roundOver(this.match) ? null : this.nextTurn();
@@ -573,6 +591,7 @@ export class Game {
       this.turnId = next;
       if (this.burn(next)) break;
     }
+    if (quietLap) this.refuel();
     // Turno nuevo, viento nuevo: se corre desde el anterior. El primer turno de la ronda juega con el sorteado.
     this.match = { ...this.match, wind: driftWind3D(this.match.wind, this.windRng) };
     this.phase = "aiming";
@@ -589,6 +608,43 @@ export class Game {
     for (const b of burns) this.board = scoreTurn(this.board, b.ownerId, [b]);
     this.burned.push(...burns);
     return state.tanks.some((t) => t.id === id && t.life > 0);
+  }
+
+  /**
+   * Anota al que acaba de jugar. Si con él ya jugaron todos los vivos, se cerró una vuelta: devuelve
+   * si en esa vuelta nadie perdió vida (tiro, caída, fuego o agua), y empieza a contar la siguiente.
+   */
+  private closeLap(): boolean {
+    if (this.turnId) this.lapPlayed.add(this.turnId);
+    const m = this.match!;
+    if (m.tanks.some((t) => t.life > 0 && !this.lapPlayed.has(t.id))) return false;
+    const life = totalLife(m);
+    const quiet = life >= this.lapLife;
+    this.lapPlayed.clear();
+    this.lapLife = life;
+    return quiet;
+  }
+
+  /**
+   * Vuelta sin daño: cada tanque vivo recibe una Nafta, la haya comprado o no, para acercarse. No se
+   * apila: el que todavía tiene la de una vuelta anterior no recibe otra. Se usa como la de la tienda.
+   */
+  private refuel(): void {
+    const got = new Set(this.match!.tanks.filter((t) => t.life > 0 && !this.giftFuel.has(t.id)).map((t) => t.id));
+    if (got.size === 0) return;
+    this.match = {
+      ...this.match!,
+      players: this.match!.players.map((p) => (got.has(p.id) ? { ...p, inventory: { ...p.inventory, fuel: (p.inventory.fuel ?? 0) + 1 } } : p)),
+    };
+    for (const id of got) this.giftFuel.add(id);
+    this.refueled.push(...got);
+  }
+
+  /** Entrega (y vacía) los que recibieron la Nafta de una vuelta sin daño: la sala lo manda como "refuel". */
+  takeRefuel(): string[] {
+    const out = this.refueled;
+    this.refueled = [];
+    return out;
   }
 
   /** Entrega (y vacía) lo que quemó el fuego: la sala lo manda como "burn". */
@@ -614,7 +670,11 @@ export class Game {
   private endRound(): void {
     const m = this.match!;
     const survivors = new Set(m.tanks.filter((t) => t.life > 0).map((t) => t.id));
-    const { players, payouts } = endRoundPayouts(m.players, survivors);
+    // La Nafta regalada que nadie usó se queda en la ronda: a la tienda llega solo la comprada.
+    const kept = m.players.map((p) => (this.giftFuel.has(p.id) ? { ...p, inventory: { ...p.inventory, fuel: (p.inventory.fuel ?? 0) - 1 } } : p));
+    this.giftFuel.clear();
+    this.refueled = [];
+    const { players, payouts } = endRoundPayouts(kept, survivors);
     this.match = { ...m, players };
     this.lastRound = { round: this.round, survivors: [...survivors], payouts };
     this.turnId = null;

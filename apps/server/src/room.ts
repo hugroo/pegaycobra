@@ -5,7 +5,7 @@
 //                        fire { yaw, pitch, power, weapon }
 //                        move { moveTo: { x, z } } · step { moveTo: { x, z } } · buy { item } · sell { item } · ready · chat { text }
 // Los bots (bot.ts) no tienen conexión: la sala les pasa sus mensajes por los mismos métodos.
-// Mensajes del server:   terrain (binario) · shot · moved · skip · burn · roundEnd · chat
+// Mensajes del server:   terrain (binario) · shot · moved · skip · burn · refuel · roundEnd · chat
 
 //
 // Si a uno se le cae la conexión sin avisar (refrescó la página), el asiento se le guarda
@@ -421,7 +421,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   /**
-   * Después de cada cambio: si el fuego quemó a alguien, lo avisa; si terminó una ronda, manda el
+   * Después de cada cambio: si el fuego quemó a alguien, lo avisa; si una vuelta sin daño dejó Nafta, también; si terminó una ronda, manda el
    * resumen; si empezó una, manda el terreno nuevo completo; después sincroniza el estado.
    */
   private flush(): void {
@@ -430,6 +430,12 @@ export class GameRoom extends Room<{ state: GameState }> {
       const msg: BurnBroadcast = { id: b.targetId, damage: round2(b.damage), killed: b.killed };
       this.broadcast("burn", msg);
       this.log(`${this.nameOf(b.targetId)} se quema -${b.damage.toFixed(1)}${b.killed ? " (muere)" : ""} [fuego de ${this.nameOf(b.ownerId)}]`);
+    }
+    // Vuelta entera sin daño: los que recibieron una Nafta. La carga va en el estado.
+    const refueled = g.takeRefuel();
+    if (refueled.length > 0) {
+      this.broadcast("refuel", { ids: refueled });
+      this.log(`vuelta sin daño: nafta para ${refueled.map((id) => this.nameOf(id)).join(", ")}`);
     }
     if (g.lastRound && g.lastRound !== this.sentRoundEnd) {
       this.sentRoundEnd = g.lastRound;

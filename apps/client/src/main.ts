@@ -675,6 +675,12 @@ function attach(r: Room<any>): void {
     showBanner(ui.banner.hidden ? text : `${ui.banner.textContent} · ${text}`, 2200);
     play("hit");
   });
+  r.onMessage("refuel", (m: { ids: string[] }) => {
+    if (room !== r) return;
+    // Como el fuego, llega pegado al final de un tiro o a un turno perdido: se suma al cartel que esté.
+    const text = m.ids.includes(r.sessionId) ? "Vuelta sin pegar: te cae una Nafta de arriba" : "Vuelta sin pegar: Nafta de arriba";
+    showBanner(ui.banner.hidden ? text : `${ui.banner.textContent} · ${text}`, 3000);
+  });
   r.onMessage("roundEnd", (m: RoundEndMsg) => {
     lastRoundEnd = m;
   });

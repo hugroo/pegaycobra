@@ -268,7 +268,7 @@ de la misma sala podrían caer en servidores distintos.
   Si el rival está en la orilla y alguna de sus 24 punterías lo deja en el agua, tira esa; si
   ninguna lo ahoga, la que cae más cerca, como siempre. Solo con Chispa, Misil o Rebote: con el
   Rodillo no mira el agua.
-- Otros mensajes del server: `moved` (alguien usó nafta o, con `free`, dio el paso gratis), `skip` (turno perdido por tiempo),
+- Otros mensajes del server: `moved` (alguien usó nafta o, con `free`, dio el paso gratis), `refuel { ids }` (una vuelta sin daño les dejó una Nafta a esos), `skip` (turno perdido por tiempo),
   `burn` (a alguien le empezó el turno en el fuego) y `roundEnd` (lo que cobró cada uno al terminar
   la ronda).
 - Chat de sala: el server le pone a cada `chat` el id, el nombre y el slot de quien
@@ -518,6 +518,10 @@ tanques son primitivas generadas.
     (`applyMoundTerrain`). En piso llano las dos reglas dan la misma loma.
   - **El paso gratis**: antes de su primer tiro de cada ronda, cada tanque puede correrse una vez
     hasta 15 celdas (`FREE_STEP_RANGE`), sin nafta. No se compra ni se guarda. El original no lo tiene.
+  - **La Nafta de la vuelta sin daño**: cuando todos los vivos jugaron su turno y nadie perdió vida,
+    cada tanque vivo recibe una Nafta, la haya comprado o no, y se usa como la de la tienda. No se
+    apila (el que todavía la tiene no recibe otra) y la que no se usó no pasa a la tienda. El
+    original no lo tiene.
   - **La nafta mueve antes de tirar** y el turno sigue. En el original, mover reemplaza al tiro.
     Una carga alcanza 20 celdas en línea recta (el original da 40 unidades, una por casillero,
     con un máximo de 50 por movimiento) y no hay límite de pendiente (`MaxClimbingDistance`).

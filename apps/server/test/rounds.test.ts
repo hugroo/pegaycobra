@@ -778,6 +778,85 @@ describe("paso gratis", () => {
   });
 });
 
+describe("Nafta de la vuelta sin daño", () => {
+  const give = (g: Game, id: string, items: object) => {
+    g.match = { ...g.match!, players: g.match!.players.map((p) => (p.id === id ? { ...p, inventory: { ...p.inventory, ...items } } : p)) };
+  };
+  const at = (g: Game, id: string) => g.match!.tanks.find((t) => t.id === id)!;
+  const fuel = (g: Game) => ["A", "B"].map((id) => inv(g, id).fuel ?? 0);
+  /** El del turno lo deja vencer: no tira nadie. */
+  const pass = (g: Game) => {
+    for (let i = 0; i < TURN_SECONDS; i++) g.tickSecond();
+  };
+
+  /** Piso plano a 10, sin viento, A en el centro y B donde cae yaw 90 / pitch 45 si sale con potencia 600. Le toca a A. */
+  function flat() {
+    const g = started();
+    const terrain = createFlatTerrain(257, 257, 10);
+    g.match = { ...g.match!, terrain, wind: { x: 0, z: 0 }, tanks: g.match!.tanks.map((t) => ({ ...t, x: 128, y: 10, z: t.id === "A" ? 128 : 128 + 93 })) };
+    expect(g.turnId).toBe("A");
+    return g;
+  }
+
+  it("tras una vuelta sin daño cada tanque vivo tiene una, y se gasta como la de la tienda", () => {
+    const g = flat();
+    pass(g); // A
+    expect(fuel(g)).toEqual([0, 0]); // media vuelta todavía no es una vuelta
+    expect(g.takeRefuel()).toEqual([]);
+    pass(g); // B
+    expect(fuel(g)).toEqual([1, 1]);
+    expect(g.takeRefuel().sort()).toEqual(["A", "B"]);
+    expect(g.takeRefuel()).toEqual([]); // la sala lo avisa una sola vez
+    expect(g.stepLeft).toBe(false); // el paso de 15 no vuelve a mitad de ronda
+
+    expect(g.turnId).toBe("A");
+    expect(g.move("B", { moveTo: { x: 128, z: 128 + 80 } })).toBeNull(); // no es su turno
+    expect(g.move("A", { moveTo: { x: 128 + FUEL_MOVE_RANGE + 1, z: 128 } })).toBeNull(); // más de 20
+    expect(g.move("A", { moveTo: { x: 128 + FUEL_MOVE_RANGE, z: 128 } })).not.toBeNull();
+    expect(at(g, "A").x).toBe(128 + FUEL_MOVE_RANGE);
+    expect(fuel(g)).toEqual([0, 1]);
+    expect(g.move("A", { moveTo: { x: 128, z: 128 } })).toBeNull(); // era una sola
+  });
+
+  it("tras una vuelta con daño no hay Nafta; la siguiente, si es quieta, sí", () => {
+    const g = flat();
+    // La Chispa cae a 3 celdas de B: lo raspa, no lo mata.
+    g.match = { ...g.match!, tanks: g.match!.tanks.map((t) => (t.id === "B" ? { ...t, z: t.z + 3 } : t)) };
+    expect(g.fire("A", { yaw: 90, pitch: 45, power: dial("babyMissile", 600), weapon: "babyMissile" })).not.toBeNull();
+    g.finishShot();
+    expect(at(g, "B").life).toBeGreaterThan(0);
+    expect(at(g, "B").life).toBeLessThan(100);
+    pass(g); // B
+    expect(g.turnId).toBe("A"); // vuelta cerrada
+    expect(fuel(g)).toEqual([0, 0]);
+    expect(g.takeRefuel()).toEqual([]);
+
+    pass(g);
+    pass(g);
+    expect(fuel(g)).toEqual([1, 1]);
+  });
+
+  it("dos vueltas quietas no dejan dos; la que se gastó vuelve, y la que sobró no llega a la tienda", () => {
+    const g = flat();
+    give(g, "B", { fuel: 1 }); // B ya tenía una comprada
+    for (let i = 0; i < 4; i++) pass(g);
+    expect(fuel(g)).toEqual([1, 2]); // una regalada cada uno, no dos
+    expect(g.takeRefuel().sort()).toEqual(["A", "B"]);
+
+    // A la gasta y la vuelta sigue quieta: a A le vuelve, B se queda con la que tenía.
+    expect(g.move("A", { moveTo: { x: 128 + 10, z: 128 } })).not.toBeNull();
+    pass(g);
+    pass(g);
+    expect(fuel(g)).toEqual([1, 2]);
+    expect(g.takeRefuel()).toEqual(["A"]);
+
+    killAndPass(g, "A");
+    expect(g.phase).toBe("shop");
+    expect(fuel(g)).toEqual([0, 1]); // queda la comprada
+    expect(g.sell("A", { item: "fuel" })).toBe(false);
+  });
+});
+
 describe("fin de partida", () => {
   it("después de la ronda 5 gana el de más puntos, no el de más plata", () => {
     const g = started();
