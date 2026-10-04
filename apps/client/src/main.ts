@@ -21,6 +21,7 @@ import {
   terrainHeightAt,
   validateMove,
   WEAPONS,
+  type MapId,
   type MatchState3D,
   type ShopItemId,
   type Terrain,
@@ -54,6 +55,8 @@ const ui = {
   lobbyLeave: $<HTMLButtonElement>("btn-lobby-leave"),
   hulls: $("hulls"),
   colors: $("colors"),
+  mapsHead: $("maps-head"),
+  maps: $("maps"),
   hudRound: $("hud-round"),
   turnPill: $("turn-pill"),
   hudTurn: $("hud-turn"),
@@ -255,6 +258,47 @@ function paintColorPicker(shown: number, taken: ReadonlySet<number>): void {
     btn.disabled = taken.has(i);
     btn.title = (COLOR_NAMES[i] ?? "") + (taken.has(i) ? " (ya lo tiene otro)" : "");
   });
+}
+
+// Mapa: lo elige el anfitrión en la espera y los demás lo ven. El marcado es siempre el del estado.
+// Cada dibujo es el mapa visto de arriba, con los colores del paisaje (landscape.ts).
+const MAP_SVG: Record<MapId, string> = {
+  valley:
+    '<rect width="40" height="28" fill="#1f9ea8"/><rect x="5" y="4" width="30" height="20" rx="7" fill="#cdbf96"/>' +
+    '<rect x="6.5" y="5.5" width="27" height="17" rx="6" fill="#9e8549"/><ellipse cx="15" cy="16" rx="6" ry="3.5" fill="#34542f"/>' +
+    '<ellipse cx="26" cy="11" rx="5" ry="3" fill="#34542f"/>',
+  island:
+    '<rect width="40" height="28" fill="#1f9ea8"/><circle cx="20" cy="14" r="10" fill="#58cbc2"/><circle cx="20" cy="14" r="8.5" fill="#cdbf96"/>' +
+    '<circle cx="20" cy="14" r="5.5" fill="#34542f"/><circle cx="20" cy="14" r="3.2" fill="#7f8187"/><circle cx="20" cy="14" r="1.6" fill="#f3f6fa"/>',
+  hill:
+    '<rect width="40" height="28" fill="#9e8549"/>' +
+    [[9, 9, 7], [29, 8, 6], [20, 19, 8], [34, 21, 5], [5, 23, 4.5]]
+      .map(
+        ([x, y, r]) =>
+          `<circle cx="${x}" cy="${y}" r="${r}" fill="#34542f"/><circle cx="${x}" cy="${y}" r="${r! * 0.62}" fill="#7f8187"/>` +
+          `<circle cx="${x}" cy="${y}" r="${r! * 0.34}" fill="#f3f6fa"/>`,
+      )
+      .join(""),
+};
+
+const mapBtns = [...ui.maps.querySelectorAll<HTMLButtonElement>("[data-map]")];
+for (const btn of mapBtns) {
+  const id = btn.dataset.map as MapId;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 40 28");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = MAP_SVG[id];
+  btn.prepend(svg);
+  btn.addEventListener("click", () => room?.send("map", { map: id })); // se marca cuando el server lo confirma en el estado
+}
+
+/** Marca el mapa de la sala. Solo el anfitrión puede tocarlo. */
+function paintMapPicker(shown: string, host: boolean): void {
+  for (const btn of mapBtns) {
+    btn.setAttribute("aria-checked", String(btn.dataset.map === shown));
+    btn.disabled = !host;
+  }
+  ui.mapsHead.textContent = host ? "Mapa" : "Mapa · lo elige el anfitrión";
 }
 
 /** Con lo que se entra a una sala: nombre, silueta y, si eligió, color. */
@@ -772,6 +816,7 @@ function renderLobby(): void {
     paintColorPicker(me.color, new Set(players.filter((p) => p !== me).map((p) => p.color as number)));
   }
   const host = isMe(s.hostId);
+  paintMapPicker(s.map, host);
   ui.start.hidden = !host;
   ui.start.disabled = players.length < 2;
   // Los bots completan hasta 2: con 2 o más ya no hay nada que llenar.

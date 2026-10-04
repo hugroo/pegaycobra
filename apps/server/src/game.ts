@@ -9,12 +9,14 @@ import {
   cannotBuy,
   cannotSell,
   createRng,
+  DEFAULT_MAP,
   driftWind3D,
   emptyScoreboard,
   endRoundPayouts,
   matchWinners,
   MONEY_START,
   moveTank,
+  parseMap,
   resolveTurn,
   ROUND_MAX_TURNS,
   ROUNDS_PER_MATCH,
@@ -27,6 +29,7 @@ import {
   STEP_SECONDS,
   validateMove,
   type BurnEvent,
+  type MapId,
   type MatchState3D,
   type Player,
   type RoundPayout,
@@ -199,6 +202,8 @@ export class Game {
   phase: Phase = "lobby";
   seats: Seat[] = [];
   hostId: string | null = null;
+  /** El mapa de la partida. Lo elige el anfitrión en la espera; al arrancar queda fijo, también para la revancha. */
+  map: MapId = DEFAULT_MAP;
   match: MatchState3D | null = null;
   turnId: string | null = null;
   /** Segundos que le quedan al turno o a la tienda. */
@@ -287,6 +292,14 @@ export class Game {
     return true;
   }
 
+  /** El anfitrión elige el mapa antes de arrancar. De otro, o con la partida ya arrancada, se ignora. */
+  setMap(byId: string, raw: unknown): boolean {
+    const map = parseMap(raw);
+    if (!map || this.phase !== "lobby" || byId !== this.hostId || map === this.map) return false;
+    this.map = map;
+    return true;
+  }
+
   canStart(byId: string): boolean {
     return this.phase === "lobby" && byId === this.hostId && this.seats.length >= MIN_PLAYERS;
   }
@@ -307,7 +320,7 @@ export class Game {
 
   /**
    * Revancha en la misma sala: los que quedan siguen en su asiento (mismo id, nombre y color) y la
-   * partida arranca de cero, como un start. Los asientos de los que se fueron se sueltan.
+   * partida arranca de cero, como un start, en el mismo mapa. Los asientos de los que se fueron se sueltan.
    */
   rematch(byId: string, seed: number): boolean {
     if (!this.canRematch(byId)) return false;
@@ -331,7 +344,7 @@ export class Game {
     this.round++;
     this.roundSerial++;
     const gone = new Set(this.seats.filter((s) => !s.connected).map((s) => s.id));
-    this.match = startRound3D(this.seedFor(this.round), players, gone);
+    this.match = startRound3D(this.seedFor(this.round), players, gone, this.map);
     this.windRng = createRng(this.seedFor(this.round) ^ 0x7f4a7c15);
     const { terrain, tanks } = this.match;
     // Cada cañón arranca mirando al centro del mapa, a 45°.

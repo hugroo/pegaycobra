@@ -73,6 +73,8 @@ export const GameState = schema(
     /** "lobby" | "aiming" | "animating" | "shop" | "ended" */
     phase: t.string().default("lobby"),
     hostId: t.string().default(""),
+    /** Mapa de la partida: "valley" (Valle), "island" (Isla) o "hill" (Cerro). Lo elige el anfitrión en la espera. */
+    map: t.string().default("hill"),
     players: t.map(PlayerState),
     /** Orden de turnos (orden de llegada). */
     order: t.array("string"),

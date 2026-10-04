@@ -96,6 +96,12 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .color[aria-checked="true"] { border-color: #fff; box-shadow: 0 0 0 2px var(--c); }
 .color:disabled { opacity: 0.2; cursor: not-allowed; }
 .hull-icon { width: 30px; height: 21px; flex: none; }
+/* Mapa: lo toca el anfitrión; los demás ven cuál quedó marcado. */
+.maps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.map { display: grid; justify-items: center; gap: 4px; padding: 8px 4px; font-weight: 700; }
+.map svg { width: 60px; height: 42px; border-radius: 8px; }
+.map[aria-checked="true"] { border-color: var(--ocre); background: var(--glass-3); color: var(--ocre); }
+.map[aria-checked="true"]:disabled { opacity: 1; cursor: default; }
 .tag { margin-left: auto; font-size: 13px; color: var(--muted); }
 .lbl { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; }
 

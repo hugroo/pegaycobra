@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Sala de Colyseus: recibe mensajes, se los pasa a Game y copia el resultado al estado.
 //
-// Mensajes del cliente:  start · rematch · fillBots · fire { yaw, pitch, power, weapon }
+// Mensajes del cliente:  start · rematch · fillBots · map { map } · fire { yaw, pitch, power, weapon }
 //                        move { moveTo: { x, z } } · buy { item } · sell { item } · ready · chat { text }
 // Los bots (bot.ts) no tienen conexión: la sala les pasa sus mensajes por los mismos métodos.
 // Mensajes del server:   terrain (binario) · shot · moved · skip · burn · roundEnd · chat
@@ -11,7 +11,7 @@
 // rejoinSeconds: vuelve con el token de reconexión y sigue siendo el mismo id, con su tanque.
 
 import { Room, type Client, type Delayed } from "@colyseus/core";
-import { createRng, type TurnResult3D } from "@pegaycobra/sim";
+import { createRng, MAPS, type TurnResult3D } from "@pegaycobra/sim";
 import { BOT_NAME, botMovePick, botShopPick, pickBotShot } from "./bot";
 import { Game, MAX_PLAYERS, MIN_PLAYERS, SHOP_SECONDS, TURN_SECONDS, type RoundSummary, type ShotMark } from "./game";
 import { generateCode } from "./codes";
@@ -205,6 +205,13 @@ export class GameRoom extends Room<{ state: GameState }> {
     // Color: { color: 0..COLOR_COUNT-1 }, solo en la espera y si nadie lo tiene.
     this.onMessage("color", (client, message: unknown) => {
       if (!this.game.setColor(client.sessionId, (message as { color?: unknown } | null)?.color)) return; // ignorado
+      this.flush();
+    });
+
+    // Mapa: { map: "valley" | "island" | "hill" }, solo el anfitrión y solo antes de arrancar.
+    this.onMessage("map", (client, message: unknown) => {
+      if (!this.game.setMap(client.sessionId, (message as { map?: unknown } | null)?.map)) return; // ignorado
+      this.log(`mapa: ${MAPS[this.game.map].name}`);
       this.flush();
     });
 
@@ -424,7 +431,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.botsHit.clear();
       this.broadcast("terrain", fullTerrain(g.match.terrain));
       const w = g.match.wind;
-      this.log(`ronda ${g.round}/${g.rounds}, viento (${w.x.toFixed(1)}, ${w.z.toFixed(1)})`);
+      this.log(`ronda ${g.round}/${g.rounds} en ${MAPS[g.map].name}, viento (${w.x.toFixed(1)}, ${w.z.toFixed(1)})`);
     }
     const before = `${this.state.phase}:${this.state.turnId}`;
     this.sync();
@@ -471,6 +478,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     }
     s.phase = g.phase;
     s.hostId = g.hostId ?? "";
+    s.map = g.map;
     s.turnId = g.turnId ?? "";
     s.timeLeft = g.timeLeft;
     s.round = g.round;

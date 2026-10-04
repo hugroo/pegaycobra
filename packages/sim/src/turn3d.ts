@@ -15,6 +15,7 @@ import { TANK_RADIUS, WATER_LEVEL, WIND_MAX } from "./constants";
 import { craterDepthAt } from "./crater";
 import { applyDamage, explosionDamage, fallDamage, isAlive, type Tank } from "./damage";
 import { canFire, clampMoney, consumeAmmo, moneyForDamage } from "./economy";
+import { START_RING } from "./maps";
 import { TANK_START_HEIGHT_MAX, TANK_START_HEIGHT_MIN } from "./match";
 import { shotImpacts } from "./mirv";
 import { fireFromShot, inFire, type Fire } from "./napalm";
@@ -134,12 +135,13 @@ export const TANK_MIN_SEPARATION_3D = 60;
  * se descarta; si no aparece ninguno bueno, queda el punto exacto del anillo. Si ese punto es agua
  * (o quedó pegado a otro tanque), se corre al piso firme más cercano que respete la separación
  * (nearestStart): nadie nace en el lago.
- * Con el anillo a 0.36 del ancho, la cuerda entre vecinos es ≥ 130 wu con 4 jugadores.
+ * Con el anillo a 0.36 del ancho (START_RING), la cuerda entre vecinos es ≥ 130 wu con 4 jugadores.
+ * Cada mapa trae su anillo (maps.ts): en uno con agua alrededor tiene que caer sobre la tierra.
  */
-export function placeTanks3D(terrain: Terrain, count: number, rng: () => number): { x: number; z: number }[] {
+export function placeTanks3D(terrain: Terrain, count: number, rng: () => number, ring = START_RING): { x: number; z: number }[] {
   const cx = (terrain.width - 1) / 2;
   const cz = (terrain.depth - 1) / 2;
-  const radius = Math.min(cx, cz) * 0.72;
+  const radius = Math.min(cx, cz) * ring;
   const spin = rng() * Math.PI * 2;
   const step = (Math.PI * 2) / Math.max(1, count);
   const placed: { x: number; z: number }[] = [];

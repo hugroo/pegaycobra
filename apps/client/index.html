@@ -36,6 +36,12 @@
         </div>
         <div id="colors" class="colors" role="radiogroup" aria-label="Color del tanque"></div>
         <ul id="lobby-players" class="players"></ul>
+        <div id="maps-head" class="hulls-head lbl">Mapa</div>
+        <div id="maps" class="maps" role="radiogroup" aria-labelledby="maps-head">
+          <button data-map="valley" class="map" role="radio" aria-checked="false" title="Agua en las orillas, piso al medio">Valle</button>
+          <button data-map="island" class="map" role="radio" aria-checked="false" title="Un cerro rodeado de lago: ojo con la orilla">Isla</button>
+          <button data-map="hill" class="map" role="radio" aria-checked="true" title="Altura por todos lados: rinde el Rodillo">Cerro</button>
+        </div>
         <button id="btn-start" class="primary">Arrancar</button>
         <button id="btn-bots">Llenar con bots</button>
         <p id="lobby-wait" class="hint"></p>

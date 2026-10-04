@@ -40,6 +40,18 @@ export interface TerrainParams3D {
   peakHeightMax: number;
   smoothing: number;
   levelSurround: boolean;
+  // Lo que sigue es propio (el original da la forma con una máscara por paisaje): con los valores
+  // por defecto no hace nada y sale el terreno de siempre.
+  /** Parte del mapa, centrada, donde caen los centros de las colinas. 1 = todo el mapa. [fracción] */
+  spread: number;
+  /** Piso que se suma debajo de las colinas, antes de recortar la costa. [wu] */
+  floor: number;
+  /** Agua desde el borde del mapa hacia adentro, medida sobre los ejes. 0 = sin costa. [celdas] */
+  coastWater: number;
+  /** Ancho de la playa: de la orilla hasta donde el piso ya está entero. [celdas] */
+  coastShore: number;
+  /** Forma de la costa: 2 = redonda; más alto, más cuadrada. [exponente] */
+  coastPower: number;
 }
 
 /** defnhilly.xml tal cual: 256×256 celdas (257 muestras por lado), 50–70 semiesferas. */
@@ -58,6 +70,11 @@ export const DEFAULT_TERRAIN_3D: Readonly<TerrainParams3D> = Object.freeze({
   peakHeightMax: 1.5,
   smoothing: 0.04,
   levelSurround: true,
+  spread: 1,
+  floor: 0,
+  coastWater: 0,
+  coastShore: 0,
+  coastPower: 2,
 });
 
 /**
@@ -188,9 +205,41 @@ export function levelSurroundTerrain(t: Terrain): Terrain {
   return { width: w, depth: d, heights: h };
 }
 
+/** Cuánto se corre la orilla de su línea, para un lado y para el otro. [fracción del radio de tierra] */
+const COAST_WOBBLE = 0.1;
+
+/**
+ * Costa (regla propia): suma `floor` y hunde todo lo que queda a menos de `coastWater` celdas del
+ * borde. La distancia al centro se mide con el exponente `coastPower` (2 = círculo, 4 = cuadrado de
+ * esquinas redondas), y entre la orilla y `coastShore` celdas tierra adentro el piso sube de 0 a
+ * entero: esa es la playa. Tres ondas con fase al azar mueven la orilla para que no salga de compás.
+ * Muta `t`: no arma otra grilla.
+ */
+function sinkCoast(t: Terrain, p: TerrainParams3D, rng: () => number): void {
+  const cx = (t.width - 1) / 2;
+  const cz = (t.depth - 1) / 2;
+  const land = Math.min(cx, cz) - p.coastWater;
+  const phases = [rng(), rng(), rng()].map((v) => v * Math.PI * 2);
+  const h = t.heights;
+  for (let z = 0; z < t.depth; z++) {
+    for (let x = 0; x < t.width; x++) {
+      const dx = Math.abs(x - cx);
+      const dz = Math.abs(z - cz);
+      const dist = (dx ** p.coastPower + dz ** p.coastPower) ** (1 / p.coastPower);
+      const a = Math.atan2(z - cz, x - cx);
+      const wave = 0.5 * Math.sin(2 * a + phases[0]!) + 0.3 * Math.sin(3 * a + phases[1]!) + 0.2 * Math.sin(5 * a + phases[2]!);
+      const inland = land * (1 + COAST_WOBBLE * wave) - dist;
+      const k = inland <= 0 ? 0 : inland >= p.coastShore ? 1 : inland / p.coastShore;
+      const i = x + z * t.width;
+      h[i] = (h[i]! + p.floor) * (k * k * (3 - 2 * k));
+    }
+  }
+}
+
 /**
  * HeightMapModifier::generateTerrain(): semiesferas al azar → scale → levelSurround → smooth →
- * levelSurround. Determinista por semilla.
+ * levelSurround. Determinista por semilla. Con `spread` las colinas se juntan al medio y con
+ * `coastWater` el borde se hunde (sinkCoast, después de scale): de ahí salen los mapas (maps.ts).
  */
 export function generateTerrain(seed: number, params: Partial<TerrainParams3D> = {}): Terrain {
   const p: TerrainParams3D = { ...DEFAULT_TERRAIN_3D, ...params };
@@ -209,12 +258,17 @@ export function generateTerrain(seed: number, params: Partial<TerrainParams3D> =
     const sizew2 = randRange(rng, p.peakWidthYMin, p.peakWidthYMax) + sizew;
     const sizeh = randRange(rng, p.peakHeightMin, p.peakHeightMax) * Math.max(sizew, sizew2);
     const border = p.levelSurround ? Math.max(sizew, sizew2) * 1.2 : 0;
-    const sx = rng() * (mapW - border * 2) + border;
-    const sz = rng() * (mapD - border * 2) + border;
+    let sx = rng() * (mapW - border * 2) + border;
+    let sz = rng() * (mapD - border * 2) + border;
+    if (p.spread < 1) {
+      sx = mapW / 2 + (sx - mapW / 2) * p.spread;
+      sz = mapD / 2 + (sz - mapD / 2) * p.spread;
+    }
     addCirclePeak(t, sx, sz, sizew, sizew2, sizeh, offsetRng);
   }
 
   t = scaleTerrain(t, randRange(rng, p.heightMin, p.heightMax));
+  if (p.coastWater > 0) sinkCoast(t, p, rng);
   if (p.levelSurround) t = levelSurroundTerrain(t);
   t = smoothTerrain(t, p.smoothing);
   if (p.levelSurround) t = levelSurroundTerrain(t);

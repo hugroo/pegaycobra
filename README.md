@@ -54,6 +54,12 @@ Ahí mismo elige el color, entre ocho. También queda guardado y sigue en la rev
 con un color que ya tiene otro, te toca uno libre; en la espera, los tomados aparecen apagados. El
 que no eligió y el bot llevan el color de su asiento.
 
+El anfitrión elige el mapa antes de arrancar; los demás ven cuál quedó marcado y no lo cambian.
+Son tres: *Valle* (agua en las orillas y piso bajo al medio), *Isla* (un cerro rodeado de lago;
+los tanques nacen en la playa, donde un Misil al pie los manda al agua) y *Cerro* (el de siempre:
+cerros altos por todos lados, donde rinde el Rodillo). Al arrancar queda fijo, y la revancha se
+juega en el mismo. Las armas, el daño, la plata y el viento son iguales en los tres.
+
 Controles (la barra de abajo aparece solo en tu turno; un arma sin munición no se muestra):
 
 | Qué | Cómo |
@@ -215,6 +221,7 @@ de la misma sala podrían caer en servidores distintos.
   |---|---|---|
   | `start` | lobby | que sea el anfitrión y haya 2 o más |
   | `fillBots` | lobby | que sea el anfitrión. Agrega bots hasta llegar a 2 jugadores |
+  | `map { map }` | lobby | que sea el anfitrión y `map` sea `valley`, `island` o `hill`. Arrancada la partida se ignora, también en la revancha |
   | `fire { yaw, pitch, power, weapon }` | tu turno | `weapon` es `babyMissile`, `missile`, `roller`, `napalm`, `nuke`, `dirt`, `mirv` o `leapfrog` y tenés munición. Cualquier otro campo (daño, impacto, posición) se descarta sin llegar al sim. Otra arma: el mensaje se ignora entero |
   | `move { moveTo: { x, z } }` | tu turno, antes de tirar | que tengas nafta, no te hayas movido ya en el turno, y el destino esté a ≤ 20 celdas, dentro del mapa y no pegado a otro tanque (`validateMove` del sim) |
   | `buy { item }` | tienda | que el ítem exista y te alcance la plata (`cannotBuy` del sim) |
@@ -307,6 +314,7 @@ pnpm typecheck
 | `turn.ts` | `resolveTurn(state, { playerId, angleDeg, power }, { recordPath })`: lo que llama el server |
 | `match.ts` | Perfil: `rollWind()`, `placeTanks()`, `spreadTanks()` + `GAME_TERRAIN`. `matchOutcome()` (ganador, lo usan los dos modos) |
 | `terrain.ts` | **3D.** `generateTerrain(seed)`: grilla width × depth, semiesferas, scale, smooth 5×5. `terrainHeightAt()` bilineal. `applyCraterTerrain()` (disco que baja), `applyMoundTerrain()` (disco que sube: la loma de la Tierra), `flattenTerrainUnder()` |
+| `maps.ts` | **3D.** `MAPS`: Valle, Isla y Cerro. Cada uno es un juego de parámetros para `generateTerrain()` (dónde caen las colinas, cuánto piso hay debajo y cuánta agua en el borde) más el anillo donde nacen los tanques. `parseMap()` |
 | `shot3d.ts` | **3D.** `simulateShot3D()`: yaw 0–360 (0 = +X, 90 = +Z), pitch 0–90, potencia; viento `{x, z}`; gravedad en Y. `flyShot3D()`: un tramo de vuelo desde un proyectil ya lanzado, que puede cortar en la cima |
 | `roller.ts` | **3D.** `simulateRoll()`: la bola baja por el gradiente del terreno hasta un tanque, N celdas o quedarse sin pendiente. `simulateWeaponShot3D()`: el tiro de cualquier arma, con la rodada si es un Rodillo, la apertura si es un Racimo y el pique si es un Rebote. Lo usan el server, la fantasma del cliente y el bot |
 | `mirv.ts` | **3D.** `simulateSplitShot3D()`: el tiro del Racimo, que vuela hasta la cima y ahí se abre en cabezas (`split` en el resultado). `splitDirection()`: para qué lado sale cada una. `shotImpacts()`: los golpes de un tiro en el orden en que caen (uno, o uno por cabeza) |
@@ -416,6 +424,11 @@ tanques son primitivas generadas.
   - **Suavizado más fuerte en la partida** (`GAME_TERRAIN_3D`: smooth 5×5 con todos los pesos
     iguales en vez de 0.04). Con el ruido por celda de `addCirclePeak`, el terreno original se ve
     como pelusa bajo luz por vértice. La física usa el mismo terreno que se dibuja.
+  - **Tres mapas con un solo generador** (`maps.ts`). El original trae un archivo por paisaje y le
+    da la forma con una máscara; acá `generateTerrain()` tiene tres parámetros propios: `spread`
+    junta las colinas al medio, `floor` les pone piso debajo y `coastWater` hunde el borde con una
+    playa (`coastShore`). El Cerro no usa ninguno: es el terreno de antes, celda por celda. Se
+    genera solo la grilla del mapa elegido.
   - **Ubicación de tanques propia** (`placeTanks3D`): sobre un anillo alrededor del centro,
     repartidos en ángulos iguales, nunca a menos de 60 celdas entre sí.
     `LandscapeDefnTankStartHeight::placeTank()` tira al azar y no garantiza distancia.

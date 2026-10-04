@@ -3,6 +3,7 @@ import {
   createFlatTerrain,
   createRng,
   FUEL_MOVE_RANGE,
+  MAP_IDS,
   MONEY_START,
   onShore,
   PARACHUTE_LINE,
@@ -72,22 +73,25 @@ function powerFor(state: MatchState3D, yaw: number, outcome: string, weaponId: W
 
 describe("agua: nadie nace en el lago", () => {
   it("en los mapas del juego, todos nacen en piso firme y separados", () => {
-    for (let seed = 1; seed <= 150; seed++) {
-      for (const n of [2, 3, 4]) {
-        const players = Array.from({ length: n }, (_, i) => fresh(`P${i}`));
-        const { terrain, tanks } = startRound3D(seed * 31 + n, players);
-        for (const t of tanks) {
-          expect(terrainHeightAt(terrain, t.x, t.z)).toBeGreaterThan(WATER_LEVEL);
-          expect(t.y).toBeGreaterThan(WATER_LEVEL);
-        }
-        for (let i = 0; i < n; i++) {
-          for (let j = i + 1; j < n; j++) {
-            expect(Math.hypot(tanks[i]!.x - tanks[j]!.x, tanks[i]!.z - tanks[j]!.z)).toBeGreaterThanOrEqual(TANK_MIN_SEPARATION_3D);
+    for (const map of MAP_IDS) {
+      // El Cerro es el de siempre, con las mismas semillas; del Valle y la Isla alcanza con menos.
+      for (let seed = 1; seed <= (map === "hill" ? 150 : 40); seed++) {
+        for (const n of [2, 3, 4]) {
+          const players = Array.from({ length: n }, (_, i) => fresh(`P${i}`));
+          const { terrain, tanks } = startRound3D(seed * 31 + n, players, new Set(), map);
+          for (const t of tanks) {
+            expect(terrainHeightAt(terrain, t.x, t.z)).toBeGreaterThan(WATER_LEVEL);
+            expect(t.y).toBeGreaterThan(WATER_LEVEL);
+          }
+          for (let i = 0; i < n; i++) {
+            for (let j = i + 1; j < n; j++) {
+              expect(Math.hypot(tanks[i]!.x - tanks[j]!.x, tanks[i]!.z - tanks[j]!.z)).toBeGreaterThanOrEqual(TANK_MIN_SEPARATION_3D);
+            }
           }
         }
       }
     }
-  }, 20_000); // 450 mapas: en una máquina cargada pasa los 5 s por defecto
+  }, 30_000); // 690 mapas: en una máquina cargada pasa los 5 s por defecto
 
   it("si todo el anillo del sorteo es lago, cada tanque se corre a la orilla más cercana y siguen separados", () => {
     // El sorteo cae entre 78 y 102 celdas del centro: un lago en corona de 70 a 115 lo tapa entero.

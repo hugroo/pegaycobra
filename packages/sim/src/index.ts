@@ -10,6 +10,7 @@ export * from "./economy";
 export * from "./turn";
 export * from "./match";
 export * from "./terrain";
+export * from "./maps";
 export * from "./shot3d";
 export * from "./mirv";
 export * from "./bounce";

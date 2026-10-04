@@ -994,6 +994,67 @@ describe("partida de 5 rondas por red", () => {
     await d.leave();
   });
 
+  it("mapa: el anfitrión elige Isla, el otro recibe el mismo terreno y nadie nace en el agua; arrancada no se cambia y la revancha la repite", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto" });
+    const ta = trackTerrain(a);
+    const tb = trackTerrain(b);
+    for (const r of [a, b]) for (const type of ["shot", "skip", "moved", "roundEnd", "burn"]) r.onMessage(type, () => {});
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    expect([a.state.map, b.state.map]).toEqual(["hill", "hill"]); // sin elegir, el de siempre
+
+    // Elige el anfitrión. Lo que manda el otro, o un mapa que no existe, se ignora.
+    b.send("map", { map: "island" });
+    a.send("map", { map: "volcano" });
+    a.send("map", { map: "island" });
+    await until(() => b.state.map === "island");
+    b.send("map", { map: "valley" });
+    await sleep(100);
+    expect([a.state.map, b.state.map]).toEqual(["island", "island"]);
+
+    /** Una isla: tierra en el centro y lago todo alrededor, hasta el borde. Y los dos tanques en piso firme. */
+    const expectIsland = (fulls: number) => {
+      const server = (matchMaker.getLocalRoomById(a.roomId) as any).game as Game;
+      expect(ta.fulls).toBe(fulls);
+      expect(tb.fulls).toBe(fulls);
+      expect(tb.terrain!.heights).toEqual(ta.terrain!.heights);
+      expect(tb.terrain!.heights).toEqual(server.match!.terrain.heights);
+      const t = tb.terrain!;
+      const c = (t.width - 1) / 2;
+      expect(terrainHeightAt(t, c, c)).toBeGreaterThan(WATER_LEVEL);
+      for (let z = 0; z < t.depth; z++) {
+        for (let x = 0; x < t.width; x++) {
+          if (Math.hypot(x - c, z - c) > 100) expect(t.heights[x + z * t.width]).toBeLessThanOrEqual(WATER_LEVEL);
+        }
+      }
+      for (const r of [a, b]) {
+        expect(r.state.players.size).toBe(2);
+        for (const p of r.state.players.values()) {
+          expect(terrainHeightAt(t, p.x, p.z)).toBeGreaterThan(WATER_LEVEL);
+          expect(p.y).toBeGreaterThan(WATER_LEVEL);
+        }
+      }
+    };
+
+    a.send("start");
+    await until(() => a.state.phase === "aiming" && b.state.phase === "aiming" && ta.fulls === 1 && tb.fulls === 1);
+    expectIsland(1);
+
+    // Arrancada, queda fija: ni el anfitrión la cambia, ni jugando ni con la partida terminada.
+    a.send("map", { map: "hill" });
+    await sleep(100);
+    const game = (matchMaker.getLocalRoomById(a.roomId) as any).game as Game;
+    game.phase = "ended";
+    a.send("map", { map: "valley" });
+    a.send("rematch");
+    await until(() => b.state.phase === "aiming" && b.state.round === 1 && ta.fulls === 2 && tb.fulls === 2);
+    expect([a.state.map, b.state.map]).toEqual(["island", "island"]);
+    expectIsland(2);
+    await a.leave();
+    await b.leave();
+  });
+
   it("un código que no existe falla", async () => {
     await expect(new Client(`ws://localhost:${PORT}`).joinById("ZZZZ", {})).rejects.toBeTruthy();
   });

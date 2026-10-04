@@ -32,7 +32,8 @@
 import { INTEREST_RATE, MONEY_PER_ROUND, MONEY_WON_FOR_ROUND, TANK_MAX_LIFE } from "./constants";
 import { isAlive } from "./damage";
 import { clampMoney, type Inventory } from "./economy";
-import { GAME_TERRAIN_3D, generateTerrain, isWater, terrainHeightAt } from "./terrain";
+import { DEFAULT_MAP, MAPS, type MapId } from "./maps";
+import { generateTerrain, isWater, terrainHeightAt } from "./terrain";
 import { createRng } from "./rng";
 import { WEAPONS } from "./weapons";
 import type { DamageEvent, Player } from "./turn";
@@ -57,19 +58,24 @@ export const SURVIVOR_BONUS = MONEY_WON_FOR_ROUND + MONEY_WON_FOR_LIVES * PLAYER
 
 /**
  * Arma una ronda nueva sobre un terreno nuevo (como el original, que genera un paisaje por ronda):
- * terreno con GAME_TERRAIN_3D, viento sorteado de nuevo (después se corre turno a turno,
- * driftWind3D), tanques reubicados con vida llena.
+ * terreno del mapa elegido (maps.ts; se genera ese y ningún otro), viento sorteado de nuevo (después
+ * se corre turno a turno, driftWind3D), tanques reubicados con vida llena sobre el anillo del mapa.
  * La plata y el inventario de cada jugador pasan tal cual. Los que ya no están (`gone`) arrancan
  * muertos. El fuego de la ronda anterior no pasa: el estado nuevo no tiene `fires`.
  */
-export function startRound3D(seed: number, players: readonly Player[], gone: ReadonlySet<string> = new Set()): MatchState3D {
-  const terrain = generateTerrain(seed, GAME_TERRAIN_3D);
+export function startRound3D(
+  seed: number,
+  players: readonly Player[],
+  gone: ReadonlySet<string> = new Set(),
+  map: MapId = DEFAULT_MAP,
+): MatchState3D {
+  const terrain = generateTerrain(seed, MAPS[map].terrain);
   const rng = createRng(seed ^ 0x2545f491);
   // En float32, como viaja por la red: el server tira con el mismo número que ve el cliente.
   const rolled = rollWind3D(rng);
   const wind = { x: Math.fround(rolled.x), z: Math.fround(rolled.z) };
   const ids = players.map((p) => p.id);
-  const tanks = tanks3DAt(terrain, ids, placeTanks3D(terrain, ids.length, rng), TANK_MAX_LIFE).map((t) =>
+  const tanks = tanks3DAt(terrain, ids, placeTanks3D(terrain, ids.length, rng, MAPS[map].startRing), TANK_MAX_LIFE).map((t) =>
     gone.has(t.id) ? { ...t, life: 0 } : t,
   );
   return { terrain, wind, tanks, players: players.slice() };
