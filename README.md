@@ -62,7 +62,7 @@ Controles (la barra de abajo aparece solo en tu turno; un arma sin munición no 
 | Mover la cámara | Arrastrar con el botón derecho (fuera de tu turno, también el izquierdo) |
 | Zoom | Shift + rueda, + / −, o la rueda cuando no es tu turno |
 
-Tenés 30 s por turno; si no tirás, perdés el turno. El HUD flota sobre el cerro. Arriba, siempre:
+Tenés 20 s por turno; si no tirás, perdés el turno. El HUD flota sobre el cerro. Arriba, siempre:
 de quién es el turno (en ocre cuando es el tuyo), los segundos y el viento; la dirección del viento
 es la flecha celeste en el piso, al lado del tanque del turno. Abajo, solo en tu turno: arma,
 nafta, potencia, *Tirar*, tu plata y lo que tenés puesto (escudo, paracaídas). El panel de la
@@ -102,7 +102,7 @@ continua, quieta y más pálida.
 - **Al terminar la ronda se cobra:** cada tanque que sigue vivo recibe $2.000, y después todos
   reciben 15% de interés sobre la plata que tienen, más $1.500 fijos. Lo que gastaste en la tienda
   ya no está, así que no da interés. No alcanza para comprar todo: hay que elegir.
-- **Tienda de 20 s entre rondas**, visible para todos, con la plata de cada uno: una fila de
+- **Tienda de 30 s entre rondas**, visible para todos, con la plata de cada uno: una fila de
   cartas abajo (precio y qué hace cada cosa), sin tapar el mapa. Cierra antes si
   todos tocan *Listo*. No se puede comprar más de lo que alcanza.
 

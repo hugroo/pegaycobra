@@ -10,10 +10,10 @@
 // Si a uno se le cae la conexión sin avisar (refrescó la página), el asiento se le guarda
 // rejoinSeconds: vuelve con el token de reconexión y sigue siendo el mismo id, con su tanque.
 
-import { Room, type Client } from "@colyseus/core";
+import { Room, type Client, type Delayed } from "@colyseus/core";
 import { createRng, type TurnResult3D } from "@pegaycobra/sim";
 import { BOT_NAME, botMovePick, botShopPick, pickBotShot } from "./bot";
-import { Game, MAX_PLAYERS, MIN_PLAYERS, type RoundSummary, type ShotMark } from "./game";
+import { Game, MAX_PLAYERS, MIN_PLAYERS, SHOP_SECONDS, TURN_SECONDS, type RoundSummary, type ShotMark } from "./game";
 import { generateCode } from "./codes";
 import { FireState, GameState, PlayerState } from "./schema";
 import { changedRect, fullTerrain, terrainRect } from "./terrain-net";
@@ -132,8 +132,8 @@ const round2 =(v: number) => Math.round(v * 100) / 100;
 export class GameRoom extends Room<{ state: GameState }> {
   /** Escala del retardo entre tiro y aplicación del resultado. Los tests la bajan. */
   static shotDelayScale = 1;
-  static turnSeconds = 30;
-  static shopSeconds = 20;
+  static turnSeconds = TURN_SECONDS;
+  static shopSeconds = SHOP_SECONDS;
   /** Semilla fija para tests reproducibles. null = al azar. */
   static seedOverride: number | null = null;
   /** Lo que tarda un bot en tirar o en tocar "listo". Los tests lo bajan. [ms] */
@@ -143,6 +143,9 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   maxClients = 4;
   private game = new Game(GameRoom.turnSeconds, GameRoom.shopSeconds);
+  private ticker?: Delayed;
+  /** La cuenta que está corriendo (fase, turno y ronda); "" si no hay ninguna. */
+  private counting = "";
   private sentRoundSerial = 0;
   private sentRoundEnd: object | null = null;
   /** Asientos que son bots. */
@@ -209,7 +212,16 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.broadcast("chat", msg);
     });
 
-    this.clock.setInterval(() => {
+    this.startClock();
+  }
+
+  /**
+   * El reloj de turno y de tienda. Se rearma cada vez que empieza una cuenta (ver sync), así el
+   * primer segundo dura un segundo entero: los 20 s de turno y los 30 de tienda son reales.
+   */
+  private startClock(): void {
+    this.ticker?.clear();
+    this.ticker = this.clock.setInterval(() => {
       if (this.game.phase !== "aiming" && this.game.phase !== "shop") return;
       const before = this.game.turnId;
       const timedOut = this.game.tickSecond();
@@ -447,6 +459,11 @@ export class GameRoom extends Room<{ state: GameState }> {
   private sync(): void {
     const g = this.game;
     const s = this.state;
+    const counting = g.phase === "aiming" || g.phase === "shop" ? `${g.phase}|${g.turnId}|${g.round}` : "";
+    if (counting !== this.counting) {
+      this.counting = counting;
+      if (counting) this.startClock();
+    }
     s.phase = g.phase;
     s.hostId = g.hostId ?? "";
     s.turnId = g.turnId ?? "";

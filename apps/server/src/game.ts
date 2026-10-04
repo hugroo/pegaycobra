@@ -39,8 +39,8 @@ import {
 
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 4;
-export const TURN_SECONDS = 30;
-export const SHOP_SECONDS = 20;
+export const TURN_SECONDS = 20;
+export const SHOP_SECONDS = 30;
 /** El cliente reproduce el tiro 1.5× más rápido que el tiempo real del original. */
 export const PLAYBACK_SPEED = 1.5;
 /** Tope de la animación, por si un tiro dura muchísimo (p. ej. "timeout"). [ms] */

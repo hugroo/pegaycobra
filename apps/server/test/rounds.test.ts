@@ -14,11 +14,11 @@ import {
   terrainHeightAt,
   WEAPONS,
 } from "@pegaycobra/sim";
-import { Game, parseBuyMessage, parseMoveMessage, SHOP_SECONDS, shotDurationMs } from "../src/game";
+import { Game, parseBuyMessage, parseMoveMessage, SHOP_SECONDS, shotDurationMs, TURN_SECONDS } from "../src/game";
 import { changedRect } from "../src/terrain-net";
 
 function started(seed = 11, ids = ["A", "B"]) {
-  const g = new Game(30, SHOP_SECONDS);
+  const g = new Game(TURN_SECONDS, SHOP_SECONDS);
   for (const id of ids) g.addPlayer(id, id);
   g.start(ids[0]!, seed);
   return g;
@@ -27,7 +27,7 @@ function started(seed = 11, ids = ["A", "B"]) {
 /** Mata a `id` a mano y deja vencer el turno: así termina la ronda sin depender de la puntería. */
 function killAndPass(g: Game, id: string) {
   g.match = { ...g.match!, tanks: g.match!.tanks.map((t) => (t.id === id ? { ...t, life: 0 } : t)) };
-  for (let i = 0; i < 30 && g.phase === "aiming"; i++) g.tickSecond();
+  for (let i = 0; i < TURN_SECONDS && g.phase === "aiming"; i++) g.tickSecond();
 }
 
 const money = (g: Game, id: string) => g.playerOf(id)!.money;
@@ -63,7 +63,7 @@ describe("rondas", () => {
       ticks++;
     }
     expect(g.phase).toBe("shop");
-    expect(ticks).toBe(30 * ROUND_MAX_TURNS * 2);
+    expect(ticks).toBe(TURN_SECONDS * ROUND_MAX_TURNS * 2);
     expect(g.lastRound!.survivors.sort()).toEqual(["A", "B"]); // los dos cobran por sobrevivir
   });
 
@@ -85,7 +85,7 @@ describe("rondas", () => {
     expect(new Set(winds).size).toBeGreaterThan(1);
   });
 
-  it("la tienda dura 20 s; al vencer empieza la ronda siguiente", () => {
+  it("la tienda dura 30 s; al vencer empieza la ronda siguiente", () => {
     const g = started();
     killAndPass(g, "B");
     for (let i = 0; i < SHOP_SECONDS - 1; i++) g.tickSecond();
@@ -93,6 +93,30 @@ describe("rondas", () => {
     g.tickSecond();
     expect(g.phase).toBe("aiming");
     expect(g.round).toBe(2);
+  });
+
+  it("a los 20 s sin tirar, el turno pasa; la tienda no cierra antes de los 30; el que abre la ronda tiene los mismos 20", () => {
+    const g = new Game(); // los relojes de la sala, sin pisar
+    g.addPlayer("A", "A");
+    g.addPlayer("B", "B");
+    g.start("A", 11);
+    expect(g.timeLeft).toBe(20);
+    for (let i = 0; i < 19; i++) expect(g.tickSecond()).toBe(false);
+    expect(g.turnId).toBe("A");
+    expect(g.tickSecond()).toBe(true);
+    expect(g.turnId).toBe("B");
+    expect(g.timeLeft).toBe(20);
+
+    killAndPass(g, "A");
+    expect(g.phase).toBe("shop");
+    expect(g.timeLeft).toBe(30);
+    for (let i = 0; i < 29; i++) g.tickSecond();
+    expect(g.phase).toBe("shop");
+    expect(g.buy("B", { item: "missile" })).toBe(true); // en el segundo 29 todavía se compra
+    g.tickSecond();
+    expect(g.phase).toBe("aiming");
+    expect(g.round).toBe(2);
+    expect(g.timeLeft).toBe(20); // el primer turno de la ronda, igual que los demás
   });
 
   it("empieza un jugador distinto cada ronda", () => {
@@ -244,7 +268,7 @@ describe("Roller y Escudo en partida", () => {
     expect(g.board.A!.points).toBe(0);
     expect(g.phase).toBe("aiming");
 
-    for (let i = 0; i < 30; i++) g.tickSecond(); // B deja pasar su turno
+    for (let i = 0; i < TURN_SECONDS; i++) g.tickSecond(); // B deja pasar su turno
     const second = g.fire("A", hit)!;
     expect(second.result.blocked).toEqual([]);
     g.finishShot();
@@ -264,7 +288,7 @@ describe("Napalm en partida", () => {
   };
   /** El del turno lo deja vencer: no tira nadie. */
   const pass = (g: Game) => {
-    for (let i = 0; i < 30; i++) g.tickSecond();
+    for (let i = 0; i < TURN_SECONDS; i++) g.tickSecond();
   };
 
   /** Piso plano, A en el centro, B donde cae yaw 90 / pitch 45 / power 600 y C lejos. Le toca a A, que tiene un Napalm. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CODE_ALPHABET, generateCode, isValidCode } from "../src/codes";
-import { Game, parseFireMessage, shotDurationMs, shotMark } from "../src/game";
+import { Game, parseFireMessage, shotDurationMs, shotMark, TURN_SECONDS } from "../src/game";
 
 describe("códigos de sala", () => {
   it("son 4 letras mayúsculas sin O, I, 0 ni 1", () => {
@@ -91,7 +91,7 @@ function aimYaw(g: Game, id: string): number {
   return g.aims.get(id)!.yaw;
 }
 
-function twoPlayerGame(turnSeconds = 30) {
+function twoPlayerGame(turnSeconds = TURN_SECONDS) {
   const g = new Game(turnSeconds);
   g.addPlayer("A", "Ana");
   g.addPlayer("B", "Beto");
@@ -180,15 +180,15 @@ describe("turnos", () => {
     expect(typeof g.match!.wind.z).toBe("number");
   });
 
-  it("a los 30 s sin tirar, pierde el turno con un tiro nulo", () => {
-    const g = twoPlayerGame(30);
+  it("a los 20 s sin tirar, pierde el turno con un tiro nulo", () => {
+    const g = twoPlayerGame();
     g.start("A", 7);
     const terrain = g.match!.terrain;
-    for (let i = 0; i < 29; i++) expect(g.tickSecond()).toBe(false);
+    for (let i = 0; i < TURN_SECONDS - 1; i++) expect(g.tickSecond()).toBe(false);
     expect(g.turnId).toBe("A");
     expect(g.tickSecond()).toBe(true);
     expect(g.turnId).toBe("B");
-    expect(g.timeLeft).toBe(30);
+    expect(g.timeLeft).toBe(TURN_SECONDS);
     expect(g.match!.terrain).toBe(terrain); // nada explotó
   });
 
@@ -240,7 +240,7 @@ describe("fin de partida", () => {
     g.start("A", 3);
     g.removePlayer("B");
     g.tickSecond();
-    for (let i = 0; i < 30; i++) g.tickSecond();
+    for (let i = 0; i < TURN_SECONDS; i++) g.tickSecond();
     expect(g.turnId).toBe("C");
   });
 });
