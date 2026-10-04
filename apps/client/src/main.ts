@@ -79,6 +79,7 @@ const ui = {
   playersToggle: $<HTMLButtonElement>("players-toggle"),
   banner: $("banner"),
   tip: $("tip"),
+  payout: $("payout"),
   dock: $("dock"),
   shop: $("shop"),
   shopTitle: $("shop-title"),
@@ -164,7 +165,8 @@ let terrainVersion = 0;
 interface RoundEndMsg {
   round: number;
   survivors: string[];
-  payouts: { id: string; survivor: number; interest: number; after: number }[];
+  /** `fixed` es la parte de `interest` que es el fijo; lo demás se suma tal cual. */
+  payouts: { id: string; damage: number; kill: number; water: number; survivor: number; interest: number; fixed: number; after: number }[];
 }
 let lastRoundEnd: RoundEndMsg | null = null;
 
@@ -623,8 +625,56 @@ function mapTip(phase: string): void {
   tipTimer = window.setTimeout(hideTip, 4000);
 }
 
+// La cuenta de la ronda: al abrir la tienda, de dónde salió la plata de cada uno, en un renglón
+// propio arriba (la tienda queda abajo). Los montos son los del mensaje "roundEnd": acá no se calcula
+// nada, y lo que dio cero no se nombra. Se va a los 6 s o cuando empieza la ronda que sigue.
+const PAYOUT_MS = 6000;
+/** La ronda cuya cuenta ya salió: los repintados de la tienda no la traen de vuelta. Fuera de la tienda vuelve a 0. */
+let payoutRound = 0;
+let payoutTimer = 0;
+
+function hidePayout(): void {
+  clearTimeout(payoutTimer);
+  ui.payout.hidden = true;
+}
+
+/** Las partes de la cuenta de uno, en orden, sin las que dieron cero. Un monto negativo es plata que pagó por pegarse. */
+function payoutParts(po: RoundEndMsg["payouts"][number]): string[] {
+  const rows: [string, number][] = [
+    ["Daño", po.damage],
+    ["Kill", po.kill],
+    ["Kill de agua", po.water],
+    ["Sobrevivir", po.survivor],
+    ["Interés", po.interest - po.fixed],
+    ["Fijo", po.fixed],
+  ];
+  return rows.filter(([, n]) => n !== 0).map(([label, n]) => `${label} ${n < 0 ? "−" : "+"}${fmtMoney(Math.abs(n))}`);
+}
+
+const payoutTotal = (po: RoundEndMsg["payouts"][number]) => po.damage + po.kill + po.water + po.survivor + po.interest;
+
+function payoutLine(phase: string): void {
+  if (phase !== "shop") {
+    payoutRound = 0;
+    return hidePayout();
+  }
+  // El mensaje y el estado llegan por separado: la cuenta sale cuando están los dos y son de la misma ronda.
+  if (!room || !lastRoundEnd || lastRoundEnd.round !== room.state.round || payoutRound === lastRoundEnd.round) return;
+  const po = lastRoundEnd.payouts.find((p) => isMe(p.id));
+  if (!po) return;
+  payoutRound = lastRoundEnd.round;
+  const parts = payoutParts(po);
+  if (parts.length === 0) return;
+  ui.payout.textContent = parts.join(" · ");
+  ui.payout.hidden = false;
+  clearTimeout(payoutTimer);
+  payoutTimer = window.setTimeout(hidePayout, PAYOUT_MS);
+}
+
 function attach(r: Room<any>): void {
   room = r;
+  payoutRound = 0;
+  hidePayout();
   leavingOnPurpose = false;
   shotAnim = null;
   lastImpact = null;
@@ -768,6 +818,7 @@ function attach(r: Room<any>): void {
   });
   r.onMessage("roundEnd", (m: RoundEndMsg) => {
     lastRoundEnd = m;
+    if (room === r) payoutLine(r.state.phase);
   });
   r.onMessage("chat", (m: ChatMsg) => {
     if (room === r) addChat(m);
@@ -838,6 +889,7 @@ function onState(): void {
   }
   if (screens.game.hidden) show("game");
   mapTip(phase);
+  payoutLine(phase);
   renderHud(phase);
   renderShop(phase);
   renderEnd(phase);
@@ -1160,8 +1212,9 @@ function renderShop(phase: string): void {
       if (po) {
         const gain = document.createElement("span");
         gain.className = "gain";
-        gain.textContent = `+${fmtMoney(po.survivor + po.interest)}`;
-        who.title = `${lastRoundEnd?.survivors.includes(p.id) ? "Sobrevivió · " : ""}+${fmtMoney(po.survivor)} vivo · +${fmtMoney(po.interest)} interés y fijo`;
+        const total = payoutTotal(po);
+        gain.textContent = `${total < 0 ? "−" : "+"}${fmtMoney(Math.abs(total))}`;
+        who.title = payoutParts(po).join(" · ");
         who.append(gain);
       }
       if (p.ready) {

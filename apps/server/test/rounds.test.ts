@@ -449,6 +449,12 @@ describe("Napalm en partida", () => {
     expect(g.phase).toBe("shop");
     expect(g.lastRound!.survivors).toEqual(["A"]);
     expect(g.match!.fires).toHaveLength(1); // durante la tienda todavía es la ronda que terminó
+    // La cuenta de la ronda: el que murió quemado es un kill común de A, y lo anotado es justo lo que A juntó pegando.
+    const earned = g.lastRound!.earned;
+    expect(earned.A!.kill).toBeGreaterThan(0);
+    expect(earned.A!.water).toBe(0);
+    expect(earned.A!.damage + earned.A!.kill).toBe(g.lastRound!.payouts.find((p) => p.id === "A")!.before - MONEY_START);
+    expect(earned.B).toBeUndefined();
     g.setReady("A");
     g.setReady("B");
     expect(g.round).toBe(2);

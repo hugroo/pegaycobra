@@ -133,6 +133,9 @@ continua, quieta y más pálida.
 - **Al terminar la ronda se cobra:** cada tanque que sigue vivo recibe $2.000, y después todos
   reciben 15% de interés sobre la plata que tienen, más $1.500 fijos. Lo que gastaste en la tienda
   ya no está, así que no da interés. No alcanza para comprar todo: hay que elegir.
+- **La cuenta, al abrir la tienda:** cada uno ve en una línea de dónde salió su plata de la ronda
+  (Daño, Kill, Kill de agua, Sobrevivir, Interés y Fijo; lo que dio cero no aparece). Se va a los
+  6 s o cuando arranca la ronda siguiente. La suma es el `+$` que tiene cada uno en la tienda.
 - **Tienda de 30 s entre rondas** (o lo que escribió el anfitrión), visible para todos, con la plata de cada uno: una fila de
   cartas abajo (precio y qué hace cada cosa), sin tapar el mapa. Cierra antes si
   todos tocan *Listo*. No se puede comprar más de lo que alcanza.
@@ -276,7 +279,8 @@ de la misma sala podrían caer en servidores distintos.
   Rodillo no mira el agua.
 - Otros mensajes del server: `moved` (alguien usó nafta o, con `free`, dio el paso gratis), `refuel { ids }` (una vuelta sin daño les dejó una Nafta a esos), `skip` (turno perdido por tiempo),
   `burn` (a alguien le empezó el turno en el fuego) y `roundEnd` (lo que cobró cada uno al terminar
-  la ronda).
+  la ronda, y lo que juntó pegando, separado: `damage`, `kill` y `water`, el kill de agua. Con
+  `survivor` e `interest` suman todo lo que ganó en la ronda; `fixed` es la parte de `interest` que es el fijo).
 - Chat de sala: el server le pone a cada `chat` el id, el nombre y el slot de quien
   lo mandó y lo reparte a la sala en el orden en que llegó. No lo guarda: el historial es de cada
   pestaña, dura mientras estés en la sala y se muestra como texto plano.

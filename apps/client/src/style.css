@@ -244,6 +244,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   padding: 6px 16px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line);
   font-size: 18px; font-weight: 700; color: var(--ink); white-space: nowrap;
 }
+/* La cuenta de la ronda: más chica que un aviso, y si no entra en el ancho baja de renglón en vez de salirse. */
+.banner.payout { font-size: 15px; max-width: calc(100vw - 24px); white-space: normal; text-align: center; }
 
 .money { font-weight: 800; font-size: 20px; color: var(--turq); }
 .inv { display: inline-flex; flex-wrap: wrap; gap: 6px; }

@@ -6,10 +6,12 @@ import {
   createFlatTerrain,
   fireFromShot,
   inFire,
+  MONEY_PER_ROUND,
   MONEY_START,
   resolveTurn3D,
   SHOP_ITEMS,
   simulateWeaponShot3D,
+  SURVIVOR_BONUS,
   terrainHeightAt,
   WATER_LEVEL,
   WEAPONS,
@@ -679,7 +681,10 @@ describe("partida de 5 rondas por red", () => {
     const seen: any[][] = [[], []];
     a.onMessage("shot", (m) => seen[0]!.push(m));
     b.onMessage("shot", (m) => seen[1]!.push(m));
-    for (const r of [a, b]) for (const type of ["terrain", "skip", "moved", "roundEnd", "burn"]) r.onMessage(type, () => {});
+    const ends: RoundEndBroadcast[][] = [[], []];
+    a.onMessage("roundEnd", (m) => ends[0]!.push(m));
+    b.onMessage("roundEnd", (m) => ends[1]!.push(m));
+    for (const r of [a, b]) for (const type of ["terrain", "skip", "moved", "burn"]) r.onMessage(type, () => {});
     await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
     a.send("start");
     await until(() => a.state.phase === "aiming" && b.state.phase === "aiming");
@@ -731,6 +736,22 @@ describe("partida de 5 rondas por red", () => {
     expect(shot.splashes).toEqual([{ x: 110, z: 128, big: true }]);
     // Y es cierto: cuando se aplica el tiro, el rival quedó sin vida, para los dos.
     await until(() => a.state.players.get(foe).life === 0 && b.state.players.get(foe).life === 0);
+
+    // La cuenta de la ronda llega igual a los dos: el ahogado va como kill de agua, no como kill común,
+    // y las partes suman justo la plata que cada uno juntó desde el arranque.
+    await until(() => ends[0]!.length === 1 && ends[1]!.length === 1 && a.state.phase === "shop");
+    expect(ends[1]![0]).toEqual(ends[0]![0]);
+    const mine = ends[0]![0]!.payouts.find((p) => p.id === id)!;
+    const theirs = ends[0]![0]!.payouts.find((p) => p.id === foe)!;
+    expect(mine.water).toBeGreaterThan(0);
+    expect(mine.kill).toBe(0);
+    expect(mine.survivor).toBe(SURVIVOR_BONUS);
+    expect(theirs).toMatchObject({ damage: 0, kill: 0, water: 0, survivor: 0 });
+    for (const p of [mine, theirs]) {
+      expect(p.fixed).toBe(MONEY_PER_ROUND);
+      expect(p.damage + p.kill + p.water + p.survivor + p.interest).toBe(p.after - MONEY_START);
+      expect(a.state.players.get(p.id).money).toBe(p.after);
+    }
 
     await a.leave();
     await b.leave();

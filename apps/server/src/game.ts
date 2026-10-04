@@ -8,6 +8,7 @@ import {
   buyItem,
   cannotBuy,
   cannotSell,
+  clampMoney,
   createRng,
   DEFAULT_MAP,
   driftWind3D,
@@ -29,6 +30,7 @@ import {
   STEP_SECONDS,
   validateMove,
   type BurnEvent,
+  type DamageEvent,
   type MapId,
   type MatchState3D,
   type Player,
@@ -209,10 +211,22 @@ export interface Aim {
   pitch: number;
 }
 
+/** Lo que un jugador cobró (o pagó, si se pegó a sí mismo) por pegar en una ronda, separado por motivo. [$] */
+export interface RoundEarnings {
+  /** Daño que no mató. */
+  damage: number;
+  /** Kills por explosión, caída o fuego. */
+  kill: number;
+  /** Kills por dejar a alguien en el agua. */
+  water: number;
+}
+
 export interface RoundSummary {
   round: number;
   survivors: string[];
   payouts: RoundPayout[];
+  /** Por jugador, lo cobrado por pegar durante la ronda. El que no cobró nada no está. */
+  earned: Record<string, RoundEarnings>;
 }
 
 export class Game {
@@ -257,6 +271,8 @@ export class Game {
   private pending: { result: TurnResult3D; shooterId: string } | null = null;
   /** Lo que quemó el fuego desde la última vez que la sala lo leyó (takeBurns). */
   private burned: BurnEvent[] = [];
+  /** Lo que cobró cada uno por pegar en la ronda en curso. Solo se anota: la plata la mueve el sim. */
+  private readonly earned = new Map<string, RoundEarnings>();
   /** Los que ya jugaron en la vuelta en curso. Una vuelta se cierra cuando jugaron todos los vivos. */
   private readonly lapPlayed = new Set<string>();
   /** Vida de todos los tanques, sumada, al empezar la vuelta: si al cerrarla es la misma, nadie perdió vida. [hp] */
@@ -417,6 +433,7 @@ export class Game {
       this.aims.set(t.id, { yaw, pitch: 45 });
     }
     this.turnsTaken.clear();
+    this.earned.clear();
     this.marks.clear(); // terreno y posiciones nuevos: las marcas de la ronda anterior no dicen nada
     this.ready.clear();
     this.movedThisTurn = false;
@@ -506,6 +523,7 @@ export class Game {
   /** Aplica el resultado del tiro cuando terminó la animación y pasa el turno. */
   finishShot(): void {
     if (this.phase !== "animating" || !this.pending || !this.match) return;
+    this.tally(this.pending.result.damage.map((d) => ({ ...d, ownerId: this.pending!.shooterId })));
     this.match = this.withLeaversDead(this.pending.result.state);
     this.board = scoreTurn(this.board, this.pending.shooterId, this.pending.result.damage);
     this.marks.set(this.pending.shooterId, shotMark(this.pending.result.shot));
@@ -617,10 +635,29 @@ export class Game {
    */
   private burn(id: string): boolean {
     const { state, burns } = burnTurn3D(this.match!, id);
+    this.tally(burns);
     this.match = state;
     for (const b of burns) this.board = scoreTurn(this.board, b.ownerId, [b]);
     this.burned.push(...burns);
     return state.tanks.some((t) => t.id === id && t.life > 0);
+  }
+
+  /**
+   * Anota, por motivo, la plata que el sim está por darle a cada dueño por estos golpes. Hay que
+   * llamarlo antes de pisar `match` con el estado nuevo: repite el recorte del sim (clampMoney) golpe
+   * a golpe desde la plata de antes, así la cuenta de la ronda cierra con la plata aunque recorte.
+   */
+  private tally(events: readonly (DamageEvent & { ownerId: string })[]): void {
+    const running = new Map<string, number>();
+    for (const e of events) {
+      const before = running.get(e.ownerId) ?? this.playerOf(e.ownerId)?.money;
+      if (before === undefined) continue;
+      const after = clampMoney(before + e.money);
+      running.set(e.ownerId, after);
+      const got = this.earned.get(e.ownerId) ?? { damage: 0, kill: 0, water: 0 };
+      got[!e.killed ? "damage" : e.cause === "water" ? "water" : "kill"] += after - before;
+      this.earned.set(e.ownerId, got);
+    }
   }
 
   /**
@@ -689,7 +726,7 @@ export class Game {
     this.refueled = [];
     const { players, payouts } = endRoundPayouts(kept, survivors);
     this.match = { ...m, players };
-    this.lastRound = { round: this.round, survivors: [...survivors], payouts };
+    this.lastRound = { round: this.round, survivors: [...survivors], payouts, earned: Object.fromEntries(this.earned) };
     this.turnId = null;
     if (this.round >= this.rounds) {
       this.finish("rounds");

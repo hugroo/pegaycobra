@@ -12,7 +12,7 @@
 // rejoinSeconds: vuelve con el token de reconexión y sigue siendo el mismo id, con su tanque.
 
 import { Room, type Client, type Delayed } from "@colyseus/core";
-import { createRng, MAPS, type TurnResult3D } from "@pegaycobra/sim";
+import { createRng, MAPS, MONEY_PER_ROUND, type TurnResult3D } from "@pegaycobra/sim";
 import { BOT_NAME, botMovePick, botShopPick, pickBotShot } from "./bot";
 import { Game, MAX_PLAYERS, MIN_PLAYERS, SHOP_SECONDS, TURN_SECONDS, type RoundSummary, type ShotMark } from "./game";
 import { generateCode } from "./codes";
@@ -99,7 +99,12 @@ export interface BurnBroadcast {
 export interface RoundEndBroadcast {
   round: number;
   survivors: string[];
-  payouts: { id: string; survivor: number; interest: number; after: number }[];
+  /**
+   * La cuenta de cada uno: `damage` + `kill` + `water` (lo cobrado por pegar en la ronda: daño que
+   * no mató, kills y kills de agua) + `survivor` + `interest` es todo lo que sumó desde que empezó la
+   * ronda. `fixed` es la parte de `interest` que es el fijo, no un monto aparte.
+   */
+  payouts: { id: string; damage: number; kill: number; water: number; survivor: number; interest: number; fixed: number; after: number }[];
 }
 
 /** Mensaje "chat": lo que escribió uno de la sala. El nombre y el slot (el color del tanque) los pone el server. */
@@ -449,7 +454,9 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.broadcast("roundEnd", msg);
       this.log(
         `fin de ronda ${msg.round}: ` +
-          msg.payouts.map((p) => `${this.nameOf(p.id)} +${p.survivor} sobrevivir +${p.interest} interes = ${p.after}`).join(", "),
+          msg.payouts
+            .map((p) => `${this.nameOf(p.id)} +${p.damage} daño +${p.kill} kill +${p.water} agua +${p.survivor} sobrevivir +${p.interest} interes = ${p.after}`)
+            .join(", "),
       );
     }
     if (g.match && g.roundSerial !== this.sentRoundSerial) {
@@ -471,7 +478,16 @@ export class GameRoom extends Room<{ state: GameState }> {
     return {
       round: r.round,
       survivors: r.survivors,
-      payouts: r.payouts.map(({ id, survivor, interest, after }) => ({ id, survivor, interest, after })),
+      payouts: r.payouts.map(({ id, survivor, interest, after }) => ({
+        id,
+        damage: r.earned[id]?.damage ?? 0,
+        kill: r.earned[id]?.kill ?? 0,
+        water: r.earned[id]?.water ?? 0,
+        survivor,
+        interest,
+        fixed: Math.min(MONEY_PER_ROUND, interest),
+        after,
+      })),
     };
   }
 
