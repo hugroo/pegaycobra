@@ -14,6 +14,7 @@ import {
   type MatchState3D,
   type Player,
 } from "../src";
+import { dial } from "./aim";
 
 const fresh = (id: string): Player => ({ id, money: MONEY_START, inventory: startingInventory() });
 const withItems = (id: string, items: Player["inventory"]): Player => ({ ...fresh(id), inventory: { ...startingInventory(), ...items } });
@@ -23,7 +24,7 @@ const invOf = (s: MatchState3D, id: string) => s.players.find((p) => p.id === id
 const GROUND = 10;
 const B = { x: 128, z: 128 + 93 };
 
-/** Terreno plano a 10, A en el centro y B donde cae yaw 90 / pitch 45 / power 600 (el duelo de roller-shield.test.ts). */
+/** Terreno plano a 10, A en el centro y B donde cae yaw 90 / pitch 45 si sale con potencia 600 (el duelo de roller-shield.test.ts). */
 function duel(b: Player = fresh("B"), a: Player = withItems("A", { nuke: 1, missile: 3 })): MatchState3D {
   const terrain = createFlatTerrain(257, 257, GROUND);
   return {
@@ -33,9 +34,10 @@ function duel(b: Player = fresh("B"), a: Player = withItems("A", { nuke: 1, miss
     players: [a, b],
   };
 }
-const AIM = { playerId: "A", yaw: 90, pitch: 45, power: 600 } as const;
-const NUKE = { ...AIM, weaponId: "nuke" } as const;
-const MISSILE = { ...AIM, weaponId: "missile" } as const;
+const AIM = { playerId: "A", yaw: 90, pitch: 45 } as const;
+// B está a 93 celdas, casi en el tope del Nuke (alcance 100): cada arma apunta con lo que le hace falta para caer ahí.
+const NUKE = { ...AIM, power: dial("nuke", 600), weaponId: "nuke" } as const;
+const MISSILE = { ...AIM, power: dial("missile", 600), weaponId: "missile" } as const;
 
 /** Celdas que el tiro bajó. */
 function lowered(before: MatchState3D, after: MatchState3D): number {
@@ -83,9 +85,12 @@ describe("Nuke", () => {
     expect(shot.landed).toBeUndefined();
     expect(WEAPONS.nuke.burn).toBeUndefined();
     expect(WEAPONS.nuke.roll).toBeUndefined();
-    // Vuela igual que un Missile: mismo punto de impacto.
-    const missile = resolveTurn(duel(), MISSILE).shot;
-    expect([shot.x, shot.y, shot.z]).toEqual([missile.x, missile.y, missile.z]);
+    // Pesa: con la misma puntería cae más corto que un Missile.
+    const short = resolveTurn(duel(), { ...NUKE, power: 500 }).shot;
+    const missile = resolveTurn(duel(), { ...MISSILE, power: 500 }).shot;
+    expect(short.outcome).toBe("ground");
+    expect(missile.outcome).toBe("ground");
+    expect(missile.z - 128).toBeGreaterThan(2 * (short.z - 128));
   });
 
   it("en la tienda: de a uno y es el ítem más caro", () => {

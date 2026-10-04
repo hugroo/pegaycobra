@@ -17,15 +17,15 @@
 // y cómo se abren son de este juego (mirv.ts).
 // El Leap Frog es regla propia: el original tiene uno (src/common/weapons/WeaponLeapFrog.cpp); acá
 // pica una sola vez y explota recién en el segundo golpe (bounce.ts), con números de este juego.
+// El alcance (`reach`) es regla propia: en el original todas las armas salen del cañón con la misma
+// velocidad. Acá cada una tiene el suyo, y de ese número sale con cuánta fuerza sale (launchPower).
 
-import { INFINITE_AMMO } from "./constants";
+import { FORCE_DIVISOR, GRAVITY, INFINITE_AMMO, POWER_MAX, POWER_TO_VELOCITY, VELOCITY_TO_POSITION } from "./constants";
 
 export type WeaponId = "babyMissile" | "missile" | "roller" | "napalm" | "babyNuke" | "nuke" | "dirt" | "mirv" | "leapfrog";
 
 /** Arma que no explota donde cae: toca el piso y rueda cuesta abajo (roller.ts). */
 export interface RollSpec {
-  /** La potencia del tiro se multiplica por esto. 1 = sale con la misma potencia que un Missile. [adimensional] */
-  readonly powerFactor: number;
   /** Lo máximo que rueda, medido sobre el piso (XZ). [celdas = wu] */
   readonly maxCells: number;
 }
@@ -83,6 +83,14 @@ export interface Weapon {
   readonly windFactor: number;
   /** WeaponProjectile <gravityfactor>. [adimensional] */
   readonly gravityFactor: number;
+  /**
+   * Alcance: hasta dónde llega en piso llano y sin viento, con la potencia al máximo y el cañón a
+   * 45°. Es el único número que dice qué tan lejos tira el arma; la cuenta la hace launchPower.
+   * Para el Roller es hasta donde toca el piso (después rueda) y para el Leap Frog, hasta el pique.
+   * Como medida: el mapa tiene 256 celdas de lado y los tanques nacen a 120–155 celdas uno de otro
+   * en la Isla y el Valle, y a 155–195 en el Cerro (de a dos; con más jugadores, más cerca). [celdas = wu]
+   */
+  readonly reach: number;
   /** Solo el Roller: cómo rueda después de tocar el piso. */
   readonly roll?: RollSpec;
   /** Solo el Napalm: el fuego que deja donde cae. */
@@ -110,6 +118,9 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     hurtAmount: 1,
     windFactor: 1,
     gravityFactor: 1,
+    // La que viene gratis llega menos que el Misil: cruza la Isla y el Valle, y en el Cerro alcanza
+    // casi siempre, pero al tanque lejano detrás de un cerro alto ya no.
+    reach: 200,
   },
   missile: {
     id: "missile",
@@ -123,6 +134,9 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     hurtAmount: 1,
     windFactor: 1,
     gravityFactor: 1,
+    // El tiro largo. Menos que el mapa entero (antes eran 252 para todas), y más que cualquier
+    // distancia a la que nacen dos tanques.
+    reach: 230,
   },
   roller: {
     id: "roller",
@@ -136,10 +150,12 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     hurtAmount: 1,
     windFactor: 1,
     gravityFactor: 1,
-    // Potencia entera: los tanques nacen a 130–185 celdas (placeTanks3D) y con 0.6 el tiro llegaba a
-    // ~93, así que no pasaba el cerro del medio. El tope de rodada casi no se toca: en los terrenos
-    // de partida la bola se frena antes, en el fondo del valle (mediana ~25 celdas).
-    roll: { powerFactor: 1, maxCells: 60 },
+    // Vuela como un Misil: los tanques nacen a 155–195 celdas en el Cerro y tiene que pasar el cerro
+    // del medio para rodar del otro lado (con 93 de alcance no lo pasaba).
+    reach: 230,
+    // El tope de rodada casi no se toca: en los terrenos de partida la bola se frena antes, en el
+    // fondo del valle (mediana ~25 celdas).
+    roll: { maxCells: 60 },
   },
   napalm: {
     id: "napalm",
@@ -155,6 +171,8 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     hurtAmount: 0,
     windFactor: 1,
     gravityFactor: 1,
+    // Sale como un Misil.
+    reach: 230,
     // Disco chico (el Missile explota con radio 6): hay que caer cerca. 25 por turno son cuatro
     // turnos para un tanque que no se mueve.
     burn: { radius: 5, damagePerTurn: 25 },
@@ -171,6 +189,7 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     hurtAmount: 1,
     windFactor: 1,
     gravityFactor: 1,
+    reach: 150,
   },
   nuke: {
     id: "nuke",
@@ -184,6 +203,10 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     hurtAmount: 1,
     windFactor: 1,
     gravityFactor: 1,
+    // Pesa: llega a menos de la mitad que un Misil. Desde la playa de la Isla cae en la ladera de
+    // enfrente y, con su radio de 18, no toca al de la costa opuesta (a unas 120 celdas). Es el hoyo,
+    // no el tiro que llega a todos: hay que tener al otro cerca, o acercarse con nafta.
+    reach: 95,
     piercesShield: true,
   },
   dirt: {
@@ -200,6 +223,8 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     hurtAmount: 0,
     windFactor: 1,
     gravityFactor: 1,
+    // Cae como un Misil.
+    reach: 230,
     mound: { radius: 10 }, // <size>10</size>
   },
   mirv: {
@@ -218,6 +243,8 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     hurtAmount: 1, // <hurtamount>1.0</hurtamount>
     windFactor: 1,
     gravityFactor: 1,
+    // Sale como un Misil.
+    reach: 230,
     // <nowarheads>5</nowarheads>. A 7 celdas los hoyos (3 de radio) quedan separados, y un tanque
     // parado entre dos cabezas las recibe a las dos.
     split: { heads: 5, radius: 7 },
@@ -235,6 +262,8 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     hurtAmount: 1,
     windFactor: 1,
     gravityFactor: 1,
+    // Sale como un Misil: hasta el pique. Con el segundo tramo termina más lejos.
+    reach: 230,
     // Sale del pique con la mitad de la velocidad: en piso llano el segundo tramo mide un cuarto
     // del primero.
     bounce: { keep: 0.5 },
@@ -250,4 +279,23 @@ export const PLAYABLE_WEAPONS: readonly WeaponId[] = Object.freeze(["babyMissile
 
 export function isPlayable(id: WeaponId): boolean {
   return PLAYABLE_WEAPONS.includes(id);
+}
+
+/**
+ * Alcance en piso llano de un tiro a 45° que sale con potencia POWER_MAX sin recortar: lo que
+ * llegaban todas las armas antes de que cada una tuviera el suyo. Sale de las constantes del tiro
+ * (shot3d.ts): alcance = v² · VELOCITY_TO_POSITION · FORCE_DIVISOR / |GRAVITY|. [celdas = wu]
+ */
+export const FULL_REACH = ((POWER_TO_VELOCITY * (POWER_MAX + 1)) ** 2 * VELOCITY_TO_POSITION * FORCE_DIVISOR) / -GRAVITY;
+
+/**
+ * La cuenta del alcance, una sola para todos: con qué potencia sale del cañón un tiro apuntado con
+ * `power`. La potencia que elige el jugador (0..POWER_MAX) se achica lo justo para que, al máximo,
+ * el arma llegue a `weapon.reach` y no más: el alcance crece con el cuadrado de la velocidad, así
+ * que el factor es la raíz. Un arma más pesada (gravityFactor) necesita salir más fuerte para llegar
+ * igual. La usan simulateWeaponShot3D (el server, la fantasma del cliente y el bot) y el perfil (turn.ts).
+ */
+export function launchPower(weapon: Weapon, power: number): number {
+  const aimed = Math.min(POWER_MAX, Math.max(0, power));
+  return aimed * Math.sqrt((weapon.reach * weapon.gravityFactor) / FULL_REACH);
 }

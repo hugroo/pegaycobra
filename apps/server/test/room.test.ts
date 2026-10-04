@@ -9,7 +9,6 @@ import {
   MONEY_START,
   resolveTurn3D,
   SHOP_ITEMS,
-  simulateShot3D,
   simulateWeaponShot3D,
   terrainHeightAt,
   WATER_LEVEL,
@@ -74,7 +73,7 @@ function aimAt(state: any, terrain: Terrain, shooterId: string): { yaw: number; 
     for (let power = 300; power <= 1000; power += 10) {
       for (let d = 0; d <= 12; d++) {
         for (const yaw of [base + d, base - d]) {
-          const r = simulateShot3D(terrain, { originX: me.x, originY: me.y, originZ: me.z, yaw, pitch, power, wind, shooterId }, tanks);
+          const r = simulateWeaponShot3D(terrain, WEAPONS.babyMissile, { originX: me.x, originY: me.y, originZ: me.z, yaw, pitch, power, wind, shooterId }, tanks);
           if (r.outcome === "tank") return { yaw, pitch, power };
         }
       }
@@ -644,7 +643,7 @@ describe("partida de 5 rondas por red", () => {
     let aim: { yaw: number; pitch: number; power: number } | null = null;
     search: for (let yaw = 0; yaw < 360; yaw += 15) {
       for (let power = 200; power <= 1000; power += 20) {
-        const r = simulateShot3D(ta.terrain!, { originX: me.x, originY: me.y, originZ: me.z, yaw, pitch: 45, power, wind, shooterId: id }, tanks);
+        const r = simulateWeaponShot3D(ta.terrain!, WEAPONS.babyMissile, { originX: me.x, originY: me.y, originZ: me.z, yaw, pitch: 45, power, wind, shooterId: id }, tanks);
         if (r.outcome !== "water") continue;
         aim = { yaw, pitch: 45, power };
         break search;
@@ -768,7 +767,7 @@ describe("partida de 5 rondas por red", () => {
       // que manda es el que da el sim con lo que ve el cliente (la fantasma), punto por punto.
       const me = a.state.players.get(id);
       const aim = { yaw: me.yaw + 180, pitch: 60, power: 250 };
-      const ghost = simulateShot3D(ta.terrain!, { originX: me.x, originY: me.y, originZ: me.z, ...aim, wind, shooterId: id }, [], { recordPath: true });
+      const ghost = simulateWeaponShot3D(ta.terrain!, WEAPONS.babyMissile, { originX: me.x, originY: me.y, originZ: me.z, ...aim, wind, shooterId: id }, [], { recordPath: true });
       rooms[id]!.send("fire", aim);
       await until(() => atShot[0]!.length === turn + 1 && atShot[1]!.length === turn + 1);
       const path = shots[turn].path as number[];

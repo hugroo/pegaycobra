@@ -26,6 +26,7 @@ import {
   type MatchState3D,
   type Shot3DParams,
 } from "../src";
+import { dial } from "./aim";
 
 const FLAT = createFlatTerrain(257, 257, 10);
 const CENTER: Shot3DParams = { originX: 128, originY: 10, originZ: 128, yaw: 0, pitch: 45, power: 600, wind: { x: 0, z: 0 } };
@@ -267,7 +268,7 @@ describe("resolveTurn con yaw", () => {
   }
 
   it("apuntando con yaw 90 le pega a B (que está en +Z), paga el kill y no gasta la Baby Missile", () => {
-    const { state, shot, damage } = resolveTurn(match(), { playerId: "A", yaw: 90, pitch: 45, power: 600 }, { recordPath: true });
+    const { state, shot, damage } = resolveTurn(match(), { playerId: "A", yaw: 90, pitch: 45, power: dial("babyMissile", 600) }, { recordPath: true });
     expect(shot.outcome).toBe("tank");
     expect(shot.tankId).toBe("B");
     expect(shot.path!.length % 3).toBe(0);

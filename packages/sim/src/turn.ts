@@ -15,7 +15,7 @@ import { applyDamage, collisionDistance, explosionDamage, isAlive, settleTank, t
 import { canFire, clampMoney, consumeAmmo, moneyForDamage, type Inventory } from "./economy";
 import type { Heightmap } from "./heightmap";
 import { simulateShot, type ShotResult } from "./projectile";
-import { isPlayable, WEAPONS, type WeaponId } from "./weapons";
+import { isPlayable, launchPower, WEAPONS, type WeaponId } from "./weapons";
 import { resolveTurn3D, type FireCommand3D, type MatchState3D, type TurnResult3D } from "./turn3d";
 
 export interface Player {
@@ -112,7 +112,7 @@ function resolveProfileTurn(state: MatchState, cmd: FireCommand, options: { reco
       originX: shooterTank.x,
       originY: shooterTank.y,
       angleDeg: cmd.angleDeg,
-      power: cmd.power,
+      power: launchPower(weapon, cmd.power),
       wind: state.wind,
       windFactor: weapon.windFactor,
       gravityFactor: weapon.gravityFactor,

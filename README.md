@@ -87,6 +87,15 @@ suma los puntos, los Misiles, los Rodillos y el escudo de cada uno. Si un tiro s
 todas las pestañas muestran "¡Se fue!". Un tanque con escudo se ve dentro de una burbuja celeste;
 cuando el escudo se come un tiro, el cartel del impacto dice "bloqueado" en vez del daño (con el
 Bombazo no: el escudo no lo frena y el cartel dice el daño).
+Cada arma tiene su alcance: no todas llegan igual de lejos con la potencia al máximo. El tiro largo
+es el Misil (230 celdas en piso llano), y lo que sale como él llega igual: Rodillo, Quema, Tierra,
+Racimo y Rebote. La Chispa llega menos (200). El Bombazo es el hoyo, no el tiro que llega a todos:
+pesa y llega a 95, menos de la mitad. En una Isla o un Valle de a dos, los tanques nacen a 120–155
+celdas: desde tu playa el Bombazo cae en la ladera de enfrente y no toca al de la otra costa; hay
+que tener al otro cerca o acercarse con nafta. El viento a favor estira el tiro y en contra lo
+acorta, como siempre. En tu turno, el minimapa dibuja un aro de tu color alrededor de tu tanque:
+hasta ahí llega el arma elegida en piso llano y sin viento (cuesta arriba, menos). Con un arma que
+llega más que el mapa, el aro queda afuera y no se ve.
 Un fuego de Quema es una mancha naranja con llamas en el piso y un disco naranja en el minimapa;
 el panel de la izquierda marca "en el fuego" al tanque parado adentro, y cuando le empieza el turno
 sale el cartel "se quema: -25".
@@ -124,10 +133,10 @@ continua, quieta y más pálida.
 
   | Ítem | Precio | Qué hace |
   |---|---|---|
-  | Misil ×3 | $1.200 | Explosión de radio 6 (la Chispa es 3.5). Se gasta uno por tiro |
-  | Rodillo ×2 | $1.500 | Vuela con la misma potencia que un Misil, toca el piso y rueda cuesta abajo hasta 60 celdas o hasta un tanque, y ahí explota (radio 4.5, cráter chico). En lo llano explota donde cae. Si vuelve rodando hasta vos, te pega |
+  | Misil ×3 | $1.200 | El tiro largo: llega a 230 celdas (la Chispa, a 200). Explosión de radio 6 (la Chispa es 3.5). Se gasta uno por tiro |
+  | Rodillo ×2 | $1.500 | Vuela como un Misil (mismo alcance), toca el piso y rueda cuesta abajo hasta 60 celdas o hasta un tanque, y ahí explota (radio 4.5, cráter chico). En lo llano explota donde cae. Si vuelve rodando hasta vos, te pega |
   | Quema ×1 | $2.000 | Cae como un Misil, pero no explota ni abre cráter: deja fuego en un disco de radio 5 hasta que termina la ronda. Al caer no saca vida. El tanque que **empieza su turno** con la base adentro del disco pierde 25, todos los turnos, hasta que salga (con nafta) o se muera. Los puntos y la plata de ese daño son del que tiró la Quema |
-  | Bombazo ×1 | $6.000 | Un Misil enorme: vuela igual, y la explosión y el cráter son de radio 18 (tres veces el Misil). No rueda ni prende fuego. El escudo no lo frena ni se gasta. Es el ítem más caro |
+  | Bombazo ×1 | $6.000 | Un Misil enorme: la explosión y el cráter son de radio 18 (tres veces el Misil). Pesa: llega a 95 celdas, menos de la mitad que un Misil, así que no cruza la Isla ni el Valle de lado a lado. No rueda ni prende fuego. El escudo no lo frena ni se gasta. Es el ítem más caro |
   | Tierra ×1 | $1.150 | Cae como un Misil, pero suma tierra en vez de sacarla: levanta una loma de radio 10 (11 de alto en el centro) y el heightmap sube. No saca vida, no paga y el escudo no la frena. El tanque que queda debajo sube con la loma. Un Rodillo que pega en la ladera la baja rodando, y un Misil puede volver a abrirle un hoyo |
   | Racimo ×1 | $2.500 | Sale como un Misil y, en la cima de la parábola, se abre en 5. Una cabeza sigue el tiro y cae donde caería el Misil; las otras cuatro caen a 7 celdas de esa, en X. Cada una explota por su cuenta (radio 4.5) y deja un cráter chico. El daño de todas se suma. El escudo frena una sola |
   | Rebote ×2 | $1.600 | Sale como un Misil, pega en el piso y sigue, una sola vez, con la mitad de la velocidad. Donde pica no explota ni abre cráter: explota en el segundo golpe, como un Misil (radio 6). Si el primer golpe es contra un tanque, explota ahí y no sigue. No rueda y no se abre |
@@ -295,6 +304,12 @@ tienda, nafta, fin de partida) y uno de integración: levanta el server de verda
 clientes del SDK y juega las 5 rondas por red, con compra de Misiles incluida, hasta que gana
 el de más puntos. Ese test tarda unos 20–35 s.
 
+El alcance tiene los suyos en `packages/sim/test/reach.test.ts`: cada arma llega en llano hasta su
+`reach`, y uno por mapa, sobre rondas de verdad (`startRound3D`): en la Isla ninguna puntería de
+Bombazo le saca vida al de la costa opuesta y la más larga cae en la ladera de enfrente; en el Valle
+el Misil le pega al de enfrente y el Bombazo se queda corto; en el Cerro el Rodillo pasa un cerro que
+el Misil pega y baja rodando hasta un tanque al que ningún Misil llega.
+
 Para un solo paquete o en modo watch:
 
 ```bash
@@ -315,14 +330,14 @@ pnpm typecheck
 | `projectile.ts` | `simulateShot()`: potencia + ángulo + viento + gravedad, en pasos fijos |
 | `crater.ts` | `applyCrater()` baja el heightmap; `flattenUnder()` aplana bajo un tanque que cayó |
 | `damage.ts` | Daño de explosión por distancia, daño de caída, `settleTank()` |
-| `weapons.ts` | Chispa, Misil, Rodillo, Quema, Baby Nuke, Bombazo, Tierra, Racimo, Rebote. Se pueden disparar todas menos la Baby Nuke (Misil, Rodillo, Quema, Bombazo, Tierra, Racimo y Rebote, si los compraste) |
+| `weapons.ts` | Chispa, Misil, Rodillo, Quema, Baby Nuke, Bombazo, Tierra, Racimo, Rebote. Se pueden disparar todas menos la Baby Nuke (Misil, Rodillo, Quema, Bombazo, Tierra, Racimo y Rebote, si los compraste). Cada arma trae su alcance (`reach`, en celdas) y `launchPower()` es la única cuenta que lo usa: con qué potencia sale del cañón |
 | `economy.ts` | Premio por daño y por kill, interés de fin de ronda, munición |
 | `turn.ts` | `resolveTurn(state, { playerId, angleDeg, power }, { recordPath })`: lo que llama el server |
 | `match.ts` | Perfil: `rollWind()`, `placeTanks()`, `spreadTanks()` + `GAME_TERRAIN`. `matchOutcome()` (ganador, lo usan los dos modos) |
 | `terrain.ts` | **3D.** `generateTerrain(seed)`: grilla width × depth, semiesferas, scale, smooth 5×5. `terrainHeightAt()` bilineal. `applyCraterTerrain()` (disco que baja), `applyMoundTerrain()` (disco que sube: la loma de la Tierra), `flattenTerrainUnder()` |
 | `maps.ts` | **3D.** `MAPS`: Valle, Isla y Cerro. Cada uno es un juego de parámetros para `generateTerrain()` (dónde caen las colinas, cuánto piso hay debajo y cuánta agua en el borde) más el anillo donde nacen los tanques. `parseMap()` |
 | `shot3d.ts` | **3D.** `simulateShot3D()`: yaw 0–360 (0 = +X, 90 = +Z), pitch 0–90, potencia; viento `{x, z}`; gravedad en Y. `flyShot3D()`: un tramo de vuelo desde un proyectil ya lanzado, que puede cortar en la cima |
-| `roller.ts` | **3D.** `simulateRoll()`: la bola baja por el gradiente del terreno hasta un tanque, N celdas o quedarse sin pendiente. `simulateWeaponShot3D()`: el tiro de cualquier arma, con la rodada si es un Rodillo, la apertura si es un Racimo y el pique si es un Rebote. Lo usan el server, la fantasma del cliente y el bot |
+| `roller.ts` | **3D.** `simulateRoll()`: la bola baja por el gradiente del terreno hasta un tanque, N celdas o quedarse sin pendiente. `simulateWeaponShot3D()`: el tiro de cualquier arma, con la potencia que da su alcance (`launchPower`), la rodada si es un Rodillo, la apertura si es un Racimo y el pique si es un Rebote. Lo usan el server, la fantasma del cliente y el bot |
 | `mirv.ts` | **3D.** `simulateSplitShot3D()`: el tiro del Racimo, que vuela hasta la cima y ahí se abre en cabezas (`split` en el resultado). `splitDirection()`: para qué lado sale cada una. `shotImpacts()`: los golpes de un tiro en el orden en que caen (uno, o uno por cabeza) |
 | `bounce.ts` | **3D.** `simulateBounceShot3D()`: el tiro del Rebote, que toca el piso, pica una vez y sigue hasta el segundo golpe (`bounce` en el resultado: dónde picó y en qué tick) |
 | `napalm.ts` | **3D.** `fireFromShot()`: el fuego que deja un tiro de Quema (o null). `inFire()`: si un punto del piso está adentro del disco. Lo usan el server, la fantasma del cliente y el HUD |
@@ -345,7 +360,9 @@ Todo son funciones puras: reciben el estado y devuelven uno nuevo. En 3D el heig
 
 ### Ejemplo numérico
 
-Suelo plano a 10 wu, tanque en x = 40, sin viento:
+Suelo plano a 10 wu, tanque en x = 40, sin viento. Son los números de `simulateShot()`, la parábola
+sola: "potencia" es con la que sale del cañón. En la partida esa la da `launchPower()` según el
+arma: la Chispa apuntada con 600 sale con 534.
 
 | ángulo | potencia | viento | x de impacto | ticks |
 |---|---|---|---|---|
@@ -467,6 +484,11 @@ tanques son primitivas generadas.
     (`WEAPONS.napalm`).
   - **El Bombazo pasa el escudo** y se vende de a 1 (el original lo vende de a 2). El radio (18) y el
     precio por unidad son los del original.
+  - **Alcance por arma.** En el original todas las armas salen del cañón con la misma velocidad
+    (`velocity = getVelocityVector() * (power + 1)`) y un tiro a potencia máxima cruza el mapa. Acá
+    cada arma tiene su alcance en piso llano (`reach` en `WEAPONS`: Misil 230, Chispa 200, Bombazo
+    95) y `launchPower()` achica la potencia de salida lo justo para que llegue hasta ahí. La
+    gravedad, el viento y el paso de integración son los del original.
   - **La Tierra no entierra** y se vende de a 1 (el original vende la Dirt Ball de a 5). En el
     original la tierra tapa al tanque ("can be used to cover them"); acá el tanque que quedó debajo
     sube con la loma y queda apoyado arriba, y el escudo ni la frena ni se gasta. El radio (10) y el

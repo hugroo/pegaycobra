@@ -17,6 +17,7 @@ import {
   type Player,
   type Terrain,
 } from "../src";
+import { dial } from "./aim";
 
 const fresh = (id: string): Player => ({ id, money: MONEY_START, inventory: startingInventory() });
 const withItems = (id: string, items: Player["inventory"]): Player => ({ ...fresh(id), inventory: { ...startingInventory(), ...items } });
@@ -27,7 +28,7 @@ const GROUND = 10;
 const RADIUS = WEAPONS.dirt.mound!.radius;
 /** Lo que sube el centro de la loma: el radio entero del original, trunc(radius) + 1. */
 const TOP = Math.trunc(RADIUS) + 1;
-/** Donde cae yaw 90 / pitch 45 / power 600 desde el centro (el duelo de roller-shield.test.ts). */
+/** Donde cae yaw 90 / pitch 45 desde el centro si sale con potencia 600 (el duelo de roller-shield.test.ts). */
 const HIT = { x: 128, z: 128 + 93 };
 const FAR = { x: 30, z: 30 };
 
@@ -36,7 +37,8 @@ function duel(b: { x: number; z: number }, players: Player[] = [withItems("A", {
   const terrain = createFlatTerrain(257, 257, GROUND);
   return { terrain, wind: { x: 0, z: 0 }, tanks: tanks3DAt(terrain, ["A", "B"], [{ x: 128, z: 128 }, b], TANK_MAX_LIFE), players };
 }
-const AIM = { playerId: "A", yaw: 90, pitch: 45, power: 600 } as const;
+// La Tierra, el Missile y el Roller salen igual (mismo alcance): una sola puntería para los tres.
+const AIM = { playerId: "A", yaw: 90, pitch: 45, power: dial("dirt", 600) } as const;
 const DIRT = { ...AIM, weaponId: "dirt" } as const;
 const MISSILE = { ...AIM, weaponId: "missile" } as const;
 const ROLLER = { ...AIM, weaponId: "roller" } as const;
@@ -122,7 +124,7 @@ describe("Tierra", () => {
 
     // Al que quedó arriba se le sigue pudiendo pegar: con un poco más de potencia el Missile le da
     // de lleno, y el hoyo se abre en la cima.
-    const power = Array.from({ length: 150 }, (_, k) => 600 + k).find((p) => resolveTurn(mound, { ...MISSILE, power: p }).shot.tankId === "B");
+    const power = Array.from({ length: 150 }, (_, k) => MISSILE.power + k).find((p) => resolveTurn(mound, { ...MISSILE, power: p }).shot.tankId === "B");
     expect(power).toBeDefined();
     const hit = resolveTurn(mound, { ...MISSILE, power: power! }).state;
     expect(tankOf(hit, "B").life).toBe(0);

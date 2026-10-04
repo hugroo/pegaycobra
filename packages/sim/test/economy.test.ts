@@ -18,9 +18,11 @@ import {
   WEAPONS,
   type MatchState,
 } from "../src";
+import { dial } from "./aim";
 
 const FLAT = createFlatHeightmap(257, 10);
-const SHOT = { angleDeg: 45, power: 600 } as const;
+/** La Baby apuntada para que salga del cañón con potencia 600. */
+const SHOT = { angleDeg: 45, power: dial("babyMissile", 600) } as const;
 
 function match(victimX: number): MatchState {
   return {
@@ -38,7 +40,7 @@ function match(victimX: number): MatchState {
 }
 
 // Dónde cae el tiro de referencia si no hay nadie en el camino (~133.27).
-const impactX = simulateShot(FLAT, { originX: 40, originY: 10, ...SHOT, wind: 0 }).x;
+const impactX = simulateShot(FLAT, { originX: 40, originY: 10, angleDeg: 45, power: 600, wind: 0 }).x;
 
 describe("5. matar paga plata; el misil básico no se gasta", () => {
   it("impacto directo: B muere y A cobra MoneyWonPerKillPoint · armslevel", () => {

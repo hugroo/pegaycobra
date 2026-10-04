@@ -32,10 +32,11 @@ import {
   type MatchState3D,
   type Player,
 } from "../src";
+import { dial } from "./aim";
 
 const fresh = (id: string): Player => ({ id, money: MONEY_START, inventory: startingInventory() });
 
-/** Terreno plano a 10, A en el centro y B a 93 wu en +Z (donde cae yaw 90 / pitch 45 / power 600). */
+/** Terreno plano a 10, A en el centro y B a 93 wu en +Z (donde cae yaw 90 / pitch 45 si sale con potencia 600). */
 function duel(bz = 128 + 93, players: Player[] = [fresh("A"), fresh("B")]): MatchState3D {
   const terrain = createFlatTerrain(257, 257, 10);
   return {
@@ -207,9 +208,9 @@ describe("armas: el Missile se gasta, la Baby no", () => {
   it("el Missile hace daño de verdad: a la misma distancia lastima más que la Baby", () => {
     // B a 5 wu del punto de impacto (cae en z ≈ 221.27): la Baby (r 3.5) no llega, el Missile (r 6) sí.
     const far = 128 + 93.27 + 5;
-    const baby = resolveTurn(duel(far), { playerId: "A", yaw: 90, pitch: 45, power: 600 });
+    const baby = resolveTurn(duel(far), { playerId: "A", yaw: 90, pitch: 45, power: dial("babyMissile", 600) });
     const armed = duel(far, [buyItem(fresh("A"), "missile"), fresh("B")]);
-    const big = resolveTurn(armed, { playerId: "A", yaw: 90, pitch: 45, power: 600, weaponId: "missile" });
+    const big = resolveTurn(armed, { playerId: "A", yaw: 90, pitch: 45, power: dial("missile", 600), weaponId: "missile" });
     const lifeB = (s: MatchState3D) => s.tanks.find((t) => t.id === "B")!.life;
     expect(lifeB(big.state)).toBeLessThan(lifeB(baby.state));
   });
@@ -218,7 +219,7 @@ describe("armas: el Missile se gasta, la Baby no", () => {
 describe("paracaídas", () => {
   // B justo después del impacto: no lo toca el proyectil, sí el cráter (cae ~1.2 wu).
   const nearB = 128 + 93.27 + 3;
-  const shot = { playerId: "A", yaw: 90, pitch: 45, power: 600 } as const;
+  const shot = { playerId: "A", yaw: 90, pitch: 45, power: dial("babyMissile", 600) } as const;
 
   it("sin paracaídas, la caída hace daño", () => {
     const { falls, damage } = resolveTurn(duel(nearB), shot);

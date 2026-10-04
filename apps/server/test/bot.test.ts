@@ -76,9 +76,9 @@ describe("decisiones del bot", () => {
 
   it("si ninguna puntería pasa el cerro, tira la menos mala", () => {
     const m = behindHill();
-    const all = botCandidates(m, "B", createRng(4));
+    const all = botCandidates(m, "B", createRng(25));
     expect(all.some((c) => c.landed && !c.blocked)).toBe(false);
-    const pick = pickBotShot(m, "B", createRng(4))!;
+    const pick = pickBotShot(m, "B", createRng(25))!;
     expect(pick.landed).toBe(true);
     expect(pick.miss).toBe(Math.min(...all.filter((c) => c.landed).map((c) => c.miss)));
   });
@@ -99,7 +99,7 @@ describe("decisiones del bot", () => {
   it("con el rival en la orilla, entre una muestra que lo ahoga y otra que solo le roza, manda la que ahoga", () => {
     const m = onGround(3, { missile: 3 });
     expect(onShore(m.terrain, 110, 128)).toBe(true);
-    const all = botCandidates(m, "B", createRng(82));
+    const all = botCandidates(m, "B", createRng(167));
     const wet = all.filter((c) => c.drowns);
     const closest = all.reduce((a, b) => (b.miss < a.miss ? b : a));
     // Una sola lo ahoga, y la que cae más cerca (la que tiraría sin mirar el agua) no es esa: le roza.
@@ -109,7 +109,7 @@ describe("decisiones del bot", () => {
     expect(graze.damage.some((d) => d.targetId === "A" && d.cause === "explosion")).toBe(true);
     expect(isAlive(graze.state.tanks.find((t) => t.id === "A")!)).toBe(true);
 
-    const pick = pickBotShot(m, "B", createRng(82))!;
+    const pick = pickBotShot(m, "B", createRng(167))!;
     expect(pick).toEqual(wet[0]);
     // Lo que hace Game.fire con el elegido: Ana termina en el agua.
     const g = started();
@@ -125,9 +125,9 @@ describe("decisiones del bot", () => {
     expect(pickBotShot(m, "B", createRng(1))!.miss).toBe(Math.min(...dry.map((c) => c.miss)));
     // Con el rival en piso alto, o con el Rodillo en la orilla, ninguna muestra cuenta como ahogo.
     for (const other of [onGround(10, { missile: 3 }), onGround(3, { roller: 3 })]) {
-      const same = botCandidates(other, "B", createRng(82));
+      const same = botCandidates(other, "B", createRng(167));
       expect(same.some((c) => c.drowns)).toBe(false);
-      expect(pickBotShot(other, "B", createRng(82))!.miss).toBe(Math.min(...same.filter((c) => c.landed && !c.blocked).map((c) => c.miss)));
+      expect(pickBotShot(other, "B", createRng(167))!.miss).toBe(Math.min(...same.filter((c) => c.landed && !c.blocked).map((c) => c.miss)));
     }
   });
 

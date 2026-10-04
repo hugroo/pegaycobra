@@ -3,6 +3,7 @@ import {
   createFlatTerrain,
   FUEL_MOVE_RANGE,
   INTEREST_RATE,
+  launchPower,
   MONEY_PER_ROUND,
   MONEY_START,
   ROUND_MAX_TURNS,
@@ -13,6 +14,7 @@ import {
   SURVIVOR_BONUS,
   terrainHeightAt,
   WEAPONS,
+  type WeaponId,
 } from "@pegaycobra/sim";
 import { Game, parseBuyMessage, parseMoveMessage, SHOP_SECONDS, shotDurationMs, TURN_SECONDS } from "../src/game";
 import { changedRect } from "../src/terrain-net";
@@ -29,6 +31,12 @@ function killAndPass(g: Game, id: string) {
   g.match = { ...g.match!, tanks: g.match!.tanks.map((t) => (t.id === id ? { ...t, life: 0 } : t)) };
   for (let i = 0; i < TURN_SECONDS && g.phase === "aiming"; i++) g.tickSecond();
 }
+
+/**
+ * La potencia que hay que apuntar con `weapon` para que el tiro salga del cañón con `launch` (la
+ * inversa de launchPower): los escenarios ponen a B a 93 celdas, donde cae un tiro a 45° que sale con 600.
+ */
+const dial = (weapon: WeaponId, launch: number) => launch / launchPower(WEAPONS[weapon], 1);
 
 const money = (g: Game, id: string) => g.playerOf(id)!.money;
 const inv = (g: Game, id: string) => g.playerOf(id)!.inventory;
@@ -303,13 +311,13 @@ describe("Roller y Escudo en partida", () => {
 
   it("el escudo se ve puesto hasta que llega el tiro; ahí lo come, se gasta y no hay daño ni puntos", () => {
     const g = started();
-    // Piso plano, A en el centro y B donde cae yaw 90 / pitch 45 / power 600.
+    // Piso plano, A en el centro y B donde cae yaw 90 / pitch 45 si sale con potencia 600.
     const terrain = createFlatTerrain(257, 257, 10);
     const at = (id: string, z: number) => ({ ...g.match!.tanks.find((t) => t.id === id)!, x: 128, y: 10, z });
     g.match = { ...g.match!, terrain, wind: { x: 0, z: 0 }, tanks: [at("A", 128), at("B", 128 + 93)] };
     give(g, "A", { missile: 3 });
     give(g, "B", { shield: 1 });
-    const hit = { yaw: 90, pitch: 45, power: 600, weapon: "missile" };
+    const hit = { yaw: 90, pitch: 45, power: dial("missile", 600), weapon: "missile" };
 
     const first = g.fire("A", hit)!;
     expect(first.result.blocked).toEqual(["B"]);
@@ -343,7 +351,7 @@ describe("Napalm en partida", () => {
     for (let i = 0; i < TURN_SECONDS; i++) g.tickSecond();
   };
 
-  /** Piso plano, A en el centro, B donde cae yaw 90 / pitch 45 / power 600 y C lejos. Le toca a A, que tiene un Napalm. */
+  /** Piso plano, A en el centro, B donde cae yaw 90 / pitch 45 si sale con potencia 600 y C lejos. Le toca a A, que tiene un Napalm. */
   const SPOTS: Record<string, { x: number; z: number }> = { A: { x: 128, z: 128 }, B: { x: 128, z: 128 + 93 }, C: { x: 30, z: 30 } };
   function flat(ids = ["A", "B"]) {
     const g = started(11, ids);
@@ -353,7 +361,7 @@ describe("Napalm en partida", () => {
     expect(g.turnId).toBe("A");
     return g;
   }
-  const NAPALM = { yaw: 90, pitch: 45, power: 600, weapon: "napalm" };
+  const NAPALM = { yaw: 90, pitch: 45, power: dial("napalm", 600), weapon: "napalm" };
 
   it("la tienda lo vende de a 1", () => {
     const g = started();
@@ -453,7 +461,7 @@ describe("Tierra en partida", () => {
   };
   const tank = (g: Game, id: string) => g.match!.tanks.find((t) => t.id === id)!;
 
-  /** Piso plano a 10, A en el centro y B donde cae yaw 90 / pitch 45 / power 600. Le toca a A, que tiene una Tierra. */
+  /** Piso plano a 10, A en el centro y B donde cae yaw 90 / pitch 45 si sale con potencia 600. Le toca a A, que tiene una Tierra. */
   const B = { x: 128, z: 128 + 93 };
   function flat() {
     const g = started();
@@ -464,7 +472,7 @@ describe("Tierra en partida", () => {
     expect(g.turnId).toBe("A");
     return g;
   }
-  const DIRT = { yaw: 90, pitch: 45, power: 600, weapon: "dirt" };
+  const DIRT = { yaw: 90, pitch: 45, power: dial("dirt", 600), weapon: "dirt" };
 
   it("la tienda la vende de a 1", () => {
     const g = started();

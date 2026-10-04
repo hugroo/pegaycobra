@@ -4,6 +4,7 @@ import {
   cannotBuy,
   createFlatTerrain,
   endRoundPayouts,
+  FULL_REACH,
   MONEY_START,
   resolveTurn,
   ROLL_STEP,
@@ -20,6 +21,7 @@ import {
   type Player,
   type Terrain,
 } from "../src";
+import { dial } from "./aim";
 
 const fresh = (id: string): Player => ({ id, money: MONEY_START, inventory: startingInventory() });
 const withItems = (id: string, items: Player["inventory"]): Player => ({ ...fresh(id), inventory: { ...startingInventory(), ...items } });
@@ -93,15 +95,16 @@ describe("Roller", () => {
     expect(damage.find((d) => d.targetId === "B")!.cause).toBe("explosion");
   });
 
-  it("sale con la potencia que dice WEAPONS.roller, y en lo llano no rueda", () => {
+  it("vuela como un Missile (mismo alcance), y en lo llano no rueda", () => {
     const flat = createFlatTerrain(257, 257, 10);
     const aim = { originX: 60, originY: 10, originZ: 128, yaw: 0, pitch: 45, power: 600, wind: { x: 0, z: 0 } };
-    const baby = simulateWeaponShot3D(flat, WEAPONS.babyMissile, { ...aim, power: aim.power * WEAPONS.roller.roll!.powerFactor });
+    const missile = simulateWeaponShot3D(flat, WEAPONS.missile, aim);
     const roller = simulateWeaponShot3D(flat, WEAPONS.roller, aim);
+    expect(WEAPONS.roller.reach).toBe(WEAPONS.missile.reach);
     expect(roller.outcome).toBe("ground");
-    expect(roller.x).toBeCloseTo(baby.x, 6);
+    expect(roller.x).toBeCloseTo(missile.x, 6);
     expect(roller.x).toBe(roller.landed!.x);
-    expect(baby.landed).toBeUndefined();
+    expect(missile.landed).toBeUndefined();
   });
 
   describe("a distancia de spawn, cerro de por medio", () => {
@@ -152,8 +155,8 @@ describe("Roller", () => {
       expect(lifeOf(state, "A")).toBe(TANK_MAX_LIFE);
     });
 
-    it("con la potencia al 60% de antes no había ninguna", () => {
-      const weak = { ...WEAPONS.roller, roll: { ...WEAPONS.roller.roll!, powerFactor: 0.6 } };
+    it("con la potencia al 60% (un alcance de 91, como salía antes) no había ninguna", () => {
+      const weak = { ...WEAPONS.roller, reach: FULL_REACH * 0.6 ** 2 };
       expect(findAim(ridge(), weak)).toBeNull();
     });
   });
@@ -180,7 +183,7 @@ describe("Roller", () => {
 });
 
 describe("Escudo", () => {
-  /** Terreno plano a 10, A en el centro y B donde cae yaw 90 / pitch 45 / power 600. */
+  /** Terreno plano a 10, A en el centro y B donde cae yaw 90 / pitch 45 si sale con potencia 600. */
   function duel(b: Player, a: Player = withItems("A", { missile: 3 })): MatchState3D {
     const terrain = createFlatTerrain(257, 257, 10);
     return {
@@ -190,7 +193,7 @@ describe("Escudo", () => {
       players: [a, b],
     };
   }
-  const MISSILE = { playerId: "A", yaw: 90, pitch: 45, power: 600, weaponId: "missile" } as const;
+  const MISSILE = { playerId: "A", yaw: 90, pitch: 45, power: dial("missile", 600), weaponId: "missile" } as const;
 
   it("con escudo, el Missile no baja la vida y el segundo Missile sí", () => {
     const bare = resolveTurn(duel(fresh("B")), MISSILE);

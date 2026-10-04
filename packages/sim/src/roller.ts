@@ -9,11 +9,11 @@
 // cliente y en el bot.
 
 import { simulateBounceShot3D } from "./bounce";
-import { POWER_MAX, TANK_RADIUS, WATER_LEVEL } from "./constants";
+import { TANK_RADIUS, WATER_LEVEL } from "./constants";
 import { simulateSplitShot3D } from "./mirv";
 import { simulateShot3D, type Shot3DParams, type Shot3DResult, type ShotTank3D } from "./shot3d";
 import { terrainHeightAt, type Terrain } from "./terrain";
-import type { Weapon } from "./weapons";
+import { launchPower, type Weapon } from "./weapons";
 
 /** Radio de la bola: rueda con el centro a esta altura del piso y toca un tanque a TANK_RADIUS + esto. [wu] */
 export const ROLLER_RADIUS = 0.5;
@@ -91,9 +91,10 @@ export function simulateRoll(
 }
 
 /**
- * El tiro de un arma, de la boca del cañón a donde explota. Para Baby Missile y Missile es
- * simulateShot3D con los factores del arma. Para el Roller, la potencia se multiplica por
- * `roll.powerFactor` y, si el vuelo termina en el piso, sigue la rodada: `landed` es donde tocó,
+ * El tiro de un arma, de la boca del cañón a donde explota. Sale con la potencia que da el alcance
+ * del arma (launchPower, weapons.ts): la misma puntería llega más lejos con un Missile que con un
+ * Nuke. Para Baby Missile y Missile es simulateShot3D con los factores del arma. Para el Roller, si
+ * el vuelo termina en el piso, sigue la rodada: `landed` es donde tocó,
  * (x, y, z) donde terminó, y `ticks` y `path` incluyen los pasos rodando. Para el MIRV, el vuelo se
  * abre en la cima (simulateSplitShot3D, mirv.ts) y el resultado trae `split`. Para el Leap Frog, el
  * tiro pica en el piso y sigue un tramo más (simulateBounceShot3D, bounce.ts): trae `bounce`.
@@ -107,8 +108,7 @@ export function simulateWeaponShot3D(
   options: { recordPath?: boolean; maxTicks?: number } = {},
 ): Shot3DResult {
   const roll = weapon.roll;
-  const power = roll ? Math.min(POWER_MAX, Math.max(0, params.power)) * roll.powerFactor : params.power;
-  const launch = { ...params, power, windFactor: weapon.windFactor, gravityFactor: weapon.gravityFactor };
+  const launch = { ...params, power: launchPower(weapon, params.power), windFactor: weapon.windFactor, gravityFactor: weapon.gravityFactor };
   if (weapon.split) return simulateSplitShot3D(terrain, weapon.split, launch, tanks, options);
   if (weapon.bounce) return simulateBounceShot3D(terrain, weapon.bounce, launch, tanks, options);
   const flight = simulateShot3D(terrain, launch, tanks, options);

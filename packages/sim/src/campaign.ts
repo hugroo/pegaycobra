@@ -152,7 +152,7 @@ export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze(
     // accessories.xml: <cost>2000</cost> por <bundlesize>5</bundlesize> → 400 c/u; pack de 3.
     price: 1200,
     pack: 3,
-    description: "Explosión de radio 6 (la Chispa es 3.5). Se gasta uno por tiro.",
+    description: "El tiro largo: llega más lejos que la Chispa, y explota con radio 6 (la Chispa es 3.5). Se gasta uno por tiro.",
   },
   roller: {
     id: "roller",
@@ -178,6 +178,7 @@ export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze(
     pack: 1,
     description:
       `Un Misil enorme: explosión y cráter de radio ${WEAPONS.nuke.explosionRadius} (el Misil es ${WEAPONS.missile.explosionRadius}). ` +
+      "Pesa: llega a menos de la mitad que un Misil, así que hay que tener al otro cerca. " +
       "El escudo no lo frena ni se gasta.",
   },
   dirt: {

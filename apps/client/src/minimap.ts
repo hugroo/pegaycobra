@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Minimapa: vista cenital fija (x a la derecha, z hacia abajo) en un canvas 2D. Solo dibuja lo
 // que le pasa main.ts: el terreno con la misma escala de color que la vista 3D, los fuegos de Napalm, los tanques, el viento, dónde cae
-// la fantasma, dónde cayó el último tiro real (el del mensaje "shot", igual en todas las pestañas) y la
-// marca del último tiro de cada tanque (la del estado).
+// la fantasma, hasta dónde llega el arma elegida, dónde cayó el último tiro real (el del mensaje
+// "shot", igual en todas las pestañas) y la marca del último tiro de cada tanque (la del estado).
 
 import type { Terrain } from "@pegaycobra/sim";
 import { hillshade, LAKE, landColor, type RGB } from "./landscape";
@@ -32,6 +32,12 @@ export interface MiniModel {
    * `path` trae los dos tramos y `bounce` es donde pica.
    */
   ghost: { path: number[]; lands: boolean; color: number; heads?: { path: number[]; lands: boolean }[]; bounce?: { x: number; z: number } } | null;
+  /**
+   * En mi turno: hasta dónde llega el arma elegida, como un aro alrededor de mi tanque. El radio es
+   * el alcance del arma (WEAPONS[...].reach): piso llano, sin viento. Lo que queda afuera del aro no
+   * lo alcanza ese tiro; con un arma que llega más que el mapa, el aro no se ve. [wu]
+   */
+  reach: { x: number; z: number; radius: number; color: number } | null;
   /** Proyectil real en vuelo: uno, o las cabezas de un Racimo ya abierto. */
   balls: { x: number; z: number }[];
   /**
@@ -176,6 +182,19 @@ export class Minimap {
         }
         ctx.stroke();
       }
+    }
+
+    // Alcance del arma elegida: aro del color del tanque, a escala del mapa. Va debajo de la
+    // fantasma, que es la que dice dónde cae este tiro.
+    if (m.reach) {
+      ctx.beginPath();
+      ctx.arc(m.reach.x * kx, m.reach.z * kz, m.reach.radius * kx, 0, Math.PI * 2);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.45)";
+      ctx.stroke();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = TANK_COLORS[m.reach.color] ?? "#fff";
+      ctx.stroke();
     }
 
     // Fantasma: recorrido punteado y, al final, el punto de caída (o "se fue" en el borde).

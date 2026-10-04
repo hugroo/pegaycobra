@@ -21,6 +21,7 @@ import {
   type Player,
   type Terrain,
 } from "../src";
+import { dial } from "./aim";
 
 const fresh = (id: string): Player => ({ id, money: MONEY_START, inventory: startingInventory() });
 const withItems = (id: string, items: Player["inventory"]): Player => ({ ...fresh(id), inventory: { ...startingInventory(), ...items } });
@@ -30,7 +31,7 @@ const moneyOf = (s: MatchState3D, id: string) => s.players.find((p) => p.id === 
 
 const BURN = WEAPONS.napalm.burn!;
 const A = { x: 128, z: 128 };
-/** Donde cae yaw 90 / pitch 45 / power 600 desde A, en piso plano. */
+/** Donde cae yaw 90 / pitch 45 desde A, en piso plano, si sale con potencia 600. */
 const B = { x: 128, z: 128 + 93 };
 
 /** Un cerro en el camino del tiro: si el Napalm abriera cráter, acá se notaría. */
@@ -47,7 +48,7 @@ function duel(
   return { terrain, wind: { x: 0, z: 0 }, tanks: tanks3DAt(terrain, ["A", "B"], [A, B], TANK_MAX_LIFE), players };
 }
 
-const NAPALM = { playerId: "A", yaw: 90, pitch: 45, power: 600, weaponId: "napalm" } as const;
+const NAPALM = { playerId: "A", yaw: 90, pitch: 45, power: dial("napalm", 600), weaponId: "napalm" } as const;
 
 describe("Napalm", () => {
   it("cae como un tiro normal: mismo vuelo que un Missile, sin rodar", () => {

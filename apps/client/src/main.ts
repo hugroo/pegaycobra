@@ -1010,7 +1010,7 @@ const SHOP_LINE: Record<ShopItemId, string> = {
   missile: `Explosión de radio ${WEAPONS.missile.explosionRadius}`,
   roller: "Rueda cuesta abajo",
   napalm: "Fuego toda la ronda",
-  nuke: "El escudo no lo frena",
+  nuke: "Hoyo enorme, tiro corto",
   dirt: "Levanta una loma",
   mirv: "Se abre en 5 en el aire",
   leapfrog: "Pica una vez y sigue",
@@ -1660,6 +1660,8 @@ function frame(now: number): void {
     ghost: ghost
       ? { path: ghost.path, lands: !ghost.gone, color: ghost.shooter.color, heads: ghost.heads?.map((h) => ({ path: h.path, lands: !!h.impact })), bounce: ghost.bounce }
       : null,
+    // Mientras apunto: el aro de hasta dónde llega el arma elegida (el mismo número que usa el sim).
+    reach: ghost ? { x: ghost.shooter.x, z: ghost.shooter.z, radius: WEAPONS[weapon].reach, color: ghost.shooter.color } : null,
     balls,
     impacts: lastImpact && now >= lastImpact.at ? lastImpact.spots : [],
     marks,
