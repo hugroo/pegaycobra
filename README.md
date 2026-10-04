@@ -281,6 +281,22 @@ de la misma sala podrían caer en servidores distintos.
 - El cliente dibuja: el terreno es un mesh de ese heightmap, los tanques salen del estado y el
   tiro de `path`. La cámara sigue al proyectil, se queda un momento quieta en el impacto (el giro
   hacia el que juega espera) y vuelve al tanque del turno. Si el cerro tapa la vista, la cámara se sube.
+- El peso del dibujo (`apps/client/src/scene3d.ts`). Hay una sola luz que proyecta sombra, el sol,
+  sin bloom ni otro pass. El lado del mapa de sombras sale del ancho de la vista y se rearma si la
+  ventana cambia de ancho:
+
+  | Ancho de la vista (px CSS) | Mapa de sombras |
+  |---|---|
+  | hasta 760 (celular parado; 390 cae acá) | 1024 |
+  | 761 a 1024 (celular acostado, tablet) | 2048 |
+  | más de 1024 (escritorio) | 4096 |
+
+  Con 1024 el borde de la sombra sale más blando, pero la ladera que no mira al sol sigue oscura.
+  Lo que se arma una vez y después solo se mueve o se reescribe en su mismo buffer: el proyectil
+  (bola, gota, cabezas del Racimo y Rodillo), su estela, el fogonazo y el polvo; la flecha del
+  viento (la misma tira de triángulos: cambian los vértices y cuánto se dibuja); la línea y los
+  puntos de la marca de cada tanque; y la fantasma con las líneas de sus cabezas. Un buffer se pide
+  de nuevo solo cuando el recorrido no entra en el que hay.
 - En tu turno, el cliente corre `simulateShot3D` del sim para dibujar una **trayectoria
   fantasma** punteada con un anillo donde caería (con la Quema, el anillo es el disco que quedaría
   prendido: `fireFromShot`, la misma función que usa el server; con la Tierra, el pie de la loma;

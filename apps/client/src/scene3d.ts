@@ -62,6 +62,38 @@ const BALL_RADIUS = 0.7;
 const HEAD_SIZE = 0.65;
 
 /**
+ * Lado del mapa de sombras según el ancho de la vista [px CSS]. El celular no puede con el de
+ * escritorio; con 1024 la sombra del cerro sale más blanda pero sigue marcando la pendiente.
+ */
+function shadowSize(width: number): number {
+  if (width <= 760) return 1024;
+  if (width <= 1024) return 2048;
+  return 4096;
+}
+
+/**
+ * Deja en `geo` lugar para `n` puntos, marca que se dibujan esos y devuelve el atributo para
+ * escribirlos. El buffer se reusa de un frame al otro: solo se pide uno nuevo cuando no alcanza.
+ */
+function reservePoints(geo: THREE.BufferGeometry, n: number): THREE.BufferAttribute {
+  let pos = geo.getAttribute("position") as THREE.BufferAttribute | undefined;
+  if (!pos || pos.count < n) {
+    geo.dispose(); // suelta los buffers viejos en la placa
+    geo.deleteAttribute("lineDistance");
+    pos = new THREE.BufferAttribute(new Float32Array(Math.max(64, n * 2) * 3), 3);
+    geo.setAttribute("position", pos);
+  }
+  pos.needsUpdate = true;
+  geo.setDrawRange(0, n);
+  return pos;
+}
+
+/** Copia un recorrido (tríos x/y/z) a la línea, reusando su buffer. */
+function setPath(geo: THREE.BufferGeometry, path: ArrayLike<number>): void {
+  (reservePoints(geo, path.length / 3).array as Float32Array).set(path);
+}
+
+/**
  * Cómo se ve cada arma en el aire, para reconocerla sin leer el cartel: la forma, el tamaño contra
  * la bola de la Chispa y el color. Solo dibujo: por dónde va lo dice el recorrido del server.
  *   ball: la bola. drop: una gota, con la cola hacia atrás. bunch: las cinco cabezas juntas, hasta
@@ -261,6 +293,7 @@ export class World {
   private readonly labels: CSS2DRenderer;
   private readonly edgeLayer: HTMLDivElement;
   private readonly scene = new THREE.Scene();
+  private readonly sun = new THREE.DirectionalLight("#fff1d6", 2.3);
   readonly camera = new THREE.PerspectiveCamera(50, 1, 0.5, 3000);
   private terrain: Terrain | null = null;
   private terrainMesh: THREE.Mesh | null = null;
@@ -349,11 +382,10 @@ export class World {
     // Poca luz de cielo y un sol fuerte y bajo: la ladera que mira al sol queda clara y la otra en
     // sombra, así el relieve se lee por la luz. El sol además proyecta sombra (cerros y tanques).
     this.scene.add(new THREE.HemisphereLight("#cfe3ff", "#8a7a55", 0.75));
-    const sun = new THREE.DirectionalLight("#fff1d6", 2.3);
+    const sun = this.sun;
     sun.position.set(128 + SUN_DIR[0] * 320, SUN_DIR[1] * 320, 128 + SUN_DIR[2] * 320);
     sun.target.position.set(128, 0, 128);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(4096, 4096);
+    sun.castShadow = true; // el tamaño del mapa lo pone resize(), según el ancho
     const sc = sun.shadow.camera;
     sc.left = sc.bottom = -190;
     sc.right = sc.top = 190;
@@ -517,6 +549,14 @@ export class World {
     this.labels.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    const size = shadowSize(w);
+    const shadow = this.sun.shadow;
+    if (shadow.mapSize.x !== size) {
+      shadow.mapSize.set(size, size);
+      // El mapa ya armado es del tamaño viejo: se suelta y el renderer lo arma de nuevo.
+      shadow.map?.dispose();
+      shadow.map = null;
+    }
   }
 
   get hasTerrain(): boolean {
@@ -992,11 +1032,22 @@ export class World {
 
   /** Corre las rayas de una línea de la fantasma según la hora. */
   private march(line: THREE.Line, now: number): void {
-    line.computeLineDistances();
-    const d = line.geometry.getAttribute("lineDistance") as THREE.BufferAttribute;
+    const geo = line.geometry;
+    const pos = geo.getAttribute("position") as THREE.BufferAttribute;
+    let d = geo.getAttribute("lineDistance") as THREE.BufferAttribute | undefined;
+    if (!d) {
+      d = new THREE.BufferAttribute(new Float32Array(pos.count), 1);
+      geo.setAttribute("lineDistance", d);
+    }
     const period = GHOST_DASH + GHOST_GAP;
     const shift = period - (((now / 1000) * GHOST_DASH_SPEED) % period);
-    for (let i = 0; i < d.count; i++) d.setX(i, d.getX(i) + shift);
+    const p = pos.array;
+    let along = 0;
+    for (let i = 0; i < geo.drawRange.count; i++) {
+      if (i > 0) along += Math.hypot(p[i * 3]! - p[i * 3 - 3]!, p[i * 3 + 1]! - p[i * 3 - 2]!, p[i * 3 + 2]! - p[i * 3 - 1]!);
+      d.setX(i, along + shift);
+    }
+    d.needsUpdate = true;
   }
 
   /**
@@ -1024,9 +1075,7 @@ export class World {
         view.src = m;
         const color = new THREE.Color(TANK_COLORS[m.color] ?? "#fff");
         (view.line.material as THREE.LineBasicMaterial).color.copy(color).lerp(new THREE.Color("#ffffff"), 0.45);
-        view.line.geometry.dispose();
-        view.line.geometry = new THREE.BufferGeometry();
-        view.line.geometry.setAttribute("position", new THREE.Float32BufferAttribute(m.path, 3));
+        setPath(view.line.geometry, m.path);
         view.line.visible = m.path.length >= 6;
         while (view.spots.length < m.spots.length) {
           const spot = new THREE.Mesh(this.markDotGeo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthTest: false }));
@@ -1067,19 +1116,22 @@ export class World {
     const dir = new THREE.Vector3(Math.cos(p) * Math.cos(y), Math.sin(p), Math.cos(p) * Math.sin(y));
     const base = new THREE.Vector3(g.shooter.x, g.shooter.y + TANK_RADIUS, g.shooter.z);
     const reach = tip.clone().sub(base).dot(dir);
-    const pts: THREE.Vector3[] = [tip];
     const n = g.path.length / 3;
+    const geo = this.ghostLine.geometry;
+    // Los puntos se escriben en el buffer de siempre: la punta, uno de cada dos del sim y el último.
+    const pos = reservePoints(geo, Math.ceil(n / 2) + 2);
     const tmp = new THREE.Vector3();
+    let count = 0;
+    pos.setXYZ(count++, tip.x, tip.y, tip.z);
     let started = false;
     for (let i = 0; i < n; i += 2) {
-      tmp.set(g.path[i * 3]!, g.path[i * 3 + 1]!, g.path[i * 3 + 2]!);
-      if (!started && tmp.clone().sub(base).dot(dir) < reach) continue;
+      tmp.fromArray(g.path, i * 3);
+      if (!started && tmp.sub(base).dot(dir) < reach) continue;
       started = true;
-      pts.push(tmp.clone());
+      pos.setXYZ(count++, g.path[i * 3]!, g.path[i * 3 + 1]!, g.path[i * 3 + 2]!);
     }
-    pts.push(new THREE.Vector3(g.path[(n - 1) * 3]!, g.path[(n - 1) * 3 + 1]!, g.path[(n - 1) * 3 + 2]!));
-    this.ghostLine.geometry.dispose();
-    this.ghostLine.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    pos.setXYZ(count++, g.path[(n - 1) * 3]!, g.path[(n - 1) * 3 + 1]!, g.path[(n - 1) * 3 + 2]!);
+    geo.setDrawRange(0, count);
     this.march(this.ghostLine, now);
     this.ghostLine.visible = true;
 
@@ -1098,10 +1150,10 @@ export class World {
     const goneText = g.sunk ? "al agua" : "se fue";
     if (this.ghostGone.element.textContent !== goneText) this.ghostGone.element.textContent = goneText;
     const ndc = new THREE.Vector3();
-    for (let i = pts.length - 1; i >= 0; i--) {
-      ndc.copy(pts[i]!).project(this.camera);
+    for (let i = count - 1; i >= 0; i--) {
+      ndc.fromBufferAttribute(pos, i).project(this.camera);
       if (Math.abs(ndc.x) > 0.88 || Math.abs(ndc.y) > 0.88 || ndc.z > 1) continue;
-      this.ghostGone.position.copy(pts[i]!);
+      this.ghostGone.position.fromBufferAttribute(pos, i);
       this.ghostGone.visible = true;
       break;
     }
@@ -1134,11 +1186,12 @@ export class World {
       if (!g || !h) return;
       if (v.line.visible) {
         const n = h.path.length / 3;
-        const pts: THREE.Vector3[] = [];
-        for (let k = 0; k < n; k += 2) pts.push(new THREE.Vector3().fromArray(h.path, k * 3));
-        pts.push(new THREE.Vector3().fromArray(h.path, (n - 1) * 3));
-        v.line.geometry.dispose();
-        v.line.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+        const count = Math.ceil(n / 2) + 1;
+        const pos = reservePoints(v.line.geometry, count);
+        for (let k = 0; k < count; k++) {
+          const a = Math.min(k * 2, n - 1) * 3;
+          pos.setXYZ(k, h.path[a]!, h.path[a + 1]!, h.path[a + 2]!);
+        }
         this.march(v.line, now);
       }
       if (h.impact) {
@@ -1174,8 +1227,8 @@ export class World {
     const last = Math.min(n - 1, Math.floor(p * total));
 
     const geo = this.shotLine.geometry as THREE.BufferGeometry;
-    if (!geo.getAttribute("position") || geo.userData.src !== s.path) {
-      geo.setAttribute("position", new THREE.BufferAttribute(Float32Array.from(s.path), 3));
+    if (geo.userData.src !== s.path) {
+      setPath(geo, s.path);
       geo.userData.src = s.path;
     }
     geo.setDrawRange(0, last + 1);
@@ -1311,7 +1364,7 @@ export class World {
       const k = Math.min(m - 1, Math.floor(tick));
       const geo = v.line.geometry as THREE.BufferGeometry;
       if (geo.userData.src !== h.path) {
-        geo.setAttribute("position", new THREE.BufferAttribute(Float32Array.from(h.path), 3));
+        setPath(geo, h.path);
         geo.userData.src = h.path;
       }
       geo.setDrawRange(0, k + 1);
@@ -1368,22 +1421,25 @@ export class World {
     for (let i = 0; i <= n; i++) cuts.push([(shaft * i) / n, head * 0.22]);
     const m = Math.max(1, Math.ceil(head));
     for (let i = 0; i <= m; i++) cuts.push([shaft + (head * i) / m, head * 0.6 * (1 - i / m)]);
-    const pos: number[] = [];
-    const index: number[] = [];
-    cuts.forEach(([d, half], i) => {
+    // La malla es siempre la misma tira: los vértices se mueven de lugar y se dibuja hasta donde llega.
+    const geo = this.windArrow.geometry;
+    const pos = reservePoints(geo, cuts.length * 3);
+    const tris = (cuts.length - 1) * 12;
+    if ((geo.getIndex()?.count ?? 0) < tris) {
+      // El índice de la tira no depende del viento: se arma una vez, para todo el lugar que hay.
+      const index: number[] = [];
+      for (let a = 0; a + 5 < pos.count; a += 3) index.push(a, a + 1, a + 4, a, a + 4, a + 3, a + 1, a + 2, a + 5, a + 1, a + 5, a + 4);
+      geo.setIndex(index);
+    }
+    let v = 0;
+    for (const [d, half] of cuts) {
       for (const side of [-1, 0, 1]) {
         const x = cx + ux * d - uz * half * side;
         const z = cz + uz * d + ux * half * side;
-        pos.push(x, terrainHeightAt(t, x, z) + 0.5, z);
+        pos.setXYZ(v++, x, terrainHeightAt(t, x, z) + 0.5, z);
       }
-      if (i === 0) return;
-      const a = (i - 1) * 3;
-      index.push(a, a + 1, a + 4, a, a + 4, a + 3, a + 1, a + 2, a + 5, a + 1, a + 5, a + 4);
-    });
-    this.windArrow.geometry.dispose();
-    this.windArrow.geometry = new THREE.BufferGeometry();
-    this.windArrow.geometry.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    this.windArrow.geometry.setIndex(index);
+    }
+    geo.setDrawRange(0, tris);
   }
 
   private drawMove(m: MoveModel | null): void {
