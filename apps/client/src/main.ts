@@ -1720,7 +1720,6 @@ function frame(now: number): void {
     terrain: terrain!,
     terrainVersion,
     tanks: tanks.map((t) => ({ x: t.x, z: t.z, color: t.color, alive: t.life > 0, isMe: t.isMe, shore: t.shore })),
-    wind,
     fires,
     ghost: ghost
       ? { path: ghost.path, lands: !ghost.gone, color: ghost.shooter.color, heads: ghost.heads?.map((h) => ({ path: h.path, lands: !!h.impact })), bounce: ghost.bounce }

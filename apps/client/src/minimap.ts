@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Minimapa: vista cenital fija (x a la derecha, z hacia abajo) en un canvas 2D. Solo dibuja lo
-// que le pasa main.ts: el terreno con la misma escala de color que la vista 3D, los fuegos de Napalm, los tanques, el viento, dónde cae
+// que le pasa main.ts: el terreno con la misma escala de color que la vista 3D, los fuegos de Napalm, los tanques, dónde cae
 // la fantasma, hasta dónde llega el arma elegida, dónde cayó el último tiro real (el del mensaje
 // "shot", igual en todas las pestañas) y la marca del último tiro de cada tanque (la del estado).
 
@@ -23,7 +23,6 @@ export interface MiniModel {
   /** Cambia cuando cambia el terreno: recién ahí se repinta la base. */
   terrainVersion: number;
   tanks: MiniTank[];
-  wind: { x: number; z: number };
   /** Fuegos de Napalm prendidos en la ronda: discos en el piso. [wu] */
   fires: { x: number; z: number; radius: number }[];
   /**
@@ -49,7 +48,6 @@ export interface MiniModel {
   marks: MarkModel[];
 }
 
-const WIND_COLOR = "#9ad1ff";
 /** El punto de un tanque mide 4 px: el fuego se dibuja al menos así de grande, para que asome por debajo. [px] */
 const FIRE_MIN_PX = 6.5;
 /** Marca de orilla: el color del lago, el mismo del terreno. */
@@ -327,47 +325,5 @@ export class Minimap {
       ctx.fill();
       ctx.stroke();
     }
-
-    // Viento: flecha en la esquina de abajo a la izquierda, con los mismos ejes que el mapa.
-    const speed = Math.hypot(m.wind.x, m.wind.z);
-    const cx = 20;
-    const cy = S - 20;
-    ctx.fillStyle = "rgba(15, 20, 30, 0.78)";
-    ctx.beginPath();
-    ctx.arc(cx, cy, 16, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = WIND_COLOR;
-    ctx.strokeStyle = WIND_COLOR;
-    if (speed < 0.05) {
-      ctx.beginPath();
-      ctx.arc(cx, cy, 2, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      const ux = m.wind.x / speed;
-      const uz = m.wind.z / speed;
-      const len = 5 + speed * 1.8; // media flecha: 7 px con viento 1, 14 px con viento 5
-      const hx = cx + ux * len;
-      const hy = cy + uz * len;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(cx - ux * len, cy - uz * len);
-      ctx.lineTo(hx, hy);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(hx + ux * 3, hy + uz * 3);
-      ctx.lineTo(hx - ux * 4 - uz * 4, hy - uz * 4 + ux * 4);
-      ctx.lineTo(hx - ux * 4 + uz * 4, hy - uz * 4 - ux * 4);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.font = "700 11px system-ui, sans-serif";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    const label = speed < 0.05 ? "calma" : speed.toFixed(1);
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "#000";
-    ctx.strokeText(label, cx + 20, cy);
-    ctx.fillStyle = WIND_COLOR;
-    ctx.fillText(label, cx + 20, cy);
   }
 }
