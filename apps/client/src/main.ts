@@ -422,6 +422,9 @@ function show(which: keyof typeof screens): void {
   // El chat es de la sala: está en la espera y en la partida, y al salir se borra.
   ui.chat.hidden = which === "home";
   if (which === "home") resetChat();
+  // En la espera tiene su lugar al pie de la tarjeta; en la partida flota sobre el cerro.
+  const chatHome = which === "lobby" ? screens.lobby.querySelector(".card")! : document.body;
+  if (ui.chat.parentElement !== chatHome) chatHome.append(ui.chat);
   if (which === "game") {
     world ??= new World(ui.viewport);
     world.resize();
