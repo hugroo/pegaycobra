@@ -70,6 +70,7 @@
             </span>
           </div>
           <div class="dock-main">
+            <div class="arms">
             <div class="weapons" role="radiogroup" aria-label="Arma">
               <button id="w-baby" class="weapon on" role="radio" aria-checked="true"><kbd>1</kbd>Baby <small>∞</small></button>
               <button id="w-missile" class="weapon" role="radio" aria-checked="false"><kbd>2</kbd>Missile <small id="w-missile-n">×0</small></button>
@@ -78,11 +79,12 @@
               <button id="w-nuke" class="weapon" role="radio" aria-checked="false" title="Un Missile enorme: el escudo no lo frena"><kbd>5</kbd>Nuke <small id="w-nuke-n">×0</small></button>
             </div>
             <button id="btn-fuel" class="fuel" title="Mové el tanque antes de tirar: después, clic en el piso"><kbd>N</kbd>Nafta <small id="fuel-n">×0</small></button>
-            <div class="angles">
+            </div>
+            <div id="aim-pad" class="angles">
               <div class="ctl"><span class="lbl">Giro</span> <output id="yaw-out">0°</output></div>
               <div class="ctl"><span class="lbl">Elevación</span> <output id="pitch-out">45°</output></div>
             </div>
-            <div class="ctl power">
+            <div id="power-ctl" class="ctl power">
               <span class="lbl">Potencia</span>
               <input id="power" type="range" min="0" max="1000" step="5" value="500" />
               <output id="power-out">500</output>

@@ -81,6 +81,8 @@ const ui = {
   wNukeN: $("w-nuke-n"),
   fuelBtn: $<HTMLButtonElement>("btn-fuel"),
   fuelN: $("fuel-n"),
+  aimPad: $("aim-pad"),
+  powerCtl: $("power-ctl"),
   yawOut: $("yaw-out"),
   pitchOut: $("pitch-out"),
   power: $<HTMLInputElement>("power"),
@@ -428,6 +430,7 @@ function renderHud(phase: string): void {
   // En tu turno aparece la barra de tiro; en el ajeno queda solo quién juega, el tiempo y el viento.
   screens.game.classList.toggle("mine", mine);
   screens.game.classList.toggle("shopping", phase === "shop");
+  if (mine && ui.dock.hidden) dockShownAt = performance.now();
   ui.dock.hidden = !mine;
   ui.turnPill.classList.toggle("mine", mine);
   ui.hudRound.textContent = `${s.round}/${s.rounds}`;
@@ -701,8 +704,72 @@ function fire(): void {
   moveMode = false;
   ui.fire.blur();
 }
-ui.fire.addEventListener("click", fire);
+/** Cuándo apareció la barra de tiro. Tirar queda donde un instante antes estaba la tienda. */
+let dockShownAt = 0;
+// Un toque que venía para una carta de la tienda y cae sobre Tirar recién aparecido no es un tiro.
+ui.fire.addEventListener("click", () => {
+  if (performance.now() - dockShownAt > 500) fire();
+});
 ui.power.addEventListener("input", () => setAim({ power: Number(ui.power.value) }));
+
+// Pantalla chica (teléfono): giro y elevación van en el control de la izquierda, la potencia en el
+// de la derecha, y en el cerro un dedo solo toca; la cámara es de dos dedos. Misma consulta que el CSS.
+const compact = window.matchMedia("(max-width: 760px), (pointer: coarse) and (max-height: 520px)");
+
+/** Para que arrastrar a la derecha mueva la punta del cañón hacia la derecha de la pantalla. */
+function yawSign(): number {
+  if (!world) return 1;
+  const r = world.screenRight();
+  const y = (aim.yaw * Math.PI) / 180;
+  return -Math.sin(y) * r.x + Math.cos(y) * r.z >= 0 ? 1 : -1;
+}
+
+/** Control de arrastre relativo: importa cuánto se mueve el dedo, no dónde apoya. Solo en pantalla chica. */
+function relDrag(el: HTMLElement, onDelta: (dx: number, dy: number) => void): void {
+  let held: { id: number; x: number; y: number } | null = null;
+  el.addEventListener("pointerdown", (e) => {
+    if (!compact.matches || held) return;
+    held = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    el.setPointerCapture(e.pointerId);
+    el.classList.add("held");
+    e.preventDefault();
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (held?.id !== e.pointerId) return;
+    onDelta(e.clientX - held.x, e.clientY - held.y);
+    held.x = e.clientX;
+    held.y = e.clientY;
+  });
+  const end = (e: PointerEvent) => {
+    if (held?.id !== e.pointerId) return;
+    held = null;
+    el.classList.remove("held");
+  };
+  el.addEventListener("pointerup", end);
+  el.addEventListener("pointercancel", end);
+}
+
+// Lo que el dedo movió y todavía no llega a un grado (o a un paso de potencia): se guarda, así
+// arrastrar despacio ajusta fino en vez de no hacer nada.
+const padRest = { yaw: 0, pitch: 0, power: 0 };
+relDrag(ui.aimPad, (dx, dy) => {
+  if (!myTurn()) return;
+  padRest.yaw += yawSign() * dx * 0.4;
+  padRest.pitch -= dy * 0.3;
+  const dYaw = Math.trunc(padRest.yaw);
+  const dPitch = Math.trunc(padRest.pitch);
+  padRest.yaw -= dYaw;
+  padRest.pitch -= dPitch;
+  if (dYaw || dPitch) setAim({ yaw: aim.yaw + dYaw, pitch: aim.pitch + dPitch });
+});
+const POWER_STEP = Number(ui.power.step);
+relDrag(ui.powerCtl, (dx) => {
+  if (!myTurn()) return;
+  padRest.power += dx * 2.5;
+  const steps = Math.trunc(padRest.power / POWER_STEP);
+  padRest.power -= steps * POWER_STEP;
+  if (steps) setAim({ power: aim.power + steps * POWER_STEP });
+});
 
 /** Estado mínimo del sim armado con lo que llega del server, para validar la nafta en el cliente. */
 function simView(): MatchState3D | null {
@@ -725,33 +792,77 @@ function pickGround(e: PointerEvent): { x: number; z: number } | null {
 
 // Mouse: izquierdo arrastra el cañón (horizontal = giro, vertical = elevación); en modo nafta,
 // un clic en el piso elige el destino. Derecho orbita la cámara. Rueda = potencia en tu turno.
+// Dedo en pantalla chica: uno solo toca (destino de la nafta); dos orbitan y, al separarse, hacen zoom.
 let drag: { button: number; x: number; y: number; moved: number } | null = null;
+const fingers = new Map<number, { x: number; y: number }>();
+/** El toque de un solo dedo, mientras no se le sume otro. */
+let tap: { id: number; moved: number } | null = null;
+const byFinger = (e: PointerEvent) => compact.matches && e.pointerType !== "mouse";
+
+/** Clic (o toque) en el piso con la nafta elegida: mueve el tanque si el sim lo deja. */
+function moveTo(e: PointerEvent): void {
+  if (!moveMode || !myTurn() || !room) return;
+  const to = pickGround(e);
+  const view = simView();
+  if (!to || !view) return;
+  const check = validateMove(view, room.sessionId, to);
+  if (!check.ok) {
+    showBanner(`No: ${check.reason}`, 1500);
+    return;
+  }
+  room.send("move", { moveTo: to });
+  moveMode = false;
+  moveHover = null;
+}
+
 ui.viewport.addEventListener("contextmenu", (e) => e.preventDefault());
 ui.viewport.addEventListener("pointerdown", (e) => {
-  drag = { button: e.button, x: e.clientX, y: e.clientY, moved: 0 };
   ui.viewport.setPointerCapture(e.pointerId);
+  if (byFinger(e)) {
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    tap = fingers.size === 1 ? { id: e.pointerId, moved: 0 } : null;
+    return;
+  }
+  drag = { button: e.button, x: e.clientX, y: e.clientY, moved: 0 };
   ui.viewport.classList.add("dragging");
 });
 ui.viewport.addEventListener("pointerup", (e) => {
+  if (fingers.delete(e.pointerId)) {
+    const wasTap = tap?.id === e.pointerId && tap.moved < 12;
+    tap = null;
+    if (wasTap) moveTo(e);
+    return;
+  }
   const wasClick = drag && drag.button === 0 && drag.moved < 5;
   drag = null;
-  ui.viewport.releasePointerCapture(e.pointerId);
   ui.viewport.classList.remove("dragging");
-  if (wasClick && moveMode && myTurn() && room) {
-    const to = pickGround(e);
-    const view = simView();
-    if (!to || !view) return;
-    const check = validateMove(view, room.sessionId, to);
-    if (!check.ok) {
-      showBanner(`No: ${check.reason}`, 1500);
-      return;
-    }
-    room.send("move", { moveTo: to });
-    moveMode = false;
-    moveHover = null;
+  if (wasClick) moveTo(e);
+});
+ui.viewport.addEventListener("pointercancel", (e) => {
+  if (fingers.delete(e.pointerId)) {
+    tap = null;
+    return;
   }
+  drag = null;
+  ui.viewport.classList.remove("dragging");
 });
 ui.viewport.addEventListener("pointermove", (e) => {
+  const finger = fingers.get(e.pointerId);
+  if (finger) {
+    const dx = e.clientX - finger.x;
+    const dy = e.clientY - finger.y;
+    const [a, b] = [...fingers.values()];
+    const before = a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+    finger.x = e.clientX;
+    finger.y = e.clientY;
+    if (tap) tap.moved += Math.abs(dx) + Math.abs(dy);
+    if (!a || !b || !world) return;
+    // La cámara sigue al punto medio entre los dos dedos; la distancia entre ellos es el zoom.
+    world.orbit((dx / 2) * 0.006, (dy / 2) * 0.005);
+    const after = Math.hypot(a.x - b.x, a.y - b.y);
+    if (before > 0 && after > 0) world.zoom(before / after);
+    return;
+  }
   if (moveMode && myTurn() && room && !drag) {
     const to = pickGround(e);
     const view = simView();
@@ -767,11 +878,7 @@ ui.viewport.addEventListener("pointermove", (e) => {
   drag.y = e.clientY;
   drag.moved += Math.abs(dx) + Math.abs(dy);
   if (drag.button === 0 && myTurn() && !moveMode) {
-    // Arrastrar a la derecha mueve la punta del cañón hacia la derecha de la pantalla.
-    const r = world.screenRight();
-    const y = (aim.yaw * Math.PI) / 180;
-    const sign = -Math.sin(y) * r.x + Math.cos(y) * r.z >= 0 ? 1 : -1;
-    setAim({ yaw: aim.yaw + sign * dx * 0.35, pitch: aim.pitch - dy * 0.3 });
+    setAim({ yaw: aim.yaw + yawSign() * dx * 0.35, pitch: aim.pitch - dy * 0.3 });
   } else if (drag.button === 2 || drag.button === 1 || (drag.button === 0 && !myTurn())) {
     world.orbit(dx * 0.006, dy * 0.005);
   }
@@ -973,6 +1080,9 @@ if (import.meta.env.DEV) {
     },
     get terrain() {
       return terrain;
+    },
+    get world() {
+      return world;
     },
     get aim() {
       return { ...aim, weapon };

@@ -201,6 +201,7 @@ kbd {
 .dock-meta { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .keys { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .dock-main { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.arms { display: contents; }
 .weapons { display: flex; gap: 6px; }
 .weapon small, .fuel small { color: var(--muted); font-weight: 700; margin-left: 2px; }
 .weapon.on, .fuel.on { background: rgba(226, 164, 59, 0.18); border-color: var(--ocre); color: var(--ocre); }
@@ -249,4 +250,77 @@ kbd {
 @media (max-width: 900px) {
   .keys { display: none; }
   .hud-wind .lbl { display: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   Pantalla chica (teléfono): se juega con los pulgares. Giro y elevación en un control a la
+   izquierda, potencia y Tirar a la derecha. Misma consulta que `compact` en main.ts.
+   --------------------------------------------------------------------------- */
+@media (max-width: 760px), (pointer: coarse) and (max-height: 520px) {
+  html, body { overscroll-behavior: none; }
+  .screen.game { user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+  .screen.game button { touch-action: manipulation; }
+  .dock kbd { display: none; }
+
+  .dock {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 10px; padding: 10px;
+    grid-template-areas: "meta meta" "arms arms" "aim power" "aim fire";
+  }
+  .dock-main { display: contents; }
+  .dock-meta { grid-area: meta; }
+  .arms { grid-area: arms; display: flex; gap: 6px; overflow-x: auto; touch-action: pan-x; scrollbar-width: none; }
+  .arms button { flex: none; padding: 10px 14px; white-space: nowrap; }
+  /* El control de apuntar: se arrastra el dedo adentro, hacia los lados gira y hacia arriba eleva. */
+  .angles {
+    grid-area: aim; flex-direction: column; justify-content: space-between; gap: 0; min-height: 124px; padding: 8px 12px;
+    border: 1px solid var(--line); border-radius: var(--radius); touch-action: none; cursor: grab;
+    background:
+      linear-gradient(var(--line), var(--line)) center / 1px 46% no-repeat,
+      linear-gradient(var(--line), var(--line)) center / 46% 1px no-repeat,
+      var(--glass-2);
+  }
+  .angles .ctl { justify-content: space-between; pointer-events: none; }
+  .angles .ctl output { text-align: right; }
+  .power {
+    grid-area: power; min-width: 0; flex-wrap: wrap; justify-content: space-between; gap: 0 8px; padding: 6px 12px;
+    border: 1px solid var(--line); border-radius: var(--radius); background: var(--glass-2); touch-action: none; cursor: ew-resize;
+  }
+  /* La potencia también es de arrastre relativo (main.ts): tocar la barra no la hace saltar. */
+  .power input { order: 3; flex: 1 0 100%; pointer-events: none; }
+  .power output { text-align: right; }
+  .angles.held, .power.held { border-color: var(--ocre); background-color: rgba(226, 164, 59, 0.18); }
+  .fire { grid-area: fire; min-width: 0; min-height: 64px; font-size: 22px; }
+
+  .items { grid-auto-columns: minmax(132px, 1fr); touch-action: pan-x; overscroll-behavior-x: contain; scrollbar-width: none; }
+}
+
+/* Teléfono acostado: los dos controles a los costados, armas y plata en el medio. */
+@media (min-width: 761px) and (pointer: coarse) and (max-height: 520px) {
+  .dock {
+    grid-template-columns: 170px minmax(0, 1fr) 210px;
+    grid-template-areas: "aim meta power" "aim arms fire";
+  }
+  .angles { min-height: 0; }
+  .arms { align-self: end; }
+}
+
+/* Angosto: el turno arriba a todo el ancho; jugadores y minimapa en la fila de abajo. */
+@media (max-width: 760px) {
+  .top { left: 12px; right: 12px; transform: none; justify-content: center; }
+  .pill { padding: 8px 14px; gap: 10px; min-width: 0; }
+  .corner { top: 66px; max-width: calc(100% - 24px - 116px); }
+  .hud-players li { grid-template-columns: 10px minmax(0, auto) 44px 26px; padding: 4px 8px; }
+  .hud-players li > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hud-players .extra { white-space: normal; }
+  .minimap { top: 66px; width: 108px; }
+  .banner {
+    top: 184px; max-width: calc(100% - 24px); width: max-content; white-space: normal; text-align: center;
+    border-radius: var(--radius); font-size: 16px;
+  }
+
+  .tray-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; }
+  .tray-head h2 { grid-area: 1 / 1; font-size: 17px; overflow: hidden; text-overflow: ellipsis; }
+  .tray-head button { grid-area: 1 / 2; min-width: 0; }
+  .summary { grid-area: 2 / 1; overflow-x: auto; touch-action: pan-x; scrollbar-width: none; }
+  .tray-head .money { grid-area: 2 / 2; justify-self: end; }
 }
