@@ -140,6 +140,62 @@ try {
   /* sin storage */
 }
 
+// El asiento: al entrar a una sala se guarda su token de reconexión (sala + asiento). Si la página se
+// refresca, con eso se vuelve al mismo tanque. La clave lleva un id de pestaña (sessionStorage), así
+// dos pestañas del mismo navegador no se pisan el asiento.
+const SEAT_PREFIX = "pyc:seat:";
+const SEAT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+let seatKey = "";
+try {
+  let tab = sessionStorage.getItem("pyc:tab");
+  if (!tab) sessionStorage.setItem("pyc:tab", (tab = Math.random().toString(36).slice(2, 10)));
+  seatKey = SEAT_PREFIX + tab;
+} catch {
+  /* sin storage: un refresco te saca de la sala, como antes */
+}
+
+function saveSeat(r: Room<any>): void {
+  try {
+    if (seatKey) localStorage.setItem(seatKey, JSON.stringify({ token: r.reconnectionToken, at: Date.now() }));
+  } catch {
+    /* ignorado */
+  }
+}
+
+function clearSeat(): void {
+  try {
+    if (seatKey) localStorage.removeItem(seatKey);
+  } catch {
+    /* ignorado */
+  }
+}
+
+/** El asiento guardado de esta pestaña. De paso tira los de pestañas que se cerraron hace rato. */
+function savedSeat(): string | null {
+  try {
+    let mine: string | null = null;
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith(SEAT_PREFIX)) continue;
+      let seat: { token?: unknown; at?: unknown } = {};
+      try {
+        seat = JSON.parse(localStorage.getItem(key) ?? "{}") ?? {};
+      } catch {
+        /* guardado roto: se borra abajo */
+      }
+      const fresh = typeof seat.token === "string" && typeof seat.at === "number" && Date.now() - seat.at < SEAT_MAX_AGE_MS;
+      if (!fresh) localStorage.removeItem(key);
+      else if (key === seatKey) mine = seat.token as string;
+    }
+    return mine;
+  } catch {
+    return null;
+  }
+}
+
+/** La página se está yendo (refresco o cierre): el corte que viene no es para borrar el asiento. */
+let unloading = false;
+window.addEventListener("pagehide", () => (unloading = true));
+
 const fmtMoney = (n: number) => `$${Math.round(n).toLocaleString("es-AR")}`;
 
 // ---------------------------------------------------------------------------
@@ -211,8 +267,22 @@ ui.lobbyLeave.addEventListener("click", () => void leave());
 ui.back.addEventListener("click", () => void leave());
 ui.ready.addEventListener("click", () => room?.send("ready"));
 
+/** Al cargar: si esta pestaña tenía un asiento, vuelve. Si la sala murió o siguió sin vos, queda en el inicio. */
+async function rejoin(token: string): Promise<void> {
+  setBusy(true);
+  try {
+    attach(await client.reconnect(token));
+  } catch {
+    clearSeat();
+    ui.homeError.textContent = "Esa partida ya terminó o siguió sin vos.";
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function leave(): Promise<void> {
   leavingOnPurpose = true;
+  clearSeat();
   const r = room;
   room = null;
   shotAnim = null;
@@ -270,6 +340,8 @@ function attach(r: Room<any>): void {
   moveMode = false;
   ui.lobbyCode.textContent = r.roomId;
   ui.hudCode.textContent = r.roomId;
+  saveSeat(r);
+  r.onReconnect(() => saveSeat(r)); // el token cambia cada vez que se reconecta
   show("lobby");
 
   r.onStateChange(() => {
@@ -365,6 +437,7 @@ function attach(r: Room<any>): void {
   r.onLeave(() => {
     if (room !== r) return;
     room = null;
+    if (!unloading) clearSeat();
     show("home");
     if (!leavingOnPurpose) ui.homeError.textContent = "Se cortó la conexión con la sala.";
   });
@@ -1255,6 +1328,9 @@ function frame(now: number): void {
   });
 }
 requestAnimationFrame(frame);
+
+const seat = savedSeat();
+if (seat) void rejoin(seat);
 
 // Solo en `pnpm dev`: deja leer el estado desde la consola para depurar. No existe en el build.
 if (import.meta.env.DEV) {

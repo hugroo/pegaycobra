@@ -6,10 +6,14 @@
 // Los bots (bot.ts) no tienen conexión: la sala les pasa sus mensajes por los mismos métodos.
 // Mensajes del server:   terrain (binario) · shot · moved · skip · burn · roundEnd · chat
 
+//
+// Si a uno se le cae la conexión sin avisar (refrescó la página), el asiento se le guarda
+// rejoinSeconds: vuelve con el token de reconexión y sigue siendo el mismo id, con su tanque.
+
 import { Room, type Client } from "@colyseus/core";
 import { createRng } from "@pegaycobra/sim";
 import { BOT_NAME, botShopPick, pickBotShot } from "./bot";
-import { Game, MAX_PLAYERS, MIN_PLAYERS } from "./game";
+import { Game, MAX_PLAYERS, MIN_PLAYERS, type RoundSummary } from "./game";
 import { generateCode } from "./codes";
 import { FireState, GameState, PlayerState } from "./schema";
 import { changedRect, fullTerrain, terrainRect } from "./terrain-net";
@@ -104,6 +108,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   static seedOverride: number | null = null;
   /** Lo que tarda un bot en tirar o en tocar "listo". Los tests lo bajan. [ms] */
   static botDelayMs = 1500;
+  /** Lo que se le guarda el asiento a uno que se cayó sin avisar. Los tests lo bajan. [s] */
+  static rejoinSeconds = 60;
 
   maxClients = 4;
   private game = new Game(GameRoom.turnSeconds, GameRoom.shopSeconds);
@@ -114,6 +120,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private botSerial = 0;
   private botRng: () => number = Math.random;
   private botPending = false;
+  /** Asientos guardados: se les cayó la conexión y todavía pueden volver. */
+  private readonly away = new Set<string>();
 
   onCreate(): void {
     this.roomId = generateCode(activeCodes);
@@ -279,7 +287,31 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.log(`entra ${seat.name}`);
   }
 
+  /**
+   * Se cayó sin avisar: para la partida sigue sentado (el reloj de su turno corre igual) hasta que
+   * vuelva o se le venza el plazo; recién ahí pasa por onLeave. Con la partida terminada no se guarda nada.
+   */
+  onDrop(client: Client): void {
+    if (this.game.phase === "ended") return;
+    this.away.add(client.sessionId);
+    // Si no se puede guardar (se cayó sin terminar de entrar, o la sala se está cerrando), sigue por onLeave.
+    this.allowReconnection(client, GameRoom.rejoinSeconds).catch(() => {});
+    this.log(`${this.nameOf(client.sessionId)} se cayo: se le guarda el asiento ${GameRoom.rejoinSeconds} s`);
+    this.flush();
+  }
+
+  /** Volvió el mismo id. El terreno y el resumen de la ronda no están en el estado: se le mandan de nuevo. */
+  onReconnect(client: Client): void {
+    this.away.delete(client.sessionId);
+    const g = this.game;
+    if (g.match) client.send("terrain", fullTerrain(g.match.terrain));
+    if (g.lastRound) client.send("roundEnd", this.roundEndMsg(g.lastRound));
+    this.log(`vuelve ${this.nameOf(client.sessionId)}`);
+    this.flush();
+  }
+
   onLeave(client: Client): void {
+    this.away.delete(client.sessionId);
     const name = this.nameOf(client.sessionId);
     this.game.removePlayer(client.sessionId);
     // Un bot no puede quedar de anfitrión: no arranca la partida.
@@ -307,11 +339,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     }
     if (g.lastRound && g.lastRound !== this.sentRoundEnd) {
       this.sentRoundEnd = g.lastRound;
-      const msg: RoundEndBroadcast = {
-        round: g.lastRound.round,
-        survivors: g.lastRound.survivors,
-        payouts: g.lastRound.payouts.map(({ id, survivor, interest, after }) => ({ id, survivor, interest, after })),
-      };
+      const msg = this.roundEndMsg(g.lastRound);
       this.broadcast("roundEnd", msg);
       this.log(
         `fin de ronda ${msg.round}: ` +
@@ -328,6 +356,14 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.sync();
     if (`${this.state.phase}:${this.state.turnId}` !== before) this.logTurn();
     this.driveBots();
+  }
+
+  private roundEndMsg(r: RoundSummary): RoundEndBroadcast {
+    return {
+      round: r.round,
+      survivors: r.survivors,
+      payouts: r.payouts.map(({ id, survivor, interest, after }) => ({ id, survivor, interest, after })),
+    };
   }
 
   private nameOf(id: string): string {
@@ -380,7 +416,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       }
       p.name = seat.name;
       p.slot = seat.slot;
-      p.connected = seat.connected;
+      p.connected = seat.connected && !this.away.has(seat.id);
       p.ready = g.ready.has(seat.id);
       const aim = g.aims.get(seat.id);
       if (aim) {
