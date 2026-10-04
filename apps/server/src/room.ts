@@ -477,6 +477,12 @@ export class GameRoom extends Room<{ state: GameState }> {
         p.yaw = aim.yaw;
         p.pitch = aim.pitch;
       }
+      const mark = g.marks.get(seat.id);
+      if (this.sentMarks.get(seat.id) !== mark) {
+        this.sentMarks.set(seat.id, mark);
+        p.markPath.splice(0, p.markPath.length, ...(mark?.path ?? []));
+        p.markSpots.splice(0, p.markSpots.length, ...(mark?.spots ?? []));
+      }
       const tank = g.match?.tanks.find((tk) => tk.id === seat.id);
       if (tank) {
         p.x = tank.x;
