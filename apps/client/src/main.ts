@@ -27,7 +27,7 @@ import {
 } from "@pegaycobra/sim";
 import { play, toggleMute } from "./audio";
 import { Minimap, type MiniModel } from "./minimap";
-import { LINGER_MS, SLOT_COLORS, World, type GhostModel, type Hull, type MarkModel, type MoveModel, type ShotModel, type TankModel } from "./scene3d";
+import { LINGER_MS, TANK_COLORS, World, type GhostModel, type Hull, type MarkModel, type MoveModel, type ShotModel, type TankModel } from "./scene3d";
 
 const ROOM_NAME = "pegaycobra";
 // En el build de producción el server sirve esta web, así que el WebSocket va al mismo dominio.
@@ -53,6 +53,7 @@ const ui = {
   lobbyWait: $("lobby-wait"),
   lobbyLeave: $<HTMLButtonElement>("btn-lobby-leave"),
   hulls: $("hulls"),
+  colors: $("colors"),
   hudRound: $("hud-round"),
   turnPill: $("turn-pill"),
   hudTurn: $("hud-turn"),
@@ -215,6 +216,50 @@ for (const btn of ui.hulls.querySelectorAll<HTMLButtonElement>("[data-hull]")) {
 }
 paintHullPicker();
 
+// Color del tanque: igual que la silueta. Sin nada guardado no se manda y el server da el del asiento.
+const COLOR_KEY = "pyc:color";
+const COLOR_NAMES = ["Rojo", "Azul", "Verde", "Rosa", "Amarillo", "Naranja", "Violeta", "Turquesa"];
+
+let myColor: number | null = null;
+try {
+  const saved = localStorage.getItem(COLOR_KEY);
+  const n = Number(saved);
+  if (saved !== null && saved !== "" && Number.isInteger(n) && n >= 0 && n < TANK_COLORS.length) myColor = n;
+} catch {
+  /* sin storage: el del asiento */
+}
+
+const colorBtns = TANK_COLORS.map((hex, i) => {
+  const btn = document.createElement("button");
+  btn.className = "color";
+  btn.setAttribute("role", "radio");
+  btn.setAttribute("aria-label", COLOR_NAMES[i] ?? hex);
+  btn.style.setProperty("--c", hex);
+  btn.addEventListener("click", () => {
+    myColor = i;
+    try {
+      localStorage.setItem(COLOR_KEY, String(i));
+    } catch {
+      /* ignorado */
+    }
+    room?.send("color", { color: i }); // el botón se marca cuando el server lo confirma en el estado
+  });
+  return btn;
+});
+ui.colors.append(...colorBtns);
+
+/** Marca el color que tengo en la sala y apaga los que ya tiene otro. */
+function paintColorPicker(shown: number, taken: ReadonlySet<number>): void {
+  colorBtns.forEach((btn, i) => {
+    btn.setAttribute("aria-checked", String(i === shown));
+    btn.disabled = taken.has(i);
+    btn.title = (COLOR_NAMES[i] ?? "") + (taken.has(i) ? " (ya lo tiene otro)" : "");
+  });
+}
+
+/** Con lo que se entra a una sala: nombre, silueta y, si eligió, color. */
+const joinOptions = () => ({ name: playerName(), hull: myHull, ...(myColor === null ? {} : { color: myColor }) });
+
 /** Lo que tarda el chapuzón de un ahogado después de que cae el tiro: lo mismo que el server en bajar el piso. [ms] */
 const DROWN_DELAY_MS = 250;
 
@@ -326,7 +371,7 @@ async function enter(action: () => Promise<Room<any>>): Promise<void> {
   }
 }
 
-ui.create.addEventListener("click", () => enter(() => client.create(ROOM_NAME, { name: playerName(), hull: myHull })));
+ui.create.addEventListener("click", () => enter(() => client.create(ROOM_NAME, joinOptions())));
 
 function joinWithCode(): void {
   const code = ui.code.value.trim().toUpperCase();
@@ -334,7 +379,7 @@ function joinWithCode(): void {
     ui.homeError.textContent = "El código son 4 letras (sin O ni I).";
     return;
   }
-  void enter(() => client.joinById(code, { name: playerName(), hull: myHull }));
+  void enter(() => client.joinById(code, joinOptions()));
 }
 ui.join.addEventListener("click", joinWithCode);
 ui.code.addEventListener("input", () => (ui.code.value = ui.code.value.toUpperCase()));
@@ -457,7 +502,7 @@ function attach(r: Room<any>): void {
         path: m.path,
         durationMs: m.durationMs,
         start: performance.now(),
-        slot: shooter?.slot ?? 0,
+        color: shooter?.color ?? 0,
         explodes: lands,
         // El Napalm no explota: el fogonazo tiene el tamaño del disco que queda prendido. La Tierra
         // tampoco: levanta polvo, color tierra, del tamaño de la loma.
@@ -584,11 +629,11 @@ function readMarks(): void {
       markKeys.delete(p.id);
       return [];
     }
-    const key = `${p.slot}|${path.join()}|${spots.join()}`;
+    const key = `${p.color}|${path.join()}|${spots.join()}`;
     const old = marks.find((m) => m.id === p.id);
     if (old && markKeys.get(p.id) === key) return [old];
     markKeys.set(p.id, key);
-    const model: MarkModel = { id: p.id, slot: p.slot, path, spots: [] };
+    const model: MarkModel = { id: p.id, color: p.color, path, spots: [] };
     for (let i = 0; i + 2 < spots.length; i += 3) model.spots.push({ x: spots[i]!, z: spots[i + 1]!, wet: spots[i + 2]! > 0 });
     return [model];
   });
@@ -621,7 +666,7 @@ function onState(): void {
 /** Mensaje "chat" del server: el nombre y el slot (el color del tanque) los pone él. */
 interface ChatMsg {
   name: string;
-  slot: number;
+  id: string;
   text: string;
 }
 /** Historial corto: lo que se guarda mientras estés en la sala. */
@@ -644,7 +689,7 @@ function addChat(m: ChatMsg): void {
   const li = document.createElement("li");
   const who = document.createElement("b");
   who.textContent = m.name;
-  who.style.color = SLOT_COLORS[m.slot] ?? "#ccc";
+  who.style.color = TANK_COLORS[room?.state.players?.get(m.id)?.color] ?? "#ccc";
   li.append(who, m.text); // texto plano: nada de lo que llega se interpreta como HTML
   log.append(li);
   while (log.childElementCount > CHAT_KEEP) log.firstElementChild!.remove();
@@ -710,7 +755,7 @@ function renderLobby(): void {
       // La silueta de cada uno, en su color: así se ve qué eligió el otro antes de arrancar.
       const icon = hullSvg(asHull(p.hull));
       icon.classList.add("hull-icon");
-      icon.style.color = SLOT_COLORS[p.slot] ?? "#ccc";
+      icon.style.color = TANK_COLORS[p.color] ?? "#ccc";
       const name = document.createElement("span");
       name.textContent = p.name + (isMe(p.id) ? " (vos)" : "");
       const tag = document.createElement("span");
@@ -722,7 +767,10 @@ function renderLobby(): void {
   );
   // El elegido es el que tiene el server (al volver con el token puede no ser el guardado).
   const me = players.find((p) => isMe(p.id));
-  if (me) paintHullPicker(asHull(me.hull));
+  if (me) {
+    paintHullPicker(asHull(me.hull));
+    paintColorPicker(me.color, new Set(players.filter((p) => p !== me).map((p) => p.color as number)));
+  }
   const host = isMe(s.hostId);
   ui.start.hidden = !host;
   ui.start.disabled = players.length < 2;
@@ -776,7 +824,7 @@ function renderHud(phase: string): void {
   }
   const playing = (phase === "aiming" || phase === "animating") && turnPlayer;
   ui.hudTurnDot.hidden = !playing;
-  if (playing) ui.hudTurnDot.style.background = SLOT_COLORS[turnPlayer.slot] ?? "#888";
+  if (playing) ui.hudTurnDot.style.background = TANK_COLORS[turnPlayer.color] ?? "#888";
   ui.hudTime.parentElement!.hidden = phase !== "aiming" && phase !== "shop";
   ui.hudTime.textContent = String(s.timeLeft);
   ui.hudTime.parentElement!.classList.toggle("low", phase === "aiming" && s.timeLeft <= 5);
@@ -794,14 +842,14 @@ function renderHud(phase: string): void {
       if (p.id === s.turnId && (phase === "aiming" || phase === "animating")) li.classList.add("turn");
       const dot = document.createElement("span");
       dot.className = "dot";
-      dot.style.background = SLOT_COLORS[p.slot] ?? "#ccc";
+      dot.style.background = TANK_COLORS[p.color] ?? "#ccc";
       const name = document.createElement("span");
       name.textContent = p.name + (isMe(p.id) ? " (vos)" : "") + (p.connected ? "" : " · se fue");
       const bar = document.createElement("span");
       bar.className = "bar";
       const fill = document.createElement("i");
       fill.style.width = `${Math.max(0, Math.min(100, p.life))}%`;
-      fill.style.background = SLOT_COLORS[p.slot] ?? "#ccc";
+      fill.style.background = TANK_COLORS[p.color] ?? "#ccc";
       bar.append(fill);
       const life = document.createElement("span");
       life.textContent = String(Math.ceil(Math.max(0, p.life)));
@@ -898,7 +946,7 @@ function renderShop(phase: string): void {
       who.className = "who";
       const dot = document.createElement("span");
       dot.className = "dot";
-      dot.style.background = SLOT_COLORS[p.slot] ?? "#ccc";
+      dot.style.background = TANK_COLORS[p.color] ?? "#ccc";
       const name = document.createElement("span");
       name.textContent = isMe(p.id) ? "Vos" : p.name;
       const money = document.createElement("b");
@@ -1464,7 +1512,7 @@ function frame(now: number): void {
   const tanks: TankModel[] = playersInOrder().map((p) => ({
     id: p.id,
     name: p.name,
-    slot: p.slot,
+    color: p.color,
     hull: asHull(p.hull),
     x: p.x,
     y: p.y,
@@ -1515,11 +1563,11 @@ function frame(now: number): void {
   minimap.draw({
     terrain: terrain!,
     terrainVersion,
-    tanks: tanks.map((t) => ({ x: t.x, z: t.z, slot: t.slot, alive: t.life > 0, isMe: t.isMe, shore: t.shore })),
+    tanks: tanks.map((t) => ({ x: t.x, z: t.z, color: t.color, alive: t.life > 0, isMe: t.isMe, shore: t.shore })),
     wind,
     fires,
     ghost: ghost
-      ? { path: ghost.path, lands: !ghost.gone, slot: ghost.shooter.slot, heads: ghost.heads?.map((h) => ({ path: h.path, lands: !!h.impact })), bounce: ghost.bounce }
+      ? { path: ghost.path, lands: !ghost.gone, color: ghost.shooter.color, heads: ghost.heads?.map((h) => ({ path: h.path, lands: !!h.impact })), bounce: ghost.bounce }
       : null,
     balls,
     impacts: lastImpact && now >= lastImpact.at ? lastImpact.spots : [],

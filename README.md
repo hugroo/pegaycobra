@@ -50,6 +50,10 @@ En la espera cada uno elige la silueta de su tanque: *Caja*, *Chato* (ancho y ba
 (con un mástil alto). Queda guardada en el navegador y sigue igual en la revancha. Solo cambia el
 dibujo: el tiro y el daño son los mismos. El bot usa Caja.
 
+Ahí mismo elige el color, entre ocho. También queda guardado y sigue en la revancha. Si entrás
+con un color que ya tiene otro, te toca uno libre; en la espera, los tomados aparecen apagados. El
+que no eligió y el bot llevan el color de su asiento.
+
 Controles (la barra de abajo aparece solo en tu turno; un arma sin munición no se muestra):
 
 | Qué | Cómo |
@@ -241,7 +245,7 @@ de la misma sala podrían caer en servidores distintos.
 - Otros mensajes del server: `moved` (alguien usó nafta), `skip` (turno perdido por tiempo),
   `burn` (a alguien le empezó el turno en el fuego) y `roundEnd` (lo que cobró cada uno al terminar
   la ronda).
-- Chat de sala: el server le pone a cada `chat` el nombre y el slot (el color del tanque) de quien
+- Chat de sala: el server le pone a cada `chat` el id, el nombre y el slot de quien
   lo mandó y lo reparte a la sala en el orden en que llegó. No lo guarda: el historial es de cada
   pestaña, dura mientras estés en la sala y se muestra como texto plano.
 - El heightmap (257 × 257 float32) no va en el estado de Colyseus: viaja en mensajes binarios

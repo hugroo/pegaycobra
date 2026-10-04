@@ -6,12 +6,12 @@
 
 import type { Terrain } from "@pegaycobra/sim";
 import { hillshade, LAKE, landColor, type RGB } from "./landscape";
-import { SLOT_COLORS, type MarkModel } from "./scene3d";
+import { TANK_COLORS, type MarkModel } from "./scene3d";
 
 export interface MiniTank {
   x: number;
   z: number;
-  slot: number;
+  color: number;
   alive: boolean;
   isMe: boolean;
   /** En piso bajo, a un hoyo del lago: lleva la marca de orilla. */
@@ -31,7 +31,7 @@ export interface MiniModel {
    * `path` llega hasta donde se abre y `heads` trae el recorrido de cada cabeza. Con un Rebote,
    * `path` trae los dos tramos y `bounce` es donde pica.
    */
-  ghost: { path: number[]; lands: boolean; slot: number; heads?: { path: number[]; lands: boolean }[]; bounce?: { x: number; z: number } } | null;
+  ghost: { path: number[]; lands: boolean; color: number; heads?: { path: number[]; lands: boolean }[]; bounce?: { x: number; z: number } } | null;
   /** Proyectil real en vuelo: uno, o las cabezas de un Racimo ya abierto. */
   balls: { x: number; z: number }[];
   /**
@@ -152,7 +152,7 @@ export class Minimap {
     // Marca del último tiro de cada tanque: línea continua y pálida de su color, y un punto donde
     // cayó (un aro si fue al agua). Va debajo de la fantasma, que es la punteada.
     for (const mark of m.marks) {
-      const color = SLOT_COLORS[mark.slot] ?? "#fff";
+      const color = TANK_COLORS[mark.color] ?? "#fff";
       const p = mark.path;
       ctx.globalAlpha = 0.6;
       ctx.lineWidth = 1;
@@ -198,7 +198,7 @@ export class Minimap {
       }
       ctx.stroke();
       ctx.setLineDash([]);
-      const color = SLOT_COLORS[m.ghost.slot] ?? "#fff";
+      const color = TANK_COLORS[m.ghost.color] ?? "#fff";
       // Rebote: un punto chico donde pica; el círculo de caída va al final, en el segundo golpe.
       if (m.ghost.bounce) {
         const [bx, by] = at(m.ghost.bounce.x, m.ghost.bounce.z);
@@ -271,7 +271,7 @@ export class Minimap {
         ctx.arc(x, y, 7, 0, Math.PI * 2);
         ctx.stroke();
       }
-      ctx.fillStyle = SLOT_COLORS[t.slot] ?? "#ccc";
+      ctx.fillStyle = TANK_COLORS[t.color] ?? "#ccc";
       ctx.strokeStyle = "#000";
       ctx.lineWidth = 1.5;
       ctx.beginPath();

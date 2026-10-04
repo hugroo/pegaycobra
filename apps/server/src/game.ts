@@ -57,13 +57,26 @@ export function parseHull(raw: unknown): Hull | null {
   return typeof raw === "string" && (HULLS as readonly string[]).includes(raw) ? (raw as Hull) : null;
 }
 
+/**
+ * Colores de tanque que se pueden elegir (índices 0..COLOR_COUNT-1; la paleta la tiene el cliente).
+ * Son más que asientos: siempre queda uno libre para el que eligió uno ya tomado.
+ */
+export const COLOR_COUNT = 8;
+
+/** Lo que mandó el cliente → un color conocido, o null. */
+export function parseColor(raw: unknown): number | null {
+  return typeof raw === "number" && Number.isInteger(raw) && raw >= 0 && raw < COLOR_COUNT ? raw : null;
+}
+
 export type Phase = "lobby" | "aiming" | "animating" | "shop" | "ended";
 
 export interface Seat {
   id: string;
   name: string;
-  /** 0..3, define el color. */
+  /** 0..3: el lugar en la sala. Su color es el de quien no eligió (y el del bot). */
   slot: number;
+  /** Color del tanque, 0..COLOR_COUNT-1: el elegido, o uno libre si ya estaba tomado. Nunca hay dos iguales en la sala. */
+  color: number;
   /** Silueta del tanque. Se queda con el asiento, también en la revancha. */
   hull: Hull;
   connected: boolean;
@@ -232,7 +245,7 @@ export class Game {
     return this.match?.players.find((p) => p.id === id);
   }
 
-  addPlayer(id: string, rawName: unknown, rawHull?: unknown): Seat {
+  addPlayer(id: string, rawName: unknown, rawHull?: unknown, rawColor?: unknown): Seat {
     if (this.phase !== "lobby" && this.phase !== "ended") throw new Error("la partida ya empezó");
     // Con la partida terminada, el que se fue no vuelve: si hace falta el lugar, se libera.
     if (this.phase === "ended" && this.seats.length >= MAX_PLAYERS) this.seats = this.connectedSeats;
@@ -240,10 +253,29 @@ export class Game {
     const used = new Set(this.seats.map((s) => s.slot));
     let slot = 0;
     while (used.has(slot)) slot++;
-    const seat: Seat = { id, name: sanitizeName(rawName, `Jugador ${slot + 1}`), slot, hull: parseHull(rawHull) ?? DEFAULT_HULL, connected: true };
+    const seat: Seat = { id, name: sanitizeName(rawName, `Jugador ${slot + 1}`), slot, color: this.freeColor(parseColor(rawColor) ?? slot), hull: parseHull(rawHull) ?? DEFAULT_HULL, connected: true };
     this.seats.push(seat);
     this.hostId ??= id;
     return seat;
+  }
+
+  /** El color pedido si nadie lo tiene; si no, el primero libre. */
+  private freeColor(wanted: number): number {
+    const used = new Set(this.seats.map((s) => s.color));
+    if (!used.has(wanted)) return wanted;
+    let color = 0;
+    while (used.has(color)) color++;
+    return color;
+  }
+
+  /** Cambia de color mientras se espera. Uno que ya tiene otro no se puede: se queda con el suyo. */
+  setColor(id: string, raw: unknown): boolean {
+    const seat = this.seats.find((s) => s.id === id);
+    const color = parseColor(raw);
+    if (!seat || color === null || (this.phase !== "lobby" && this.phase !== "ended")) return false;
+    if (this.seats.some((s) => s.color === color)) return false;
+    seat.color = color;
+    return true;
   }
 
   /** Cambia de silueta mientras se espera (antes de arrancar o con la partida terminada). */

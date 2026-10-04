@@ -11,6 +11,8 @@ export const PlayerState = schema(
     id: t.string().default(""),
     name: t.string().default(""),
     slot: t.uint8().default(0),
+    /** Color del tanque: índice en la paleta del cliente. Distinto para cada uno de la sala. */
+    color: t.uint8().default(0),
     /** Silueta: "box" (Caja), "flat" (Chato) o "tower" (Torre). Solo se dibuja. */
     hull: t.string().default("box"),
     connected: t.boolean().default(true),

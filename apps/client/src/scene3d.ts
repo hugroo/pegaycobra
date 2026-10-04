@@ -11,7 +11,8 @@ import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer
 import { TANK_RADIUS, terrainHeightAt, type Terrain } from "@pegaycobra/sim";
 import { LAKE, SKY, SUN_DIR, landColor, type RGB } from "./landscape";
 
-export const SLOT_COLORS = ["#ff6b6b", "#4dabf7", "#69db7c", "#f783ac"];
+/** Paleta de tanques: el server manda el índice. Los cuatro primeros son los de los asientos. */
+export const TANK_COLORS = ["#ff6b6b", "#4dabf7", "#69db7c", "#f783ac", "#ffd43b", "#ff922b", "#b197fc", "#3bc9db"];
 
 /** Los tanques se dibujan más grandes que su esfera de colisión (2 wu) para que se lean de lejos. */
 const TANK_SCALE = 2.1;
@@ -49,7 +50,7 @@ export type Hull = "box" | "flat" | "tower";
 export interface TankModel {
   id: string;
   name: string;
-  slot: number;
+  color: number;
   hull: Hull;
   x: number;
   y: number;
@@ -91,7 +92,7 @@ export interface GhostModel {
  */
 export interface MarkModel {
   id: string;
-  slot: number;
+  color: number;
   /** [x, y, z, ...]. Con un Racimo, hasta donde se abrió. */
   path: number[];
   /** Dónde cayó: uno, o uno por cabeza de un Racimo. `wet`: se hundió en el lago. Lo que se fue del mapa no deja punto. */
@@ -104,7 +105,7 @@ export interface ShotModel {
   /** Lo que dura el tiro entero: con un Racimo, hasta que cae la última cabeza. */
   durationMs: number;
   explodes: boolean;
-  slot: number;
+  color: number;
   /** Radio de explosión del arma disparada. [wu] */
   radius: number;
   /** Racimo que se abrió: `path` llega hasta la apertura y de ahí sigue cada cabeza. `lands`: explota donde termina. */
@@ -165,7 +166,7 @@ interface TankView {
   marker: THREE.Mesh;
   /** Burbuja del escudo. */
   shield: THREE.Mesh;
-  slot: number;
+  color: number;
   hull: Hull;
   /** Altura de la flecha de turno (local, antes de escalar): la Torre la lleva más arriba. */
   markerY: number;
@@ -744,9 +745,9 @@ export class World {
 
   private tankView(m: TankModel): TankView {
     let v = this.tanks.get(m.id);
-    if (v && v.hull === m.hull) return v;
-    if (v) this.dropTank(m.id, v); // cambió de silueta: se arma de nuevo
-    const color = new THREE.Color(SLOT_COLORS[m.slot] ?? "#cccccc");
+    if (v && v.hull === m.hull && v.color === m.color) return v;
+    if (v) this.dropTank(m.id, v); // cambió de silueta o de color: se arma de nuevo
+    const color = new THREE.Color(TANK_COLORS[m.color] ?? "#cccccc");
     const bodyMat = new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: TANK_GLOW });
     const dark = new THREE.MeshLambertMaterial({ color: "#222833" });
     const root = new THREE.Group();
@@ -787,7 +788,7 @@ export class World {
     const nameEl = document.createElement("span");
     const bar = document.createElement("i");
     const barEl = document.createElement("b");
-    barEl.style.background = SLOT_COLORS[m.slot] ?? "#ccc";
+    barEl.style.background = TANK_COLORS[m.color] ?? "#ccc";
     bar.append(barEl);
     const distEl = document.createElement("small");
     const shoreEl = document.createElement("em");
@@ -803,7 +804,7 @@ export class World {
 
     const edgeEl = document.createElement("div");
     edgeEl.className = "edge-marker";
-    edgeEl.style.color = SLOT_COLORS[m.slot] ?? "#ccc";
+    edgeEl.style.color = TANK_COLORS[m.color] ?? "#ccc";
     const edgeArrow = document.createElement("i");
     const edgeText = document.createElement("span");
     edgeEl.append(edgeArrow, edgeText);
@@ -811,7 +812,7 @@ export class World {
     this.edgeLayer.appendChild(edgeEl);
 
     this.scene.add(root);
-    v = { root, yawG, pitchG, deckG, bodyMat, label, labelEl, nameEl, shoreEl, distEl, barEl, edgeEl, edgeArrow, edgeText, marker, shield, slot: m.slot, hull: m.hull, markerY };
+    v = { root, yawG, pitchG, deckG, bodyMat, label, labelEl, nameEl, shoreEl, distEl, barEl, edgeEl, edgeArrow, edgeText, marker, shield, color: m.color, hull: m.hull, markerY };
     this.tanks.set(m.id, v);
     return v;
   }
@@ -826,7 +827,7 @@ export class World {
       v.yawG.rotation.y = -rad(m.yaw);
       v.deckG.rotation.y = v.yawG.rotation.y;
       v.pitchG.rotation.z = rad(m.pitch);
-      v.bodyMat.color.set(alive ? (SLOT_COLORS[m.slot] ?? "#ccc") : "#4b515c");
+      v.bodyMat.color.set(alive ? (TANK_COLORS[m.color] ?? "#ccc") : "#4b515c");
       v.bodyMat.emissive.copy(v.bodyMat.color);
       v.yawG.visible = alive;
       v.marker.visible = alive && m.isTurn;
@@ -940,7 +941,7 @@ export class World {
       const view = v;
       if (view.src !== m) {
         view.src = m;
-        const color = new THREE.Color(SLOT_COLORS[m.slot] ?? "#fff");
+        const color = new THREE.Color(TANK_COLORS[m.color] ?? "#fff");
         (view.line.material as THREE.LineBasicMaterial).color.copy(color).lerp(new THREE.Color("#ffffff"), 0.45);
         view.line.geometry.dispose();
         view.line.geometry = new THREE.BufferGeometry();
@@ -969,7 +970,7 @@ export class World {
     this.ghostBounce.visible = !!g?.bounce && g.path.length >= 6;
     if (g?.bounce) {
       this.ghostBounce.position.set(g.bounce.x, g.bounce.y + 0.15, g.bounce.z);
-      (this.ghostBounce.material as THREE.MeshBasicMaterial).color.set(SLOT_COLORS[g.shooter.slot] ?? "#fff");
+      (this.ghostBounce.material as THREE.MeshBasicMaterial).color.set(TANK_COLORS[g.shooter.color] ?? "#fff");
     }
     if (!g || g.path.length < 6) {
       this.ghostLine.visible = false;
@@ -1004,7 +1005,7 @@ export class World {
     if (g.impact) {
       this.ghostRing.position.set(g.impact.x, g.impact.y + 0.15, g.impact.z);
       this.ghostRing.scale.setScalar(g.radius);
-      (this.ghostRing.material as THREE.MeshBasicMaterial).color.set(SLOT_COLORS[g.shooter.slot] ?? "#fff");
+      (this.ghostRing.material as THREE.MeshBasicMaterial).color.set(TANK_COLORS[g.shooter.color] ?? "#fff");
       this.ghostRing.visible = true;
     } else {
       this.ghostRing.visible = false;
@@ -1043,7 +1044,7 @@ export class World {
     this.ghostOpen.visible = heads.length > 0;
     if (g && heads.length > 0) {
       this.ghostOpen.position.fromArray(g.path, g.path.length - 3);
-      (this.ghostOpen.material as THREE.MeshBasicMaterial).color.set(SLOT_COLORS[g.shooter.slot] ?? "#fff");
+      (this.ghostOpen.material as THREE.MeshBasicMaterial).color.set(TANK_COLORS[g.shooter.color] ?? "#fff");
     }
     this.ghostHeads.forEach((v, i) => {
       const h = heads[i];
@@ -1062,7 +1063,7 @@ export class World {
       if (h.impact) {
         v.ring.position.set(h.impact.x, h.impact.y + 0.15, h.impact.z);
         v.ring.scale.setScalar(g.radius);
-        (v.ring.material as THREE.MeshBasicMaterial).color.set(SLOT_COLORS[g.shooter.slot] ?? "#fff");
+        (v.ring.material as THREE.MeshBasicMaterial).color.set(TANK_COLORS[g.shooter.color] ?? "#fff");
       }
     });
   }

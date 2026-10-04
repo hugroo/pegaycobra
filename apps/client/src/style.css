@@ -91,6 +91,10 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .hull svg { width: 52px; height: 36px; color: var(--muted); }
 .hull[aria-checked="true"] { border-color: var(--ocre); background: var(--glass-3); }
 .hull[aria-checked="true"] svg { color: var(--ocre); }
+.colors { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
+.color { justify-self: center; width: 100%; max-width: 40px; aspect-ratio: 1; min-width: 0; min-height: 0; padding: 0; border-radius: 50%; background: var(--c); border: 3px solid transparent; }
+.color[aria-checked="true"] { border-color: #fff; box-shadow: 0 0 0 2px var(--c); }
+.color:disabled { opacity: 0.2; cursor: not-allowed; }
 .hull-icon { width: 30px; height: 21px; flex: none; }
 .tag { margin-left: auto; font-size: 13px; color: var(--muted); }
 .lbl { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; }

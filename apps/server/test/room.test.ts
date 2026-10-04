@@ -940,6 +940,60 @@ describe("partida de 5 rondas por red", () => {
     await c.leave();
   });
 
+  it("color: Ana elige uno, Beto el mismo, y cada cliente ve dos colores distintos, también en la revancha; el bot usa el de su asiento", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana", color: 5 });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto", color: 5 });
+    for (const r of [a, b]) for (const type of ["terrain", "shot", "skip", "moved", "roundEnd", "burn"]) r.onMessage(type, () => {});
+    const colors = (r: Room<any>) => [r.state.players.get(a.sessionId)?.color, r.state.players.get(b.sessionId)?.color];
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    // Ana se queda con el que eligió; Beto, que llegó segundo, se corre a uno libre.
+    expect(colors(a)).toEqual([5, 0]);
+    expect(colors(b)).toEqual([5, 0]);
+
+    // En la espera se cambia a uno libre; el de otro, o algo que no es un color, se ignora.
+    b.send("color", { color: 6 });
+    await until(() => a.state.players.get(b.sessionId).color === 6);
+    b.send("color", { color: 5 });
+    b.send("color", { color: 99 });
+    b.send("color", { color: "rojo" });
+    b.send("color", { color: 2 });
+    await until(() => a.state.players.get(b.sessionId).color === 2);
+    expect(colors(a)).toEqual([5, 2]);
+    expect(colors(b)).toEqual([5, 2]);
+
+    // Jugando no se cambia.
+    a.send("start");
+    await until(() => a.state.phase === "aiming" && b.state.phase === "aiming");
+    a.send("color", { color: 7 });
+    await sleep(100);
+    expect(colors(b)).toEqual([5, 2]);
+
+    // Revancha: cada uno sigue con el suyo.
+    const game = (matchMaker.getLocalRoomById(a.roomId) as any).game as Game;
+    game.phase = "ended";
+    a.send("rematch");
+    await until(() => b.state.phase === "aiming" && b.state.round === 1);
+    expect(colors(a)).toEqual([5, 2]);
+    expect(colors(b)).toEqual([5, 2]);
+    await a.leave();
+    await b.leave();
+
+    // El que no eligió y el bot llevan el color de su asiento; si un humano ya lo tiene, el bot se corre.
+    const c: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Caro" });
+    c.send("fillBots");
+    await until(() => c.state.players?.size === 2);
+    const botOf = (r: Room<any>) => [...r.state.players.values()].find((p: any) => p.id !== r.sessionId) as any;
+    expect([c.state.players.get(c.sessionId).color, botOf(c).color]).toEqual([0, 1]);
+    expect(botOf(c).color).toBe(botOf(c).slot);
+    await c.leave();
+    const d: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Dani", color: 1 });
+    d.send("fillBots");
+    await until(() => d.state.players?.size === 2);
+    expect([d.state.players.get(d.sessionId).color, botOf(d).color]).toEqual([1, 0]);
+    await d.leave();
+  });
+
   it("un código que no existe falla", async () => {
     await expect(new Client(`ws://localhost:${PORT}`).joinById("ZZZZ", {})).rejects.toBeTruthy();
   });
