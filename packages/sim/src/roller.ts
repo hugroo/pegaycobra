@@ -8,6 +8,7 @@
 // determinista, sin inercia, y la misma función corre en el server (turn3d.ts), en la fantasma del
 // cliente y en el bot.
 
+import { simulateBounceShot3D } from "./bounce";
 import { POWER_MAX, TANK_RADIUS } from "./constants";
 import { simulateSplitShot3D } from "./mirv";
 import { simulateShot3D, type Shot3DParams, type Shot3DResult, type ShotTank3D } from "./shot3d";
@@ -91,7 +92,8 @@ export function simulateRoll(
  * simulateShot3D con los factores del arma. Para el Roller, la potencia se multiplica por
  * `roll.powerFactor` y, si el vuelo termina en el piso, sigue la rodada: `landed` es donde tocó,
  * (x, y, z) donde terminó, y `ticks` y `path` incluyen los pasos rodando. Para el MIRV, el vuelo se
- * abre en la cima (simulateSplitShot3D, mirv.ts) y el resultado trae `split`.
+ * abre en la cima (simulateSplitShot3D, mirv.ts) y el resultado trae `split`. Para el Leap Frog, el
+ * tiro pica en el piso y sigue un tramo más (simulateBounceShot3D, bounce.ts): trae `bounce`.
  * `params.windFactor` y `params.gravityFactor` se ignoran: salen del arma.
  */
 export function simulateWeaponShot3D(
@@ -105,6 +107,7 @@ export function simulateWeaponShot3D(
   const power = roll ? Math.min(POWER_MAX, Math.max(0, params.power)) * roll.powerFactor : params.power;
   const launch = { ...params, power, windFactor: weapon.windFactor, gravityFactor: weapon.gravityFactor };
   if (weapon.split) return simulateSplitShot3D(terrain, weapon.split, launch, tanks, options);
+  if (weapon.bounce) return simulateBounceShot3D(terrain, weapon.bounce, launch, tanks, options);
   const flight = simulateShot3D(terrain, launch, tanks, options);
   if (!roll || flight.outcome !== "ground") return flight;
 

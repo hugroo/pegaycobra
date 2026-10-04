@@ -86,6 +86,8 @@ const ui = {
   wDirtN: $("w-dirt-n"),
   wMirv: $<HTMLButtonElement>("w-mirv"),
   wMirvN: $("w-mirv-n"),
+  wLeapfrog: $<HTMLButtonElement>("w-leapfrog"),
+  wLeapfrogN: $("w-leapfrog-n"),
   fuelBtn: $<HTMLButtonElement>("btn-fuel"),
   fuelN: $("fuel-n"),
   aimPad: $("aim-pad"),
@@ -110,7 +112,7 @@ const minimap = new Minimap(ui.minimap);
 
 let room: Room<any> | null = null;
 /** Las armas que se pueden pedir en un "fire". */
-type Fireable = "babyMissile" | "missile" | "roller" | "napalm" | "nuke" | "dirt" | "mirv";
+type Fireable = "babyMissile" | "missile" | "roller" | "napalm" | "nuke" | "dirt" | "mirv" | "leapfrog";
 let aim = { yaw: 0, pitch: 45, power: 500 };
 let weapon: Fireable = "babyMissile";
 let moveMode = false;
@@ -360,6 +362,8 @@ function attach(r: Room<any>): void {
       weapon: Fireable;
       /** Solo un Racimo que se abrió: `path` llega hasta la apertura y cada cabeza sigue desde ahí. */
       heads?: { path: number[]; outcome: string }[];
+      /** Solo un Rebote que picó: `path` trae los dos tramos y el punto `tick` es donde tocó el piso. */
+      bounce?: { tick: number };
       impact: { x: number; y: number; z: number };
       damage: number;
       blocked: string[];
@@ -380,6 +384,7 @@ function attach(r: Room<any>): void {
         radius: w.burn?.radius ?? w.mound?.radius ?? w.explosionRadius,
         dust: !!w.mound,
         heads: heads.length > 0 ? heads : undefined,
+        bounce: m.bounce?.tick,
         impact: m.impact,
         // El número y el "bloqueado" son del server; acá solo se redondea para mostrarlo. Con un
         // Racimo el número ya viene sumado: es un solo cartel para las cinco cabezas.
@@ -678,7 +683,7 @@ function renderHud(phase: string): void {
       const extra = document.createElement("span");
       extra.className = "extra";
       extra.textContent =
-        `${p.points} pts · M×${p.missiles}${p.rollers > 0 ? ` · R×${p.rollers}` : ""}${p.napalms > 0 ? ` · Quema×${p.napalms}` : ""}${p.nukes > 0 ? ` · Bombazo×${p.nukes}` : ""}${p.dirts > 0 ? ` · Tierra×${p.dirts}` : ""}${p.mirvs > 0 ? ` · Racimo×${p.mirvs}` : ""}` +
+        `${p.points} pts · M×${p.missiles}${p.rollers > 0 ? ` · R×${p.rollers}` : ""}${p.napalms > 0 ? ` · Quema×${p.napalms}` : ""}${p.nukes > 0 ? ` · Bombazo×${p.nukes}` : ""}${p.dirts > 0 ? ` · Tierra×${p.dirts}` : ""}${p.mirvs > 0 ? ` · Racimo×${p.mirvs}` : ""}${p.leapfrogs > 0 ? ` · Rebote×${p.leapfrogs}` : ""}` +
         `${p.shield > 0 ? " · escudo" : ""}${p.parachute > 0 ? " · ☂" : ""}${p.fuel > 0 ? ` · N×${p.fuel}` : ""}` +
         // Parado en un fuego (inFire, la misma cuenta del server): va a perder vida al empezar su turno.
         `${p.life > 0 && fires.some((f) => inFire(f, p)) ? " · en el fuego" : ""}`;
@@ -694,13 +699,15 @@ function renderHud(phase: string): void {
   const nukes = mp?.nukes ?? 0;
   const dirts = mp?.dirts ?? 0;
   const mirvs = mp?.mirvs ?? 0;
+  const leapfrogs = mp?.leapfrogs ?? 0;
   if (
     (weapon === "missile" && missiles <= 0) ||
     (weapon === "roller" && rollers <= 0) ||
     (weapon === "napalm" && napalms <= 0) ||
     (weapon === "nuke" && nukes <= 0) ||
     (weapon === "dirt" && dirts <= 0) ||
-    (weapon === "mirv" && mirvs <= 0)
+    (weapon === "mirv" && mirvs <= 0) ||
+    (weapon === "leapfrog" && leapfrogs <= 0)
   ) {
     weapon = "babyMissile";
   }
@@ -710,6 +717,7 @@ function renderHud(phase: string): void {
   ui.wNukeN.textContent = `×${nukes}`;
   ui.wDirtN.textContent = `×${dirts}`;
   ui.wMirvN.textContent = `×${mirvs}`;
+  ui.wLeapfrogN.textContent = `×${leapfrogs}`;
   // Un arma sin munición no ocupa lugar en la barra.
   ui.wMissile.hidden = missiles <= 0;
   ui.wRoller.hidden = rollers <= 0;
@@ -717,7 +725,8 @@ function renderHud(phase: string): void {
   ui.wNuke.hidden = nukes <= 0;
   ui.wDirt.hidden = dirts <= 0;
   ui.wMirv.hidden = mirvs <= 0;
-  for (const [btn, id] of [[ui.wBaby, "babyMissile"], [ui.wMissile, "missile"], [ui.wRoller, "roller"], [ui.wNapalm, "napalm"], [ui.wNuke, "nuke"], [ui.wDirt, "dirt"], [ui.wMirv, "mirv"]] as const) {
+  ui.wLeapfrog.hidden = leapfrogs <= 0;
+  for (const [btn, id] of [[ui.wBaby, "babyMissile"], [ui.wMissile, "missile"], [ui.wRoller, "roller"], [ui.wNapalm, "napalm"], [ui.wNuke, "nuke"], [ui.wDirt, "dirt"], [ui.wMirv, "mirv"], [ui.wLeapfrog, "leapfrog"]] as const) {
     btn.classList.toggle("on", weapon === id);
     btn.setAttribute("aria-checked", String(weapon === id));
   }
@@ -738,6 +747,7 @@ const SHOP_LINE: Record<ShopItemId, string> = {
   nuke: "El escudo no lo frena",
   dirt: "Levanta una loma",
   mirv: "Se abre en 5 en el aire",
+  leapfrog: "Pica una vez y sigue",
   shield: "Frena el próximo tiro",
   parachute: "Caer no te hace daño",
   fuel: "Mové el tanque",
@@ -791,9 +801,9 @@ function renderShop(phase: string): void {
 
   // Cartas: la validación de plata es la misma del server (cannotBuy del sim). Se redibujan solo
   // si cambió la plata o el inventario, así un clic no cae sobre una carta recién reemplazada.
-  const inventory = { parachute: mp.parachute, fuel: mp.fuel, missile: mp.missiles, roller: mp.rollers, napalm: mp.napalms, nuke: mp.nukes, dirt: mp.dirts, mirv: mp.mirvs, shield: mp.shield };
+  const inventory = { parachute: mp.parachute, fuel: mp.fuel, missile: mp.missiles, roller: mp.rollers, napalm: mp.napalms, nuke: mp.nukes, dirt: mp.dirts, mirv: mp.mirvs, leapfrog: mp.leapfrogs, shield: mp.shield };
   const asPlayer = { id: mp.id, money: mp.money, inventory };
-  const itemsKey = `${mp.money}|${mp.parachute}|${mp.fuel}|${mp.missiles}|${mp.rollers}|${mp.napalms}|${mp.nukes}|${mp.dirts}|${mp.mirvs}|${mp.shield}`;
+  const itemsKey = `${mp.money}|${mp.parachute}|${mp.fuel}|${mp.missiles}|${mp.rollers}|${mp.napalms}|${mp.nukes}|${mp.dirts}|${mp.mirvs}|${mp.leapfrogs}|${mp.shield}`;
   if (ui.shopItems.dataset.key === itemsKey) return;
   ui.shopItems.dataset.key = itemsKey;
   ui.shopItems.replaceChildren(
@@ -910,6 +920,7 @@ function selectWeapon(w: Fireable): void {
   if (w === "nuke" && (me()?.nukes ?? 0) <= 0) return;
   if (w === "dirt" && (me()?.dirts ?? 0) <= 0) return;
   if (w === "mirv" && (me()?.mirvs ?? 0) <= 0) return;
+  if (w === "leapfrog" && (me()?.leapfrogs ?? 0) <= 0) return;
   weapon = w;
   onState();
 }
@@ -920,6 +931,7 @@ ui.wNapalm.addEventListener("click", () => selectWeapon("napalm"));
 ui.wNuke.addEventListener("click", () => selectWeapon("nuke"));
 ui.wDirt.addEventListener("click", () => selectWeapon("dirt"));
 ui.wMirv.addEventListener("click", () => selectWeapon("mirv"));
+ui.wLeapfrog.addEventListener("click", () => selectWeapon("leapfrog"));
 
 function toggleMoveMode(): void {
   if (!myTurn() || (me()?.fuel ?? 0) <= 0 || room?.state.moved) return;
@@ -1175,6 +1187,9 @@ window.addEventListener("keydown", (e) => {
     case "7":
       selectWeapon("mirv");
       break;
+    case "8":
+      selectWeapon("leapfrog");
+      break;
     case "n":
     case "N":
       toggleMoveMode();
@@ -1207,7 +1222,8 @@ function firesOf(s: any): { x: number; z: number; radius: number }[] {
  * Roller el recorrido sigue por el piso hasta donde termina la rodada. Con el Napalm el anillo es
  * el disco que quedaría prendido, sacado del mismo fireFromShot que usa el server. Con la Tierra,
  * el anillo es el pie de la loma. Con el Racimo el recorrido llega hasta donde se abre y de ahí
- * sale el de cada cabeza, con un anillo donde caería cada una.
+ * sale el de cada cabeza, con un anillo donde caería cada una. Con el Rebote el recorrido trae los
+ * dos tramos, con una marca donde pica, y el anillo va donde termina el segundo.
  * Se recalcula únicamente cuando cambia la puntería, el arma, el terreno o la posición.
  */
 let ghostKey = "";
@@ -1238,6 +1254,7 @@ function computeGhost(mine: TankModel | undefined, tanks: TankModel[], wind: { x
       shooter: mine,
       radius: fire ? fire.radius : (w.mound?.radius ?? w.explosionRadius),
       heads: heads?.map((h) => ({ path: h.path ?? [], impact: explodes(h) ? { x: h.x, y: h.y, z: h.z } : null })),
+      bounce: r.bounce && { x: r.bounce.x, y: r.bounce.y, z: r.bounce.z },
     };
   }
   if (ghostCache) ghostCache.shooter = mine;
@@ -1321,7 +1338,7 @@ function frame(now: number): void {
     wind,
     fires,
     ghost: ghost
-      ? { path: ghost.path, lands: !ghost.gone, slot: ghost.shooter.slot, heads: ghost.heads?.map((h) => ({ path: h.path, lands: !!h.impact })) }
+      ? { path: ghost.path, lands: !ghost.gone, slot: ghost.shooter.slot, heads: ghost.heads?.map((h) => ({ path: h.path, lands: !!h.impact })), bounce: ghost.bounce }
       : null,
     balls,
     impacts: lastImpact && now >= lastImpact.at ? lastImpact.spots : [],

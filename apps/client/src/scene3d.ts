@@ -23,6 +23,8 @@ const BARREL_LEN = 2.6;
 const EXPLOSION_MS = 450;
 /** Cuánto dura el destello donde se abre un Racimo. [ms] */
 const OPEN_MS = 320;
+/** Cuánto dura el polvo que levanta un Rebote donde pica. [ms] */
+const BOUNCE_MS = 380;
 /** Cuánto dura el cartel de daño en el punto de impacto. [ms] */
 const IMPACT_LABEL_MS = 1000;
 /** Cuánto se queda la cámara mirando el impacto después de que llega el proyectil. [ms] */
@@ -63,6 +65,8 @@ export interface GhostModel {
    * anillo donde caería (null: esa se va del mapa).
    */
   heads?: { path: number[]; impact: { x: number; y: number; z: number } | null }[];
+  /** Rebote: dónde pica. `path` sigue de largo hasta `impact`, que es el segundo golpe. */
+  bounce?: { x: number; y: number; z: number };
 }
 
 export interface ShotModel {
@@ -76,6 +80,8 @@ export interface ShotModel {
   radius: number;
   /** Racimo que se abrió: `path` llega hasta la apertura y de ahí sigue cada cabeza. `lands`: explota donde termina. */
   heads?: { path: number[]; lands: boolean }[];
+  /** Rebote que picó: el punto de `path` donde tocó el piso. Ahí levanta polvo y sigue. */
+  bounce?: number;
   /** El tiro no explota, levanta polvo (Tierra): el fogonazo es color tierra. */
   dust?: boolean;
   /** Dónde terminó el tiro y qué dice el cartel de impacto ("-40", "se fue"). Los dos vienen del server. */
@@ -156,12 +162,16 @@ export class World {
   /** Racimo en la fantasma: la marca donde se abre y, por cabeza, su línea y su anillo. Se crean al usarse. */
   private readonly ghostOpen: THREE.Mesh;
   private readonly ghostHeads: { line: THREE.Line; ring: THREE.Mesh }[] = [];
+  /** Rebote en la fantasma: la marca en el piso donde pica. */
+  private readonly ghostBounce: THREE.Mesh;
   private readonly shotLine: THREE.Line;
   private readonly shotBall: THREE.Mesh;
   private readonly blast: THREE.Mesh;
   /** Racimo en vuelo: el destello de la apertura y, por cabeza, su estela, su bola y su fogonazo. */
   private readonly openFlash: THREE.Mesh;
   private readonly shotHeads: { line: THREE.Line; ball: THREE.Mesh; blast: THREE.Mesh }[] = [];
+  /** Rebote en vuelo: el polvo donde pica. */
+  private readonly bounceDust: THREE.Mesh;
   private readonly impactLabel: CSS2DObject;
   private readonly windArrow: THREE.Mesh;
   private readonly border: THREE.LineLoop;
@@ -249,6 +259,14 @@ export class World {
     this.ghostOpen.renderOrder = 10;
     this.ghostOpen.visible = false;
     this.scene.add(this.ghostOpen);
+    // Disco chico apoyado en el piso: ahí pica, no explota.
+    this.ghostBounce = new THREE.Mesh(
+      new THREE.CircleGeometry(1.1, 24).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.85, depthTest: false }),
+    );
+    this.ghostBounce.renderOrder = 10;
+    this.ghostBounce.visible = false;
+    this.scene.add(this.ghostBounce);
 
     const goneEl = document.createElement("div");
     goneEl.className = "ghost-gone";
@@ -290,6 +308,12 @@ export class World {
     );
     this.openFlash.visible = false;
     this.scene.add(this.openFlash);
+    this.bounceDust = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 16, 12),
+      new THREE.MeshBasicMaterial({ color: DUST, transparent: true, opacity: 0.8 }),
+    );
+    this.bounceDust.visible = false;
+    this.scene.add(this.bounceDust);
     const impactEl = document.createElement("div");
     impactEl.className = "impact-label";
     this.impactLabel = new CSS2DObject(impactEl);
@@ -745,6 +769,11 @@ export class World {
 
   private drawGhost(g: GhostModel | null): void {
     this.drawGhostHeads(g);
+    this.ghostBounce.visible = !!g?.bounce && g.path.length >= 6;
+    if (g?.bounce) {
+      this.ghostBounce.position.set(g.bounce.x, g.bounce.y + 0.15, g.bounce.z);
+      (this.ghostBounce.material as THREE.MeshBasicMaterial).color.set(SLOT_COLORS[g.shooter.slot] ?? "#fff");
+    }
     if (!g || g.path.length < 6) {
       this.ghostLine.visible = false;
       this.ghostRing.visible = false;
@@ -851,6 +880,7 @@ export class World {
     this.blast.visible = false;
     this.impactLabel.visible = false;
     this.openFlash.visible = false;
+    this.bounceDust.visible = false;
     for (const v of this.shotHeads) v.line.visible = v.ball.visible = v.blast.visible = false;
     if (!s || s.path.length < 3) return null;
     const n = s.path.length / 3;
@@ -888,6 +918,17 @@ export class World {
       mat.color.set(s.dust ? DUST : BLAST);
       mat.opacity = 0.9 * (1 - q);
       this.blast.visible = true;
+    }
+    // Rebote: polvo donde picó, desde que la bola pasa por ahí.
+    if (s.bounce !== undefined && s.bounce < n) {
+      const since = elapsed - (s.bounce / Math.max(1, total)) * s.durationMs;
+      if (since >= 0 && since < BOUNCE_MS) {
+        const q = since / BOUNCE_MS;
+        this.bounceDust.position.fromArray(s.path, s.bounce * 3);
+        this.bounceDust.scale.set(1.4 + 3 * q, 0.6 + 1.2 * q, 1.4 + 3 * q);
+        (this.bounceDust.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - q);
+        this.bounceDust.visible = true;
+      }
     }
     // Cartel de daño: anclado al punto de impacto en el mundo, así sigue a la cámara.
     if (p >= 1 && elapsed - s.durationMs < IMPACT_LABEL_MS) {

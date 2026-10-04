@@ -23,6 +23,7 @@
 //   - La Dirt Ball se vende de a 1 (el original, de a 5) y no entierra: el tanque sube con la loma (turn3d.ts).
 //   - El MIRV (mirv.ts) se vende de a 1 (el original, de a 3), con precio propio: las cabezas son más
 //     chicas que las del original. El escudo absorbe una sola cabeza (turn3d.ts).
+//   - El Leap Frog (bounce.ts): precio y efecto propios. Pica una vez y explota en el segundo golpe.
 //   - En la tienda se vende lo que no usaste a la mitad del precio (sellItem). En el original también
 //     se vende (<sellprice> de accessories.xml); acá la mitad es fija y el escudo no se vende.
 //   - La plata está ajustada para este juego (constants.ts): se arranca con menos, pegar y sobrevivir
@@ -115,7 +116,7 @@ export function endRoundPayouts(players: readonly Player[], survivors: ReadonlyS
 // Tienda
 // ---------------------------------------------------------------------------
 
-export type ShopItemId = "missile" | "roller" | "napalm" | "nuke" | "dirt" | "mirv" | "shield" | "parachute" | "fuel";
+export type ShopItemId = "missile" | "roller" | "napalm" | "nuke" | "dirt" | "mirv" | "leapfrog" | "shield" | "parachute" | "fuel";
 
 export interface ShopItem {
   id: ShopItemId;
@@ -185,6 +186,15 @@ export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze(
     description:
       `Sale como un Misil y, en la cima, se abre en ${WEAPONS.mirv.split!.heads}: cada cabeza cae cerca y explota por su cuenta ` +
       `(radio ${WEAPONS.mirv.explosionRadius}, cráter chico). El escudo frena una sola.`,
+  },
+  leapfrog: {
+    id: "leapfrog",
+    name: "Rebote",
+    price: WEAPONS.leapfrog.cost,
+    pack: WEAPONS.leapfrog.bundleSize,
+    description:
+      "Sale como un Misil, pica en el piso y sigue una vez, con menos fuerza. Explota en el segundo golpe " +
+      `(radio ${WEAPONS.leapfrog.explosionRadius}). Si el pique da en un tanque, explota ahí.`,
   },
   shield: {
     id: "shield",

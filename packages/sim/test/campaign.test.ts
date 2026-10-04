@@ -147,7 +147,7 @@ describe("vender en la tienda", () => {
   });
 
   it("cada carta vuelve a la mitad de su precio", () => {
-    for (const id of ["missile", "roller", "napalm", "nuke", "dirt", "mirv", "parachute", "fuel"] as const) {
+    for (const id of ["missile", "roller", "napalm", "nuke", "dirt", "mirv", "leapfrog", "parachute", "fuel"] as const) {
       const rich: Player = { ...fresh("A"), money: 50_000 };
       const sold = sellItem(buyItem(rich, id), id);
       expect(sold.money, id).toBe(50_000 - SHOP_ITEMS[id].price / 2);

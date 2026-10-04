@@ -25,9 +25,10 @@ export interface MiniModel {
   fires: { x: number; z: number; radius: number }[];
   /**
    * Fantasma de mi turno: recorrido [x, y, z, ...] y si termina dentro del mapa. Con un Racimo,
-   * `path` llega hasta donde se abre y `heads` trae el recorrido de cada cabeza.
+   * `path` llega hasta donde se abre y `heads` trae el recorrido de cada cabeza. Con un Rebote,
+   * `path` trae los dos tramos y `bounce` es donde pica.
    */
-  ghost: { path: number[]; lands: boolean; slot: number; heads?: { path: number[]; lands: boolean }[] } | null;
+  ghost: { path: number[]; lands: boolean; slot: number; heads?: { path: number[]; lands: boolean }[]; bounce?: { x: number; z: number } } | null;
   /** Proyectil real en vuelo: uno, o las cabezas de un Racimo ya abierto. */
   balls: { x: number; z: number }[];
   /**
@@ -162,6 +163,17 @@ export class Minimap {
       ctx.stroke();
       ctx.setLineDash([]);
       const color = SLOT_COLORS[m.ghost.slot] ?? "#fff";
+      // Rebote: un punto chico donde pica; el círculo de caída va al final, en el segundo golpe.
+      if (m.ghost.bounce) {
+        const [bx, by] = at(m.ghost.bounce.x, m.ghost.bounce.z);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = color;
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(bx, by, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
       if (heads.length > 0) {
         // Un punto donde cae cada cabeza (o una cruz chica en el borde por donde se va).
         for (const h of heads) {

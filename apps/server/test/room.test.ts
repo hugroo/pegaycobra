@@ -133,7 +133,7 @@ describe("partida de 5 rondas por red", () => {
           await until(() => b.state.players.get(a.sessionId).missiles === 0);
           expect(b.state.players.get(a.sessionId).money).toBe(before - SHOP_ITEMS.missile.price / 2);
           await until(() => a.state.players.get(a.sessionId).missiles === 0);
-          const inventory = (p: any) => [p.money, p.missiles, p.rollers, p.napalms, p.nukes, p.dirts, p.mirvs, p.shield, p.parachute, p.fuel];
+          const inventory = (p: any) => [p.money, p.missiles, p.rollers, p.napalms, p.nukes, p.dirts, p.mirvs, p.leapfrogs, p.shield, p.parachute, p.fuel];
           expect(inventory(b.state.players.get(a.sessionId))).toEqual(inventory(a.state.players.get(a.sessionId)));
           // Un Rodillo: comprado y vendido, y la Chispa no se vende.
           a.send("buy", { item: "roller" });
@@ -474,6 +474,106 @@ describe("partida de 5 rondas por red", () => {
     expect(shot.damage).toBeCloseTo(foeLife - seenBy(b, b.sessionId).life, 1);
     expect(seenBy(b, a.sessionId).points).toBeGreaterThan(0);
     expect(seenBy(b, a.sessionId).mirvs).toBe(0);
+
+    await a.leave();
+    await b.leave();
+  }, 60_000);
+
+  it("Rebote: los dos clientes ven el mismo camino con el pique, y el mismo hoyo en el segundo golpe", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto" });
+    const ta = trackTerrain(a);
+    const tb = trackTerrain(b);
+    const shotsSeenByA: any[] = [];
+    const shotsSeenByB: any[] = [];
+    a.onMessage("shot", (m) => shotsSeenByA.push(m));
+    b.onMessage("shot", (m) => shotsSeenByB.push(m));
+    for (const r of [a, b]) for (const type of ["skip", "moved", "roundEnd", "burn"]) r.onMessage(type, () => {});
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    a.send("start");
+    await until(() => a.state.phase === "aiming" && tb.fulls === 1);
+
+    const rooms: Record<string, Room<any>> = { [a.sessionId]: a, [b.sessionId]: b };
+    const seenBy = (r: Room<any>, id: string) => r.state.players.get(id);
+    /** El del turno manda `msg` (por defecto una Baby para atrás, lejos de todos) y espera a que termine el tiro. */
+    async function turn(id: string, msg?: object): Promise<void> {
+      await until(() => a.state.phase === "aiming" && a.state.turnId === id);
+      rooms[id]!.send("fire", msg ?? { yaw: seenBy(a, id).yaw + 180, pitch: 60, power: 250 });
+      await until(() => a.state.phase !== "aiming" || a.state.turnId !== id);
+      await until(() => a.state.phase !== "animating");
+    }
+
+    // Ronda 1: nadie le apunta a nadie, hasta que corta por tiros. En la tienda Ana compra un pack de Rebote.
+    while (a.state.phase !== "shop") await turn(a.state.turnId);
+    const money = seenBy(b, a.sessionId).money;
+    a.send("buy", { item: "leapfrog" });
+    await until(() => seenBy(b, a.sessionId).leapfrogs === 2);
+    expect(seenBy(b, a.sessionId).money).toBe(money - SHOP_ITEMS.leapfrog.price);
+    a.send("ready");
+    b.send("ready");
+    await until(() => a.state.round === 2 && a.state.phase === "aiming" && ta.fulls === 2 && tb.fulls === 2);
+
+    // Ronda 2: Beto tira para atrás y Ana busca, con el sim, un Rebote que pique en el piso y vuelva
+    // a caer en el mapa, lejos del pique y lejos de los dos tanques.
+    await turn(b.sessionId);
+    const me = seenBy(a, a.sessionId);
+    const foe = seenBy(a, b.sessionId);
+    const tanks = [me, foe].map((p) => ({ id: p.id as string, x: p.x as number, y: p.y as number, z: p.z as number }));
+    const wind = { x: a.state.windX, z: a.state.windZ };
+    const base = (Math.atan2(128 - me.z, 128 - me.x) * 180) / Math.PI; // hacia el centro del mapa
+    const reach = WEAPONS.leapfrog.explosionRadius + 6;
+    let aim: { yaw: number; pitch: number; power: number } | null = null;
+    search: for (let pitch = 40; pitch <= 70; pitch += 5) {
+      for (let power = 300; power <= 700; power += 20) {
+        for (const yaw of [base, base + 20, base - 20, base + 40, base - 40]) {
+          const r = simulateWeaponShot3D(ta.terrain!, WEAPONS.leapfrog, { originX: me.x, originY: me.y, originZ: me.z, yaw, pitch, power, wind, shooterId: me.id }, tanks);
+          if (r.outcome !== "ground" || !r.bounce) continue;
+          if (Math.hypot(r.x - r.bounce.x, r.z - r.bounce.z) < reach) continue;
+          if (tanks.some((t) => Math.hypot(r.x - t.x, r.z - t.z) < 3 * reach)) continue;
+          aim = { yaw, pitch, power };
+          break search;
+        }
+      }
+    }
+    expect(aim).not.toBeNull();
+
+    const heights = tb.terrain!.heights.slice();
+    const before: Terrain = { width: tb.terrain!.width, depth: tb.terrain!.depth, heights };
+    const patches = [ta.patches, tb.patches];
+    await turn(a.sessionId, { ...aim, weapon: "leapfrog" });
+
+    // Los dos reciben el mismo tiro: un solo camino, con el pique en el medio.
+    const shot = shotsSeenByB.at(-1);
+    expect(shot).toEqual(shotsSeenByA.at(-1));
+    expect(shot).toMatchObject({ shooterId: a.sessionId, weapon: "leapfrog", outcome: "ground", damage: 0, blocked: [] });
+    expect(shot.heads).toBeUndefined();
+    const steps = shot.path.length / 3 - 1;
+    const tick = shot.bounce.tick as number;
+    expect(tick).toBeGreaterThan(0);
+    expect(tick).toBeLessThan(steps);
+    const at = (i: number) => shot.path.slice(i * 3, i * 3 + 3) as [number, number, number];
+    const [px, py, pz] = at(tick);
+    // Ahí tocó el piso (el camino viaja redondeado a 0.01)...
+    expect(Math.abs(py - terrainHeightAt(before, px, pz))).toBeLessThan(0.05);
+    // ...venía por el aire y salió subiendo...
+    const [qx, qy, qz] = at(tick - 1);
+    expect(qy).toBeGreaterThan(terrainHeightAt(before, qx, qz) - 0.02);
+    expect(at(tick + 1)[1]).toBeGreaterThan(py);
+    // ...y terminó en otro lado, que es donde va el cartel.
+    const [ex, ey, ez] = at(steps);
+    expect(Math.hypot(ex - px, ez - pz)).toBeGreaterThanOrEqual(reach - 0.1);
+    expect(shot.impact).toEqual({ x: ex, y: ey, z: ez });
+
+    // Un solo parche de terreno, el mismo para los dos: el hoyo está en el segundo golpe y donde picó no cambió nada.
+    await until(() => ta.patches === patches[0]! + 1 && tb.patches === patches[1]! + 1);
+    expect(ta.terrain!.heights).toEqual(tb.terrain!.heights);
+    const cell = (x: number, z: number) => Math.round(x) + Math.round(z) * tb.terrain!.width;
+    expect(tb.terrain!.heights[cell(ex, ez)]!).toBeLessThan(heights[cell(ex, ez)]!);
+    expect(tb.terrain!.heights[cell(px, pz)]!).toBe(heights[cell(px, pz)]!);
+    expect(tb.terrain!.heights.every((h, i) => h <= heights[i]!)).toBe(true);
+    await until(() => seenBy(b, a.sessionId).leapfrogs === 1);
+    expect(seenBy(a, a.sessionId).leapfrogs).toBe(1);
 
     await a.leave();
     await b.leave();

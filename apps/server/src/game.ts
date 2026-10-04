@@ -57,7 +57,7 @@ export interface Seat {
 }
 
 /** Armas que el cliente puede pedir. La Baby Nuke no existe para el juego. */
-const FIREABLE: readonly WeaponId[] = ["babyMissile", "missile", "roller", "napalm", "nuke", "dirt", "mirv"];
+const FIREABLE: readonly WeaponId[] = ["babyMissile", "missile", "roller", "napalm", "nuke", "dirt", "mirv", "leapfrog"];
 
 export interface FireMessage {
   yaw: number;
@@ -69,7 +69,7 @@ export interface FireMessage {
 /**
  * Del mensaje del cliente se leen solo yaw, pitch, power y weapon; cualquier otro campo (daño,
  * impacto, posición...) se ignora y no llega al sim. weapon puede faltar (= Baby Missile); si
- * nombra algo que no sea "babyMissile", "missile", "roller", "napalm", "nuke", "dirt" o "mirv", el mensaje entero se descarta.
+ * nombra algo que no sea "babyMissile", "missile", "roller", "napalm", "nuke", "dirt", "mirv" o "leapfrog", el mensaje entero se descarta.
  */
 export function parseFireMessage(raw: unknown): FireMessage | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;

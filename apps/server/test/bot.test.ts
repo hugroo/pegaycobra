@@ -95,13 +95,14 @@ describe("puntería del bot", () => {
     expect(botShopPick(armed, () => 0.9)).toBeNull();
   });
 
-  it("no compra Napalm, Nuke, Tierra ni Racimo, tenga la plata que tenga y salga lo que salga en el sorteo", () => {
+  it("no compra Napalm, Nuke, Tierra, Racimo ni Rebote, tenga la plata que tenga y salga lo que salga en el sorteo", () => {
     const g = started();
     const rich = { ...g.playerOf("B")!, money: 999_999 };
     expect(rich.money).toBeGreaterThan(SHOP_ITEMS.napalm.price);
     expect(rich.money).toBeGreaterThan(SHOP_ITEMS.nuke.price);
     expect(rich.money).toBeGreaterThan(SHOP_ITEMS.dirt.price);
     expect(rich.money).toBeGreaterThan(SHOP_ITEMS.mirv.price);
+    expect(rich.money).toBeGreaterThan(SHOP_ITEMS.leapfrog.price);
     const rng = createRng(3);
     const picks = new Set(Array.from({ length: 200 }, () => botShopPick(rich, rng)));
     expect([...picks].sort()).toEqual(["missile", "roller"]);
@@ -118,6 +119,8 @@ describe("puntería del bot", () => {
     expect(pickBotShot(give({}), "B", createRng(1))!.weapon).toBe("babyMissile");
     // Un Racimo que no compró él tampoco lo tira.
     expect(pickBotShot(give({ mirv: 2 }), "B", createRng(1))!.weapon).toBe("babyMissile");
+    // Un Rebote, lo mismo.
+    expect(pickBotShot(give({ leapfrog: 2 }), "B", createRng(1))!.weapon).toBe("babyMissile");
     // El Roller elegido lo acepta Game.fire, y se gasta.
     g.match = give({ roller: 2 });
     g.tickSecond();

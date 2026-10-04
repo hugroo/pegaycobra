@@ -27,7 +27,7 @@ export interface ShotBroadcast {
   yaw: number;
   pitch: number;
   power: number;
-  /** "babyMissile" | "missile" | "roller" | "napalm" | "nuke" | "dirt" | "mirv" */
+  /** "babyMissile" | "missile" | "roller" | "napalm" | "nuke" | "dirt" | "mirv" | "leapfrog" */
   weapon: string;
   /**
    * "ground" | "tank" | "offmap" | "timeout". Con "offmap" todos muestran "se fue". Con un Racimo
@@ -36,9 +36,12 @@ export interface ShotBroadcast {
   outcome: string;
   /**
    * [x0, y0, z0, x1, y1, z1, ...] en wu, redondeado a 0.01. Con el Roller incluye la rodada; con un
-   * Racimo abierto llega hasta donde se abrió y sigue en `heads`.
+   * Racimo abierto llega hasta donde se abrió y sigue en `heads`; con un Rebote que picó trae los
+   * dos tramos seguidos.
    */
   path: number[];
+  /** Solo Rebote que picó: `path[tick]` es el punto donde tocó el piso. El tiro termina más adelante. */
+  bounce?: { tick: number };
   /** Solo Racimo que se abrió: cada cabeza, desde el punto de apertura hasta donde terminó. */
   heads?: { path: number[]; outcome: string }[];
   /** Lo que dura la animación entera, hasta que cae la última cabeza. */
@@ -207,6 +210,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       blocked: shot.result.blocked,
     };
     if (heads) payload.heads = heads.map((h) => ({ path: (h.path ?? []).map(round2), outcome: h.outcome }));
+    if (shotResult.bounce) payload.bounce = { tick: shotResult.bounce.tick };
     this.flush();
     this.broadcast("shot", payload);
     const hits = shot.result.damage
@@ -439,6 +443,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         p.nukes = Math.max(0, player.inventory.nuke ?? 0);
         p.dirts = Math.max(0, player.inventory.dirt ?? 0);
         p.mirvs = Math.max(0, player.inventory.mirv ?? 0);
+        p.leapfrogs = Math.max(0, player.inventory.leapfrog ?? 0);
         p.shield = player.inventory.shield ?? 0;
         p.parachute = player.inventory.parachute ?? 0;
         p.fuel = player.inventory.fuel ?? 0;

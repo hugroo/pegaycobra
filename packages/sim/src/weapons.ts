@@ -15,10 +15,12 @@
 // Regla propia: en el original la tierra tapa al tanque; acá el tanque sube con la loma (turn3d.ts).
 // Del MIRV se toman el armslevel y las 5 cabezas (<nowarheads>). El tamaño de cada cabeza, el precio
 // y cómo se abren son de este juego (mirv.ts).
+// El Leap Frog es regla propia: el original tiene uno (src/common/weapons/WeaponLeapFrog.cpp); acá
+// pica una sola vez y explota recién en el segundo golpe (bounce.ts), con números de este juego.
 
 import { INFINITE_AMMO } from "./constants";
 
-export type WeaponId = "babyMissile" | "missile" | "roller" | "napalm" | "babyNuke" | "nuke" | "dirt" | "mirv";
+export type WeaponId = "babyMissile" | "missile" | "roller" | "napalm" | "babyNuke" | "nuke" | "dirt" | "mirv" | "leapfrog";
 
 /** Arma que no explota donde cae: toca el piso y rueda cuesta abajo (roller.ts). */
 export interface RollSpec {
@@ -48,6 +50,12 @@ export interface SplitSpec {
   readonly heads: number;
   /** A qué distancia de esa cae cada una de las otras, sobre el piso (XZ), en terreno llano. [celdas = wu] */
   readonly radius: number;
+}
+
+/** Arma que no explota donde cae: pica en el piso, sigue con menos fuerza y explota en el segundo golpe (bounce.ts). */
+export interface BounceSpec {
+  /** Con cuánta velocidad sale del pique, como fracción de la que traía al tocar el piso. [adimensional] */
+  readonly keep: number;
 }
 
 export interface Weapon {
@@ -85,6 +93,8 @@ export interface Weapon {
   readonly mound?: MoundSpec;
   /** Solo el MIRV: cómo se abre en la cima. Los radios del arma son los de cada cabeza. */
   readonly split?: SplitSpec;
+  /** Solo el Leap Frog: cómo pica. Los radios del arma son los del segundo golpe. */
+  readonly bounce?: BounceSpec;
 }
 
 export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
@@ -212,14 +222,31 @@ export const WEAPONS: Readonly<Record<WeaponId, Weapon>> = Object.freeze({
     // parado entre dos cabezas las recibe a las dos.
     split: { heads: 5, radius: 7 },
   },
+  leapfrog: {
+    id: "leapfrog",
+    name: "Leap Frog",
+    armsLevel: 8,
+    cost: 1600,
+    bundleSize: 2,
+    startingNumber: 0,
+    // Explota como un Missile, una sola vez: donde termina el segundo tramo.
+    explosionRadius: 6,
+    craterRadius: 6,
+    hurtAmount: 1,
+    windFactor: 1,
+    gravityFactor: 1,
+    // Sale del pique con la mitad de la velocidad: en piso llano el segundo tramo mide un cuarto
+    // del primero.
+    bounce: { keep: 0.5 },
+  },
 });
 
 /**
  * Armas que se pueden disparar: la Baby Missile (infinita, no se compra), y el Missile, el Roller,
- * el Napalm, el Nuke, la Dirt Ball y el MIRV (se compran en la tienda, ver campaign.ts). La Baby
- * Nuke existe solo como datos.
+ * el Napalm, el Nuke, la Dirt Ball, el MIRV y el Leap Frog (se compran en la tienda, ver
+ * campaign.ts). La Baby Nuke existe solo como datos.
  */
-export const PLAYABLE_WEAPONS: readonly WeaponId[] = Object.freeze(["babyMissile", "missile", "roller", "napalm", "nuke", "dirt", "mirv"]);
+export const PLAYABLE_WEAPONS: readonly WeaponId[] = Object.freeze(["babyMissile", "missile", "roller", "napalm", "nuke", "dirt", "mirv", "leapfrog"]);
 
 export function isPlayable(id: WeaponId): boolean {
   return PLAYABLE_WEAPONS.includes(id);

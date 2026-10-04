@@ -525,6 +525,70 @@ describe("Racimo en partida", () => {
   });
 });
 
+describe("Rebote en partida", () => {
+  const give = (g: Game, id: string, items: object) => {
+    g.match = { ...g.match!, players: g.match!.players.map((p) => (p.id === id ? { ...p, inventory: { ...p.inventory, ...items } } : p)) };
+  };
+  const BOUNCE = { yaw: 90, pitch: 45, power: 600, weapon: "leapfrog" };
+
+  /** Piso plano a 10, A en el centro y B lejos. Le toca a A, que tiene un pack de Rebote. */
+  function flat() {
+    const g = started();
+    const terrain = createFlatTerrain(257, 257, 10);
+    const at = (id: string, x: number, z: number) => ({ ...g.match!.tanks.find((t) => t.id === id)!, x, y: 10, z });
+    g.match = { ...g.match!, terrain, wind: { x: 0, z: 0 }, tanks: [at("A", 128, 128), at("B", 30, 30)] };
+    give(g, "A", { leapfrog: 2 });
+    expect(g.turnId).toBe("A");
+    return g;
+  }
+
+  it("la tienda lo vende de a 2", () => {
+    const g = started();
+    killAndPass(g, "B");
+    const before = money(g, "B");
+    expect(g.buy("B", { item: "leapfrog" })).toBe(true);
+    expect(inv(g, "B").leapfrog).toBe(2);
+    expect(money(g, "B")).toBe(before - SHOP_ITEMS.leapfrog.price);
+  });
+
+  it("sin Rebote el tiro se ignora", () => {
+    const g = flat();
+    give(g, "A", { leapfrog: 0 });
+    expect(g.fire("A", BOUNCE)).toBeNull();
+    expect(g.phase).toBe("aiming");
+  });
+
+  it("el server resuelve el pique: la animación dura los dos tramos y el hoyo queda en el segundo golpe", () => {
+    const g = flat();
+    const before = g.match!.terrain;
+
+    const shot = g.fire("A", BOUNCE)!;
+    const r = shot.result.shot;
+    const first = r.bounce!;
+    expect(shot.weapon).toBe("leapfrog");
+    // Es la cuenta del sim, la misma que hace la fantasma.
+    expect(r).toEqual(
+      simulateWeaponShot3D(before, WEAPONS.leapfrog, { originX: 128, originY: 10, originZ: 128, ...BOUNCE, wind: { x: 0, z: 0 }, shooterId: "A" }, g.match!.tanks, { recordPath: true }),
+    );
+    expect(r.outcome).toBe("ground");
+    expect(r.z).toBeGreaterThan(first.z + 15);
+    expect(r.ticks).toBeGreaterThan(first.tick);
+    expect(shot.durationMs).toBe(shotDurationMs(r.ticks));
+    expect(inv(g, "A").leapfrog).toBe(1); // gastado mientras vuela
+    expect(g.match!.terrain).toBe(before); // todavía no cayó
+    g.finishShot();
+
+    // Un solo hoyo, y el parche que viaja a los clientes no llega hasta donde picó.
+    const after = g.match!.terrain;
+    const rect = changedRect(before, after)!;
+    expect(terrainHeightAt(after, Math.round(r.x), Math.round(r.z))).toBeLessThan(10 - 3);
+    expect(terrainHeightAt(after, Math.round(first.x), Math.round(first.z))).toBe(10);
+    expect(Math.round(first.z)).toBeLessThan(rect.z0);
+    expect(Math.max(rect.w, rect.d)).toBeLessThanOrEqual(2 * WEAPONS.leapfrog.craterRadius + 3);
+    expect(g.turnId).toBe("B");
+  });
+});
+
 describe("nafta", () => {
   function fueled() {
     const g = started();

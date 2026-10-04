@@ -87,6 +87,11 @@ export interface Shot3DResult {
    * última cabeza en terminar, y `path` llega hasta el punto donde se abrió.
    */
   split?: { x: number; y: number; z: number; tick: number; heads: ShotHead[] };
+  /**
+   * Solo Leap Frog que picó (bounce.ts): dónde tocó el piso y en qué tick. (x, y, z) del resultado es
+   * donde terminó el segundo tramo, y `ticks` y `path` incluyen los dos.
+   */
+  bounce?: { x: number; y: number; z: number; tick: number };
 }
 
 /** Un proyectil en vuelo: posición [wu] y velocidad [vu]. */

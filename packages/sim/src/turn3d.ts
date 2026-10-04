@@ -7,6 +7,7 @@
 // El Napalm no abre cráter ni explota: deja un fuego (napalm.ts) que quema al empezar cada turno.
 // La Dirt Ball tampoco: levanta una loma (terrain.ts) y el tanque que quedó debajo sube con ella.
 // El MIRV se abre en el aire (mirv.ts) y cada cabeza es un golpe aparte, resuelto con estas mismas reglas.
+// El Leap Frog pica y sigue (bounce.ts): el golpe es uno solo, donde termina el segundo tramo.
 // Orígenes: Explosion.cpp, TargetDamageCalc.cpp, TargetDamage.cpp, TargetFalling.cpp, Wind.cpp.
 
 import { TANK_RADIUS, WIND_MAX } from "./constants";
@@ -191,7 +192,7 @@ export function settleTank3D(
 
 /**
  * Resuelve un disparo 3D. Mismas validaciones que resolveTurn: jugador vivo, arma jugable
- * (Baby Missile, Missile, Roller, Napalm, Nuke, Dirt Ball, MIRV) y con munición. No recibe daño ni impacto: los calcula.
+ * (Baby Missile, Missile, Roller, Napalm, Nuke, Dirt Ball, MIRV, Leap Frog) y con munición. No recibe daño ni impacto: los calcula.
  *
  * Escudo (regla propia, campaign.ts): si la explosión (también la del Roller) le iba a sacar vida
  * a un tanque con escudo, el escudo absorbe ese tiro y se gasta. El cráter se abre igual y el
@@ -213,6 +214,9 @@ export function settleTank3D(
  * que caen: su cráter, su explosión y las caídas a ese cráter, con los tanques como los dejó el golpe
  * anterior. El escudo absorbe la primera cabeza que le iba a sacar vida y se gasta ahí: la caída a
  * ese cráter no duele, pero la cabeza siguiente pega como a cualquiera. El daño de todas va en `damage`.
+ *
+ * Leap Frog (bounce): donde pica no pasa nada, ni cráter ni daño. Explota una vez, como un Missile,
+ * donde termina el tiro (el segundo golpe, o el primero si fue contra un tanque).
  */
 export function resolveTurn3D(
   state: MatchState3D,
