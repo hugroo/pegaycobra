@@ -1094,6 +1094,7 @@ function renderShop(phase: string): void {
   const itemsKey = `${mp.money}|${mp.parachute}|${mp.fuel}|${mp.missiles}|${mp.rollers}|${mp.napalms}|${mp.nukes}|${mp.dirts}|${mp.mirvs}|${mp.leapfrogs}|${mp.shield}`;
   if (ui.shopItems.dataset.key === itemsKey) return;
   ui.shopItems.dataset.key = itemsKey;
+  const scrolled = ui.shopItems.scrollLeft; // la fila queda donde el dedo la dejó
   ui.shopItems.replaceChildren(
     ...(Object.keys(SHOP_ITEMS) as ShopItemId[]).map((id) => {
       const it = SHOP_ITEMS[id];
@@ -1123,7 +1124,12 @@ function renderShop(phase: string): void {
       // El motivo completo (el del sim) va en el tooltip; en la carta, dos palabras.
       have.textContent = why ? (mp.money < it.price ? "no alcanza" : "ya tenés") : inventory[id] > 0 ? `tenés ${inventory[id]}` : "";
       foot.append(price, have);
-      card.append(name, desc, foot);
+      // En el teléfono la carta no se toca entera (el dedo la usa para pasar la fila): se compra
+      // con este botón, que en el escritorio no se ve (style.css).
+      const buy = document.createElement("span");
+      buy.className = "buy";
+      buy.textContent = `Comprá ${fmtMoney(it.price)}`;
+      card.append(name, desc, foot, buy);
       card.addEventListener("click", () => room?.send("buy", { item: id }));
       // Debajo de la carta, lo que te devuelven si la vendés (sellValue del sim, la cuenta del server).
       // El renglón está siempre, así la fila no salta cuando comprás.
@@ -1144,6 +1150,7 @@ function renderShop(phase: string): void {
       return slot;
     }),
   );
+  ui.shopItems.scrollLeft = scrolled;
 }
 
 function renderEnd(phase: string): void {

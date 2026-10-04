@@ -272,6 +272,7 @@ kbd {
 .item .foot { min-width: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; width: 100%; }
 .item .price { font-weight: 800; font-size: 17px; color: var(--ocre); }
 .item .have { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.item .buy { display: none; }
 .item:hover:not(:disabled) { border-color: var(--ocre); }
 /* Cada carta con su renglón de venta abajo: una línea, finita, para que la tienda no crezca sobre el cerro. */
 .slot { display: grid; grid-template-rows: 1fr auto; gap: 4px; min-width: 0; }
@@ -407,6 +408,26 @@ kbd {
   .tray-head button { grid-area: 1 / 2; min-width: 0; }
   .summary { grid-area: 2 / 1; overflow-x: auto; touch-action: pan-x; scrollbar-width: none; }
   .tray-head .money { grid-area: 2 / 2; justify-self: end; }
+
+  /* Tienda con el dedo: dos cartas grandes a la vista y la punta de la tercera, que avisa que la
+     fila sigue. La carta no ataja el toque (así el dedo pasa la fila sin comprar): se compra y se
+     vende con dos botones aparte, de más de 48 px. */
+  .items { grid-auto-columns: calc(50% - 20px); scroll-snap-type: x proximity; }
+  .slot { gap: 6px; scroll-snap-align: start; }
+  .item { grid-template-rows: auto 1fr auto auto; gap: 6px; padding: 10px; pointer-events: none; }
+  .item .name { font-size: 19px; }
+  .item .desc { font-size: 14px; line-height: 1.25; min-height: 2.5em; }
+  .item .foot { min-height: 1.3em; }
+  .item .foot .price { display: none; }
+  .item .have { font-size: 13px; }
+  .item .buy {
+    display: grid; place-items: center; width: 100%; min-height: 52px; border-radius: 12px; pointer-events: auto;
+    background: var(--ocre); color: var(--ocre-ink); font-weight: 800; font-size: 16px; white-space: nowrap;
+  }
+  .item:disabled .buy { background: var(--glass-2); color: var(--muted); }
+  .sell { min-height: 52px; border-radius: 12px; font-size: 15px; }
+  .sell:disabled { border-color: var(--line); }
+  .sell:disabled:empty::after { content: "No tenés"; }
 
   /* Espera, con el pulgar: el dibujo de cada mapa llena su botón y abajo se lee qué tiene el elegido. */
   #screen-lobby { padding: 12px; }
