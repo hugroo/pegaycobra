@@ -34,6 +34,11 @@ const SPLASH_MS = 1000;
 const SPLASH_SMALL_MS = 600;
 /** Llamas que se dibujan sobre cada fuego de Napalm. */
 const FLAMES_PER_FIRE = 11;
+/** La fantasma está viva: sus rayas corren hacia donde caería el tiro. La marca de un tiro viejo no se mueve. */
+const GHOST_DASH = 1.6;
+const GHOST_GAP = 1.2;
+/** [wu/s] */
+const GHOST_DASH_SPEED = 3;
 /** Color del fogonazo de una explosión, y el del polvo que levanta la Tierra. */
 const BLAST = "#ffb347";
 const DUST = "#a8845a";
@@ -76,6 +81,19 @@ export interface GhostModel {
   bounce?: { x: number; y: number; z: number };
 }
 
+/**
+ * Marca del último tiro de un tanque, como llega en el estado del server: la línea fina del
+ * recorrido y un punto en el piso donde cayó. Queda quieta hasta que ese tanque tira de nuevo.
+ */
+export interface MarkModel {
+  id: string;
+  slot: number;
+  /** [x, y, z, ...]. Con un Racimo, hasta donde se abrió. */
+  path: number[];
+  /** Dónde cayó: uno, o uno por cabeza de un Racimo. `wet`: se hundió en el lago. Lo que se fue del mapa no deja punto. */
+  spots: { x: number; z: number; wet: boolean }[];
+}
+
 export interface ShotModel {
   path: number[];
   start: number;
@@ -113,6 +131,8 @@ export interface MoveModel {
 export interface FrameModel {
   tanks: TankModel[];
   ghost: GhostModel | null;
+  /** El mismo objeto mientras la marca no cambie: recién con uno nuevo se rearma la línea. */
+  marks: MarkModel[];
   shot: ShotModel | null;
   wind: { x: number; z: number };
   fires: FireModel[];
@@ -173,6 +193,11 @@ export class World {
   private readonly ghostHeads: { line: THREE.Line; ring: THREE.Mesh }[] = [];
   /** Rebote en la fantasma: la marca en el piso donde pica. */
   private readonly ghostBounce: THREE.Mesh;
+  /** Marcas del último tiro, por tanque: la línea y un punto por golpe. Se crean al usarse. */
+  private readonly marks = new Map<string, { src: MarkModel | null; line: THREE.Line; spots: THREE.Mesh[] }>();
+  private readonly markDotGeo = new THREE.CircleGeometry(0.9, 20).rotateX(-Math.PI / 2);
+  /** En el agua no hay hoyo que mirar: la marca es un aro sobre el lago. */
+  private readonly markRingGeo = new THREE.RingGeometry(0.75, 1.2, 24).rotateX(-Math.PI / 2);
   private readonly shotLine: THREE.Line;
   private readonly shotBall: THREE.Mesh;
   private readonly blast: THREE.Mesh;
@@ -253,7 +278,7 @@ export class World {
 
     this.ghostLine = new THREE.Line(
       new THREE.BufferGeometry(),
-      new THREE.LineDashedMaterial({ color: "#ffffff", dashSize: 1.6, gapSize: 1.2, transparent: true, opacity: 0.6 }),
+      new THREE.LineDashedMaterial({ color: "#ffffff", dashSize: GHOST_DASH, gapSize: GHOST_GAP, transparent: true, opacity: 0.6 }),
     );
     this.ghostLine.frustumCulled = false;
     this.scene.add(this.ghostLine);
@@ -831,8 +856,64 @@ export class World {
   // Trayectorias
   // -------------------------------------------------------------------------
 
-  private drawGhost(g: GhostModel | null): void {
-    this.drawGhostHeads(g);
+  /** Corre las rayas de una línea de la fantasma según la hora. */
+  private march(line: THREE.Line, now: number): void {
+    line.computeLineDistances();
+    const d = line.geometry.getAttribute("lineDistance") as THREE.BufferAttribute;
+    const period = GHOST_DASH + GHOST_GAP;
+    const shift = period - (((now / 1000) * GHOST_DASH_SPEED) % period);
+    for (let i = 0; i < d.count; i++) d.setX(i, d.getX(i) + shift);
+  }
+
+  /**
+   * Las marcas del último tiro de cada tanque: línea continua, fina y pálida, del color del tanque, y
+   * un punto apoyado en el piso de ahora (el fondo del hoyo, o la loma que lo tapó). No se mueven.
+   */
+  private drawMarks(marks: MarkModel[]): void {
+    for (const [id, v] of this.marks) {
+      if (marks.some((m) => m.id === id)) continue;
+      v.src = null;
+      v.line.visible = false;
+      for (const spot of v.spots) spot.visible = false;
+    }
+    for (const m of marks) {
+      let v = this.marks.get(m.id);
+      if (!v) {
+        const line = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.5 }));
+        line.frustumCulled = false;
+        this.scene.add(line);
+        v = { src: null, line, spots: [] };
+        this.marks.set(m.id, v);
+      }
+      const view = v;
+      if (view.src !== m) {
+        view.src = m;
+        const color = new THREE.Color(SLOT_COLORS[m.slot] ?? "#fff");
+        (view.line.material as THREE.LineBasicMaterial).color.copy(color).lerp(new THREE.Color("#ffffff"), 0.45);
+        view.line.geometry.dispose();
+        view.line.geometry = new THREE.BufferGeometry();
+        view.line.geometry.setAttribute("position", new THREE.Float32BufferAttribute(m.path, 3));
+        view.line.visible = m.path.length >= 6;
+        while (view.spots.length < m.spots.length) {
+          const spot = new THREE.Mesh(this.markDotGeo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthTest: false }));
+          spot.renderOrder = 9;
+          this.scene.add(spot);
+          view.spots.push(spot);
+        }
+        view.spots.forEach((spot, i) => {
+          const s = m.spots[i];
+          spot.visible = !!s;
+          if (!s) return;
+          spot.geometry = s.wet ? this.markRingGeo : this.markDotGeo;
+          (spot.material as THREE.MeshBasicMaterial).color.copy(color);
+        });
+      }
+      m.spots.forEach((s, i) => view.spots[i]!.position.set(s.x, this.aboveGround(s.x, -Infinity, s.z) + 0.2, s.z));
+    }
+  }
+
+  private drawGhost(g: GhostModel | null, now: number): void {
+    this.drawGhostHeads(g, now);
     this.ghostBounce.visible = !!g?.bounce && g.path.length >= 6;
     if (g?.bounce) {
       this.ghostBounce.position.set(g.bounce.x, g.bounce.y + 0.15, g.bounce.z);
@@ -865,7 +946,7 @@ export class World {
     pts.push(new THREE.Vector3(g.path[(n - 1) * 3]!, g.path[(n - 1) * 3 + 1]!, g.path[(n - 1) * 3 + 2]!));
     this.ghostLine.geometry.dispose();
     this.ghostLine.geometry = new THREE.BufferGeometry().setFromPoints(pts);
-    this.ghostLine.computeLineDistances();
+    this.march(this.ghostLine, now);
     this.ghostLine.visible = true;
 
     if (g.impact) {
@@ -897,7 +978,7 @@ export class World {
    * por cabeza con su anillo donde caería. Sin cabezas (cualquier otra arma, o un Racimo que no
    * llega a abrirse) no dibuja nada.
    */
-  private drawGhostHeads(g: GhostModel | null): void {
+  private drawGhostHeads(g: GhostModel | null, now: number): void {
     const heads = g && g.path.length >= 6 ? (g.heads ?? []) : [];
     while (this.ghostHeads.length < heads.length) {
       const line = new THREE.Line(new THREE.BufferGeometry(), this.ghostLine.material);
@@ -924,7 +1005,7 @@ export class World {
         pts.push(new THREE.Vector3().fromArray(h.path, (n - 1) * 3));
         v.line.geometry.dispose();
         v.line.geometry = new THREE.BufferGeometry().setFromPoints(pts);
-        v.line.computeLineDistances();
+        this.march(v.line, now);
       }
       if (h.impact) {
         v.ring.position.set(h.impact.x, h.impact.y + 0.15, h.impact.z);
@@ -1107,7 +1188,8 @@ export class World {
     const dt = Math.min(0.1, (f.now - this.last) / 1000);
     this.last = f.now;
     this.syncTanks(f.tanks, f.now);
-    this.drawGhost(f.ghost);
+    this.drawMarks(f.marks);
+    this.drawGhost(f.ghost, f.now);
     const ball = this.drawShot(f.shot, f.now);
     const turn = f.tanks.find((t) => t.isTurn);
     this.drawWind(f.wind, turn);

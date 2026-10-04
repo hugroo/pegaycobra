@@ -27,7 +27,7 @@ import {
 } from "@pegaycobra/sim";
 import { play, toggleMute } from "./audio";
 import { Minimap, type MiniModel } from "./minimap";
-import { LINGER_MS, SLOT_COLORS, World, type GhostModel, type MoveModel, type ShotModel, type TankModel } from "./scene3d";
+import { LINGER_MS, SLOT_COLORS, World, type GhostModel, type MarkModel, type MoveModel, type ShotModel, type TankModel } from "./scene3d";
 
 const ROOM_NAME = "pegaycobra";
 // En el build de producción el server sirve esta web, así que el WebSocket va al mismo dominio.
@@ -127,6 +127,12 @@ let terrain: Terrain | null = null;
 let shotAnim: ShotModel | null = null;
 /** Dónde terminó el último tiro real (último punto del "shot" del server; con un Racimo, el de cada cabeza). Lo usa el minimapa. */
 let lastImpact: { spots: MiniModel["impacts"]; at: number } | null = null;
+/**
+ * Marca del último tiro de cada tanque, como está en el estado (la arma el server: todas las pestañas
+ * ven la misma). El mismo objeto mientras no cambie, así la escena no rearma la línea en cada frame.
+ */
+let marks: MarkModel[] = [];
+const markKeys = new Map<string, string>();
 let leavingOnPurpose = false;
 /** Se apaga la fantasma desde que apretás Tirar hasta tu próximo turno. */
 let ghostOff = false;
@@ -508,8 +514,28 @@ function playersInOrder(): any[] {
   return out;
 }
 
+/** Lee las marcas del estado. Solo arma un objeto nuevo para la que cambió. */
+function readMarks(): void {
+  marks = playersInOrder().flatMap((p): MarkModel[] => {
+    const path: number[] = Array.from(p.markPath ?? []);
+    const spots: number[] = Array.from(p.markSpots ?? []);
+    if (path.length < 6 && spots.length < 3) {
+      markKeys.delete(p.id);
+      return [];
+    }
+    const key = `${p.slot}|${path.join()}|${spots.join()}`;
+    const old = marks.find((m) => m.id === p.id);
+    if (old && markKeys.get(p.id) === key) return [old];
+    markKeys.set(p.id, key);
+    const model: MarkModel = { id: p.id, slot: p.slot, path, spots: [] };
+    for (let i = 0; i + 2 < spots.length; i += 3) model.spots.push({ x: spots[i]!, z: spots[i + 1]!, wet: spots[i + 2]! > 0 });
+    return [model];
+  });
+}
+
 function onState(): void {
   if (!room) return;
+  readMarks();
   const phase: string = room.state.phase ?? "lobby";
   if (phase === "lobby") {
     show("lobby");
@@ -1394,6 +1420,7 @@ function frame(now: number): void {
   world.render({
     tanks,
     ghost,
+    marks,
     shot: shotAnim,
     wind,
     fires,
@@ -1430,6 +1457,7 @@ function frame(now: number): void {
       : null,
     balls,
     impacts: lastImpact && now >= lastImpact.at ? lastImpact.spots : [],
+    marks,
   });
 }
 requestAnimationFrame(frame);

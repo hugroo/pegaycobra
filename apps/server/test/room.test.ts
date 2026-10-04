@@ -791,6 +791,95 @@ describe("partida de 5 rondas por red", () => {
     await b.leave();
   }, 30_000);
 
+  it("marca del último tiro: después de dos tiros cada cliente tiene la del otro, y al tirar de nuevo la propia se reemplaza", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto" });
+    const shots: any[] = [];
+    a.onMessage("shot", (m) => shots.push(m));
+    b.onMessage("shot", () => {});
+    for (const r of [a, b]) for (const type of ["terrain", "skip", "moved", "roundEnd", "burn"]) r.onMessage(type, () => {});
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    a.send("start");
+    await until(() => a.state.phase === "aiming" && b.state.phase === "aiming");
+
+    const rooms: Record<string, Room<any>> = { [a.sessionId]: a, [b.sessionId]: b };
+    /** La marca de `id` como la tiene el cliente `r` en su estado. */
+    const markOf = (r: Room<any>, id: string) => {
+      const p = r.state.players.get(id);
+      return { path: Array.from(p.markPath as Iterable<number>), spots: Array.from(p.markSpots as Iterable<number>) };
+    };
+    const none = { path: [], spots: [] };
+    /** El del turno tira una Chispa para atrás, lejos de todos, y se espera a que caiga y pase el turno en los dos. */
+    const fireBack = async (power: number): Promise<string> => {
+      const id = a.state.turnId as string;
+      await until(() => b.state.phase === "aiming" && b.state.turnId === id);
+      const me = a.state.players.get(id);
+      const sent = shots.length;
+      rooms[id]!.send("fire", { yaw: me.yaw + 180, pitch: 60, power });
+      await until(() => shots.length === sent + 1);
+      await until(() => [a, b].every((r) => r.state.phase === "aiming" && r.state.turnId !== id));
+      return id;
+    };
+    /** La marca termina donde terminó ese tiro, con un punto en el piso, y arranca donde arrancó. */
+    const expectMarkOfShot = (mark: { path: number[]; spots: number[] }, shot: any) => {
+      expect(shot.outcome).toBe("ground");
+      expect(mark.path.length % 3).toBe(0);
+      expect(mark.path.length).toBeGreaterThanOrEqual(6);
+      expect(mark.path.length).toBeLessThanOrEqual(shot.path.length);
+      for (let k = 0; k < 3; k++) {
+        expect(mark.path[k]!).toBeCloseTo(shot.path[k], 1);
+        expect(mark.path.at(k - 3)!).toBeCloseTo(shot.path.at(k - 3), 1);
+      }
+      expect(mark.spots).toHaveLength(3);
+      expect(mark.spots[0]!).toBeCloseTo(shot.impact.x, 1);
+      expect(mark.spots[1]!).toBeCloseTo(shot.impact.z, 1);
+      expect(mark.spots[2]).toBe(0);
+    };
+
+    // Nadie tiró todavía: nadie tiene marca.
+    for (const r of [a, b]) for (const id of Object.keys(rooms)) expect(markOf(r, id)).toEqual(none);
+
+    // Primer tiro: cuando cae, los dos clientes tienen la misma marca del que tiró, y el otro ninguna.
+    const windBefore = { x: a.state.windX, z: a.state.windZ };
+    const first = await fireBack(250);
+    const second = a.state.turnId as string;
+    expect(second).not.toBe(first);
+    await until(() => [a, b].every((r) => markOf(r, first).path.length > 0));
+    const firstMark = markOf(a, first);
+    expectMarkOfShot(firstMark, shots[0]);
+    expect(markOf(b, first)).toEqual(firstMark);
+    for (const r of [a, b]) expect(markOf(r, second)).toEqual(none);
+    // El turno nuevo trajo viento nuevo, y la marca sigue ahí.
+    expect({ x: a.state.windX, z: a.state.windZ }).not.toEqual(windBefore);
+
+    // Segundo tiro, del otro: ahora cada cliente tiene la marca del otro (y la propia), iguales en los dos.
+    await fireBack(300);
+    await until(() => [a, b].every((r) => markOf(r, second).path.length > 0));
+    const secondMark = markOf(a, second);
+    expectMarkOfShot(secondMark, shots[1]);
+    for (const r of [a, b]) {
+      expect(markOf(r, first)).toEqual(firstMark);
+      expect(markOf(r, second)).toEqual(secondMark);
+    }
+    expect(markOf(rooms[first]!, second).spots).toHaveLength(3);
+    expect(markOf(rooms[second]!, first).spots).toHaveLength(3);
+
+    // El primero tira de nuevo, a otro lado: su marca se reemplaza por la del tiro nuevo y la del otro no se toca.
+    expect(await fireBack(420)).toBe(first);
+    await until(() => [a, b].every((r) => markOf(r, first).path.length > 0 && markOf(r, first).spots[0] !== firstMark.spots[0]));
+    const replaced = markOf(a, first);
+    expectMarkOfShot(replaced, shots[2]);
+    expect(replaced).not.toEqual(firstMark);
+    for (const r of [a, b]) {
+      expect(markOf(r, first)).toEqual(replaced);
+      expect(markOf(r, second)).toEqual(secondMark);
+    }
+
+    await a.leave();
+    await b.leave();
+  }, 30_000);
+
   it("si uno se va en plena partida, el otro gana", async () => {
     const url = `ws://localhost:${PORT}`;
     const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });

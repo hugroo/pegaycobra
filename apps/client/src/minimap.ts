@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Minimapa: vista cenital fija (x a la derecha, z hacia abajo) en un canvas 2D. Solo dibuja lo
 // que le pasa main.ts: el terreno con la misma escala de color que la vista 3D, los fuegos de Napalm, los tanques, el viento, dónde cae
-// la fantasma y dónde cayó el último tiro real (el del mensaje "shot", igual en todas las pestañas).
+// la fantasma, dónde cayó el último tiro real (el del mensaje "shot", igual en todas las pestañas) y la
+// marca del último tiro de cada tanque (la del estado).
 
 import type { Terrain } from "@pegaycobra/sim";
 import { hillshade, LAKE, landColor, type RGB } from "./landscape";
-import { SLOT_COLORS } from "./scene3d";
+import { SLOT_COLORS, type MarkModel } from "./scene3d";
 
 export interface MiniTank {
   x: number;
@@ -38,6 +39,8 @@ export interface MiniModel {
    * `lands` false = se fue del mapa. Una Tierra no deja marca: la loma ya está en el terreno.
    */
   impacts: { x: number; z: number; lands: boolean }[];
+  /** Marca del último tiro de cada tanque: el recorrido, fino y quieto, y un punto donde cayó. */
+  marks: MarkModel[];
 }
 
 const WIND_COLOR = "#9ad1ff";
@@ -144,6 +147,35 @@ export class Minimap {
         ctx.strokeStyle = "#1a1305";
         ctx.stroke();
       } else cross(x, y, 5 * star);
+    }
+
+    // Marca del último tiro de cada tanque: línea continua y pálida de su color, y un punto donde
+    // cayó (un aro si fue al agua). Va debajo de la fantasma, que es la punteada.
+    for (const mark of m.marks) {
+      const color = SLOT_COLORS[mark.slot] ?? "#fff";
+      const p = mark.path;
+      ctx.globalAlpha = 0.6;
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      for (let i = 0; i + 2 < p.length; i += 3) ctx.lineTo(...at(p[i]!, p[i + 2]!));
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      for (const s of mark.spots) {
+        const [x, y] = at(s.x, s.z);
+        ctx.beginPath();
+        ctx.arc(x, y, s.wet ? 3 : 2.5, 0, Math.PI * 2);
+        if (s.wet) {
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = color;
+        } else {
+          ctx.fillStyle = color;
+          ctx.fill();
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = "#000";
+        }
+        ctx.stroke();
+      }
     }
 
     // Fantasma: recorrido punteado y, al final, el punto de caída (o "se fue" en el borde).
