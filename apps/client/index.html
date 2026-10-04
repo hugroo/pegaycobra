@@ -121,6 +121,15 @@
       </div>
     </section>
 
+    <!-- Chat de sala: en la espera y en la partida. En pantalla chica se abre con el botón. -->
+    <div id="chat" class="chat" hidden>
+      <ol id="chat-log" class="chat-log" aria-live="polite" aria-label="Chat de la sala"></ol>
+      <form id="chat-form" class="chat-form">
+        <input id="chat-input" maxlength="120" placeholder="Decí algo… (T)" aria-label="Mensaje para la sala" autocomplete="off" enterkeyhint="send" />
+      </form>
+      <button id="chat-toggle" class="chat-toggle" aria-expanded="false" aria-controls="chat-form">Chat</button>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

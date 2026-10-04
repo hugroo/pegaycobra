@@ -247,6 +247,30 @@ kbd {
 .scores td { padding: 8px 6px; border-top: 1px solid var(--line); }
 .scores tr.win td { color: var(--ocre); font-weight: 800; }
 
+/* ---------------------------------------------------------------------------
+   Chat de sala: abajo a la izquierda, arriba de la barra de tiro o de la tienda (--lift, main.ts).
+   Cerrado son unas líneas sueltas sobre el cerro, que no atajan clics. Abierto, el historial.
+   --------------------------------------------------------------------------- */
+.chat {
+  position: fixed; left: 12px; bottom: calc(12px + var(--lift, 0px)); z-index: 4;
+  width: min(340px, calc(100% - 24px)); display: grid; gap: 6px; pointer-events: none;
+}
+.chat-log {
+  margin: 0; padding: 0; list-style: none; max-height: 6.6em; overflow: hidden;
+  font-size: 14px; line-height: 1.3; text-shadow: 0 1px 2px #000, 0 0 4px #000; overflow-wrap: anywhere;
+}
+.chat-log li { padding: 1px 0; }
+.chat-log b { font-weight: 800; margin-right: 6px; }
+.chat-form { margin: 0; pointer-events: auto; }
+.chat-form input { width: 100%; min-height: 40px; padding: 8px 12px; background: var(--glass); backdrop-filter: blur(8px); }
+.chat-form input::placeholder { color: var(--muted); }
+.chat-toggle { display: none; }
+.chat.open .chat-log {
+  max-height: min(40vh, 15em); overflow-y: auto; pointer-events: auto; padding: 8px 12px; scrollbar-width: thin;
+  background: var(--glass); border: 1px solid var(--line); border-radius: var(--radius); backdrop-filter: blur(8px); text-shadow: none;
+}
+.chat.open .chat-log:empty { display: none; }
+
 @media (max-width: 900px) {
   .keys { display: none; }
   .hud-wind .lbl { display: none; }
@@ -292,6 +316,18 @@ kbd {
   .fire { grid-area: fire; min-width: 0; min-height: 64px; font-size: 22px; }
 
   .items { grid-auto-columns: minmax(132px, 1fr); touch-action: pan-x; overscroll-behavior-x: contain; scrollbar-width: none; }
+
+  /* Chat: cerrado es un botón arriba de la barra de tiro, con lo último que llegó encima un rato.
+     Abierto sube arriba de todo, donde el teclado no lo tapa: la línea, Cerrar y abajo el historial. */
+  .chat { justify-items: start; }
+  .chat-form { display: none; }
+  .chat-toggle { display: block; pointer-events: auto; min-height: 40px; padding: 8px 14px; background: var(--glass); backdrop-filter: blur(8px); }
+  .chat-log { max-height: 2.6em; }
+  .chat:not(.open) .chat-log li.old { display: none; }
+  .chat.open { top: 66px; bottom: auto; width: auto; right: 12px; grid-template-columns: minmax(0, 1fr) auto; justify-items: stretch; }
+  .chat.open .chat-form { display: block; grid-area: 1 / 1; }
+  .chat.open .chat-toggle { grid-area: 1 / 2; }
+  .chat.open .chat-log { grid-area: 2 / 1 / 3 / 3; max-height: min(30vh, 9em); }
 }
 
 /* Teléfono acostado: los dos controles a los costados, armas y plata en el medio. */

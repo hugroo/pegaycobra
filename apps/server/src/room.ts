@@ -2,9 +2,9 @@
 // Sala de Colyseus: recibe mensajes, se los pasa a Game y copia el resultado al estado.
 //
 // Mensajes del cliente:  start · fillBots · fire { yaw, pitch, power, weapon }
-//                        move { moveTo: { x, z } } · buy { item } · ready
+//                        move { moveTo: { x, z } } · buy { item } · ready · chat { text }
 // Los bots (bot.ts) no tienen conexión: la sala les pasa sus mensajes por los mismos métodos.
-// Mensajes del server:   terrain (binario) · shot · moved · skip · burn · roundEnd
+// Mensajes del server:   terrain (binario) · shot · moved · skip · burn · roundEnd · chat
 
 import { Room, type Client } from "@colyseus/core";
 import { createRng } from "@pegaycobra/sim";
@@ -65,7 +65,35 @@ export interface RoundEndBroadcast {
   payouts: { id: string; survivor: number; interest: number; after: number }[];
 }
 
-const round2 = (v: number) => Math.round(v * 100) / 100;
+/** Mensaje "chat": lo que escribió uno de la sala. El nombre y el slot (el color del tanque) los pone el server. */
+export interface ChatBroadcast {
+  id: string;
+  name: string;
+  slot: number;
+  text: string;
+}
+
+/** Largo máximo de un mensaje de chat. El `maxlength` del cliente es el mismo. [caracteres] */
+export const CHAT_MAX = 120;
+
+/**
+ * El texto de un "chat" como lo va a ver la sala: una sola línea, sin caracteres de control ni de
+ * dirección, recortada a CHAT_MAX. null si no queda nada que mostrar. Es texto plano: el cliente lo
+ * pone con textContent, así que un "<b>" llega y se lee tal cual.
+ */
+export function chatText(message: unknown): string | null {
+  const raw = (message as { text?: unknown } | null)?.text;
+  if (typeof raw !== "string") return null;
+  const line = raw
+    .slice(0, CHAT_MAX * 8)
+    .replace(/[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const text = [...line].slice(0, CHAT_MAX).join("").trim();
+  return text || null;
+}
+
+const round2 =(v: number) => Math.round(v * 100) / 100;
 
 export class GameRoom extends Room<{ state: GameState }> {
   /** Escala del retardo entre tiro y aplicación del resultado. Los tests la bajan. */
@@ -123,6 +151,15 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.onMessage("fire", (client, message: unknown) => this.onFire(client.sessionId, message));
     this.onMessage("buy", (client, message: unknown) => this.onBuy(client.sessionId, message));
     this.onMessage("ready", (client) => this.onReady(client.sessionId));
+
+    // Chat de sala: en cualquier fase. Sale para todos en el orden en que llegó acá; no se guarda.
+    this.onMessage("chat", (client, message: unknown) => {
+      const seat = this.game.seats.find((s) => s.id === client.sessionId);
+      const text = chatText(message);
+      if (!seat || !text) return; // ignorado
+      const msg: ChatBroadcast = { id: seat.id, name: seat.name, slot: seat.slot, text };
+      this.broadcast("chat", msg);
+    });
 
     this.clock.setInterval(() => {
       if (this.game.phase !== "aiming" && this.game.phase !== "shop") return;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Pantallas (HTML), conexión con el server, entrada y loop de Three.js.
-// El cliente manda { yaw, pitch, power, weapon }, { moveTo }, { item }, "listo" y "fillBots". Nada más:
-// daño, impacto, fuego, plata y puntaje los decide el server.
+// El cliente manda { yaw, pitch, power, weapon }, { moveTo }, { item }, "listo", "fillBots" y el texto
+// del chat. Nada más: daño, impacto, fuego, plata y puntaje los decide el server.
 
 import "./style.css";
 import { Client, type Room } from "@colyseus/sdk";
@@ -94,6 +94,11 @@ const ui = {
   fire: $<HTMLButtonElement>("btn-fire"),
   viewport: $("viewport"),
   minimap: $<HTMLCanvasElement>("minimap"),
+  chat: $("chat"),
+  chatLog: $("chat-log"),
+  chatForm: $<HTMLFormElement>("chat-form"),
+  chatInput: $<HTMLInputElement>("chat-input"),
+  chatToggle: $<HTMLButtonElement>("chat-toggle"),
 };
 
 const client = new Client(SERVER_URL);
@@ -140,6 +145,9 @@ const fmtMoney = (n: number) => `$${Math.round(n).toLocaleString("es-AR")}`;
 
 function show(which: keyof typeof screens): void {
   for (const [k, el] of Object.entries(screens)) el.hidden = k !== which;
+  // El chat es de la sala: está en la espera y en la partida, y al salir se borra.
+  ui.chat.hidden = which === "home";
+  if (which === "home") resetChat();
   if (which === "game") {
     world ??= new World(ui.viewport);
     world.resize();
@@ -348,6 +356,9 @@ function attach(r: Room<any>): void {
   r.onMessage("roundEnd", (m: RoundEndMsg) => {
     lastRoundEnd = m;
   });
+  r.onMessage("chat", (m: ChatMsg) => {
+    if (room === r) addChat(m);
+  });
   r.onLeave(() => {
     if (room !== r) return;
     room = null;
@@ -388,6 +399,7 @@ function onState(): void {
   if (phase === "lobby") {
     show("lobby");
     renderLobby();
+    liftChat(0);
     return;
   }
   if (screens.game.hidden) show("game");
@@ -397,7 +409,95 @@ function onState(): void {
   // Las flechas de rivales fuera de cámara no se meten debajo de lo que esté abierto abajo.
   const open = !ui.dock.hidden ? ui.dock : !ui.shop.hidden ? ui.shop : null;
   if (world) world.edgeBottomInset = open ? open.offsetHeight + 12 : 0;
+  liftChat(open ? open.offsetHeight + 8 : 0);
 }
+
+// ---------------------------------------------------------------------------
+// Chat de sala
+// ---------------------------------------------------------------------------
+
+/** Mensaje "chat" del server: el nombre y el slot (el color del tanque) los pone él. */
+interface ChatMsg {
+  name: string;
+  slot: number;
+  text: string;
+}
+/** Historial corto: lo que se guarda mientras estés en la sala. */
+const CHAT_KEEP = 40;
+/** Lo que un mensaje recién llegado queda a la vista en pantalla chica con el chat cerrado. [ms] */
+const CHAT_FRESH_MS = 8000;
+let chatClosedAt = 0;
+
+const chatOpen = () => ui.chat.classList.contains("open");
+
+/** El chat va arriba de lo que esté abierto abajo (barra de tiro o tienda). [px] */
+function liftChat(px: number): void {
+  ui.chat.style.setProperty("--lift", `${px}px`);
+}
+
+function addChat(m: ChatMsg): void {
+  const log = ui.chatLog;
+  // Si estabas leyendo más arriba, el mensaje nuevo no te mueve.
+  const reading = chatOpen() && log.scrollHeight - log.scrollTop - log.clientHeight > 24;
+  const li = document.createElement("li");
+  const who = document.createElement("b");
+  who.textContent = m.name;
+  who.style.color = SLOT_COLORS[m.slot] ?? "#ccc";
+  li.append(who, m.text); // texto plano: nada de lo que llega se interpreta como HTML
+  log.append(li);
+  while (log.childElementCount > CHAT_KEEP) log.firstElementChild!.remove();
+  if (!reading) log.scrollTop = log.scrollHeight;
+  window.setTimeout(() => li.classList.add("old"), CHAT_FRESH_MS);
+}
+
+function setChatOpen(open: boolean): void {
+  if (open === chatOpen()) return;
+  ui.chat.classList.toggle("open", open);
+  ui.chatToggle.textContent = open ? "Cerrar" : "Chat";
+  ui.chatToggle.setAttribute("aria-expanded", String(open));
+  if (open) ui.chatInput.focus();
+  else {
+    chatClosedAt = performance.now();
+    ui.chatInput.blur(); // las teclas vuelven al cañón
+  }
+  ui.chatLog.scrollTop = ui.chatLog.scrollHeight;
+}
+
+function resetChat(): void {
+  setChatOpen(false);
+  ui.chatLog.replaceChildren();
+  ui.chatInput.value = "";
+  liftChat(0);
+}
+
+// Abierto es lo mismo que estar escribiendo: se abre al enfocar la línea y se cierra al salir de ella.
+ui.chatInput.addEventListener("focus", () => setChatOpen(true));
+ui.chatInput.addEventListener("blur", () => setChatOpen(false));
+ui.chatForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = ui.chatInput.value.trim();
+  if (text) room?.send("chat", { text });
+  ui.chatInput.value = "";
+  setChatOpen(false);
+});
+// Que tocar el botón no le saque el foco a la línea antes del clic (la cerraría y el clic la reabriría).
+ui.chatToggle.addEventListener("mousedown", (e) => e.preventDefault());
+ui.chatToggle.addEventListener("click", () => {
+  if (!chatOpen() && performance.now() - chatClosedAt < 300) return; // ese mismo toque ya lo cerró
+  setChatOpen(!chatOpen());
+});
+window.addEventListener("keydown", (e) => {
+  if (!room) return;
+  if (e.target === ui.chatInput) {
+    if (e.key === "Escape") setChatOpen(false);
+    return;
+  }
+  if (e.target instanceof HTMLInputElement && e.target.type !== "range") return;
+  if ((e.key === "t" || e.key === "T") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault(); // la T no se escribe en la línea
+    setChatOpen(true);
+  }
+});
 
 function renderLobby(): void {
   const s = room!.state;

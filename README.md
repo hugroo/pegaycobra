@@ -171,6 +171,7 @@ de la misma sala podrían caer en servidores distintos.
   | `move { moveTo: { x, z } }` | tu turno, antes de tirar | que tengas nafta, no te hayas movido ya en el turno, y el destino esté a ≤ 20 celdas, dentro del mapa y no pegado a otro tanque (`validateMove` del sim) |
   | `buy { item }` | tienda | que el ítem exista y te alcance la plata (`cannotBuy` del sim) |
   | `ready` | tienda | — |
+  | `chat { text }` | siempre | que sea texto. Lo deja en una línea, sin caracteres de control, de hasta 120 caracteres; si no queda nada, se ignora |
 
 - El server llama a `resolveTurn` del sim. Manda a todos un mensaje `shot` con el arma, la
   trayectoria (`path`, tríos x/y/z; con el Rodillo incluye la rodada por el piso), la duración de
@@ -188,6 +189,9 @@ de la misma sala podrían caer en servidores distintos.
 - Otros mensajes del server: `moved` (alguien usó nafta), `skip` (turno perdido por tiempo),
   `burn` (a alguien le empezó el turno en el fuego) y `roundEnd` (lo que cobró cada uno al terminar
   la ronda).
+- Chat de sala: el server le pone a cada `chat` el nombre y el slot (el color del tanque) de quien
+  lo mandó y lo reparte a la sala en el orden en que llegó. No lo guarda: el historial es de cada
+  pestaña, dura mientras estés en la sala y se muestra como texto plano.
 - El heightmap (257 × 257 float32) no va en el estado de Colyseus: viaja en mensajes binarios
   `terrain`. Entero al empezar cada ronda, y después de cada tiro solo el rectángulo que cambió
   (`apps/server/src/terrain-net.ts`). Así el cráter, o la loma de una Tierra, llega a todas las
