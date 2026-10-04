@@ -1,13 +1,12 @@
 {
   "hooks": {
-    "PostToolUse": [
+    "Stop": [
       {
-        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
-            "command": "cd C:\\pegaycobra && git status --porcelain | grep -q . && (git add -A && git commit -m \"Claude implementation\" && git push origin main) || true",
-            "timeout": 30,
+            "command": "cd C:\\pegaycobra && git add -A && (git diff --cached --quiet || git commit -m \"Claude implementation\") && git push origin main",
+            "timeout": 60,
             "statusMessage": "Committing and pushing changes to main"
           }
         ]
