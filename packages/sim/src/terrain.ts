@@ -12,7 +12,7 @@
 // que es lo que espera Three.js. heights[x + z * width] = altura [wu] en la celda (x, z).
 // Sin noise, erosión ni máscara (como en el perfil).
 
-import { CRATER_MAX_RADIUS, FLATTEN_HALF_WIDTH, MIN_LAND_HEIGHT } from "./constants";
+import { CRATER_MAX_RADIUS, FLATTEN_HALF_WIDTH, MIN_LAND_HEIGHT, WATER_LEVEL } from "./constants";
 import { craterDepthAt, craterIntRadius } from "./crater";
 import { createRng, randRange } from "./rng";
 
@@ -96,6 +96,11 @@ export function terrainHeightAt(t: Terrain, x: number, z: number): number {
   const c = h[x0 + (z0 + 1) * w]!;
   const d = h[x0 + 1 + (z0 + 1) * w]!;
   return (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz;
+}
+
+/** ¿El piso en (x, z) es agua? (WATER_LEVEL). Lo que no es agua es piso firme. */
+export function isWater(t: Terrain, x: number, z: number): boolean {
+  return terrainHeightAt(t, x, z) <= WATER_LEVEL;
 }
 
 /** HeightMapModifier::addCirclePeak(), sin cambios salvo el nombre de los ejes. Muta `h`. */

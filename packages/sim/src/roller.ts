@@ -9,7 +9,7 @@
 // cliente y en el bot.
 
 import { simulateBounceShot3D } from "./bounce";
-import { POWER_MAX, TANK_RADIUS } from "./constants";
+import { POWER_MAX, TANK_RADIUS, WATER_LEVEL } from "./constants";
 import { simulateSplitShot3D } from "./mirv";
 import { simulateShot3D, type Shot3DParams, type Shot3DResult, type ShotTank3D } from "./shot3d";
 import { terrainHeightAt, type Terrain } from "./terrain";
@@ -23,8 +23,11 @@ export const ROLL_STEP = 0.12;
 export const ROLL_MIN_SLOPE = 0.03;
 
 export interface RollResult {
-  /** "tank": llegó a un tanque. "ground": se quedó sin pendiente, sin celdas o llegó al borde. */
-  outcome: "ground" | "tank";
+  /**
+   * "tank": llegó a un tanque. "ground": se quedó sin pendiente, sin celdas o llegó al borde.
+   * "water": eso mismo, pero terminó en el agua: se hunde sin explotar.
+   */
+  outcome: "ground" | "tank" | "water";
   /** Dónde terminó; y es la altura del piso ahí. [wu] */
   x: number;
   y: number;
@@ -55,7 +58,7 @@ export function simulateRoll(
   let h = terrainHeightAt(terrain, x, z);
 
   const done = (outcome: RollResult["outcome"], steps: number, tankId?: string): RollResult => {
-    const res: RollResult = { outcome, x, y: h, z, steps };
+    const res: RollResult = { outcome: outcome === "ground" && h <= WATER_LEVEL ? "water" : outcome, x, y: h, z, steps };
     if (tankId !== undefined) res.tankId = tankId;
     if (path) res.path = path;
     return res;

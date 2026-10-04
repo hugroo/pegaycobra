@@ -3,14 +3,15 @@
 // Mismas reglas que turn.ts (perfil), sobre el terreno width × depth:
 //   tiro (shot3d.ts; el Roller además rueda, roller.ts) → cráter en disco (terrain.ts)
 //   → daño de explosión (damage.ts), salvo a quien lo tapa un escudo (al Nuke no lo tapa)
-//   → caídas y daño de caída → plata para quien disparó (economy.ts).
+//   → caídas y daño de caída → el que quedó en el agua muere → plata para quien disparó (economy.ts).
+// El tiro que cae al agua (WATER_LEVEL) se hunde: ni cráter, ni explosión, ni fuego, ni loma.
 // El Napalm no abre cráter ni explota: deja un fuego (napalm.ts) que quema al empezar cada turno.
 // La Dirt Ball tampoco: levanta una loma (terrain.ts) y el tanque que quedó debajo sube con ella.
 // El MIRV se abre en el aire (mirv.ts) y cada cabeza es un golpe aparte, resuelto con estas mismas reglas.
 // El Leap Frog pica y sigue (bounce.ts): el golpe es uno solo, donde termina el segundo tramo.
 // Orígenes: Explosion.cpp, TargetDamageCalc.cpp, TargetDamage.cpp, TargetFalling.cpp, Wind.cpp.
 
-import { TANK_RADIUS, WIND_MAX } from "./constants";
+import { TANK_RADIUS, WATER_LEVEL, WIND_MAX } from "./constants";
 import { applyDamage, explosionDamage, fallDamage, isAlive, type Tank } from "./damage";
 import { canFire, clampMoney, consumeAmmo, moneyForDamage } from "./economy";
 import { TANK_START_HEIGHT_MAX, TANK_START_HEIGHT_MIN } from "./match";
@@ -22,6 +23,7 @@ import {
   applyCraterTerrain,
   applyMoundTerrain,
   flattenTerrainUnder,
+  isWater,
   terrainHeightAt,
   type Terrain,
 } from "./terrain";
@@ -128,7 +130,9 @@ export const TANK_MIN_SEPARATION_3D = 60;
  * no garantiza distancia): los tanques van sobre un anillo alrededor del centro, repartidos en
  * ángulos iguales con un giro al azar, y cada uno se corre un poco al azar buscando suelo en
  * [5.5, 70] (defnhilly.xml). Si un candidato queda a menos de TANK_MIN_SEPARATION_3D de otro,
- * se descarta; si no aparece ninguno bueno, queda el punto exacto del anillo.
+ * se descarta; si no aparece ninguno bueno, queda el punto exacto del anillo. Si ese punto es agua
+ * (o quedó pegado a otro tanque), se corre al piso firme más cercano que respete la separación
+ * (nearestStart): nadie nace en el lago.
  * Con el anillo a 0.36 del ancho, la cuerda entre vecinos es ≥ 130 wu con 4 jugadores.
  */
 export function placeTanks3D(terrain: Terrain, count: number, rng: () => number): { x: number; z: number }[] {
@@ -141,6 +145,7 @@ export function placeTanks3D(terrain: Terrain, count: number, rng: () => number)
   for (let n = 0; n < count; n++) {
     const base = spin + step * n;
     let pick = { x: cx + Math.cos(base) * radius, z: cz + Math.sin(base) * radius };
+    let found = false;
     for (let i = 0; i < 60; i++) {
       const a = base + (rng() - 0.5) * step * 0.3;
       const r = radius * (0.85 + rng() * 0.25);
@@ -149,11 +154,44 @@ export function placeTanks3D(terrain: Terrain, count: number, rng: () => number)
       if (h < TANK_START_HEIGHT_MIN || h > TANK_START_HEIGHT_MAX) continue;
       if (placed.some((p) => Math.hypot(p.x - cand.x, p.z - cand.z) < TANK_MIN_SEPARATION_3D)) continue;
       pick = cand;
+      found = true;
       break;
     }
+    const ring = pick;
+    const tooClose = placed.some((p) => Math.hypot(p.x - ring.x, p.z - ring.z) < TANK_MIN_SEPARATION_3D);
+    if (!found && (tooClose || isWater(terrain, ring.x, ring.z))) pick = nearestStart(terrain, ring, placed) ?? ring;
     placed.push(pick);
   }
   return placed;
+}
+
+/**
+ * La celda de piso firme más cercana a `from` que queda a TANK_MIN_SEPARATION_3D o más de los ya
+ * ubicados. Se prefiere suelo con altura de arranque ([5.5, 70]); si no hay, cualquiera que no sea
+ * agua. Las dos filas del borde no cuentan. null si el mapa no tiene dónde.
+ */
+function nearestStart(
+  terrain: Terrain,
+  from: { x: number; z: number },
+  placed: readonly { x: number; z: number }[],
+): { x: number; z: number } | null {
+  let good: { x: number; z: number } | null = null;
+  let dry: { x: number; z: number } | null = null;
+  let goodD = Infinity;
+  let dryD = Infinity;
+  for (let z = 2; z < terrain.depth - 2; z++) {
+    for (let x = 2; x < terrain.width - 2; x++) {
+      const h = terrain.heights[x + z * terrain.width]!;
+      if (!(h > WATER_LEVEL)) continue;
+      const start = h >= TANK_START_HEIGHT_MIN && h <= TANK_START_HEIGHT_MAX;
+      const d = Math.hypot(x - from.x, z - from.z);
+      if (d >= (start ? goodD : dryD)) continue;
+      if (placed.some((p) => Math.hypot(p.x - x, p.z - z) < TANK_MIN_SEPARATION_3D)) continue;
+      if (start) [good, goodD] = [{ x, z }, d];
+      else [dry, dryD] = [{ x, z }, d];
+    }
+  }
+  return good ?? dry;
 }
 
 export function tanks3DAt(
@@ -217,6 +255,11 @@ export function settleTank3D(
  *
  * Leap Frog (bounce): donde pica no pasa nada, ni cráter ni daño. Explota una vez, como un Missile,
  * donde termina el tiro (el segundo golpe, o el primero si fue contra un tanque).
+ *
+ * Agua (regla propia, WATER_LEVEL): el golpe que cae al agua ("water") se hunde y no hace nada. Y el
+ * tanque vivo que queda parado en el agua, después de cada golpe y al terminar el turno, muere: lo
+ * que le quedaba de vida va a `damage` con causa "water" y lo cobra el que disparó, como una caída.
+ * No lo salva el paracaídas ni el escudo (que tampoco se gasta por eso).
  */
 export function resolveTurn3D(
   state: MatchState3D,
@@ -275,6 +318,13 @@ export function resolveTurn3D(
     damage.push({ targetId: target.id, cause, damage: r.dealt, killed: r.killed, money: reward });
   };
 
+  const drown = () => {
+    for (let i = 0; i < tanks.length; i++) {
+      const t = tanks[i]!;
+      if (isAlive(t) && isWater(terrain, t.x, t.z)) hurt(i, t.life, "water");
+    }
+  };
+
   // Un golpe por vuelta: uno solo, salvo el MIRV abierto, que trae uno por cabeza, en el orden en
   // que caen. Cada uno se resuelve entero (cráter, explosión, caídas) antes de pasar al siguiente.
   for (const hit of shotImpacts(shot)) {
@@ -321,7 +371,10 @@ export function resolveTurn3D(
       falls.push({ tankId: s.tank.id, fromY: s.fall.fromY, toY: s.fall.toY, distance: s.fall.distance, parachute, shielded });
       hurt(i, parachute || shielded ? 0 : s.fall.damage, "fall");
     }
+    drown();
   }
+  // También sin golpe (el tiro se fue, o se hundió): nadie termina un turno vivo en el agua.
+  drown();
 
   // El inventario del que disparó puede haber cambiado arriba (su propio escudo).
   const shooterNow = players[shooterIdx]!;

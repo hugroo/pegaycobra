@@ -132,6 +132,13 @@ el cartel quedan en el segundo golpe.
   heightmap queda igual y nadie cae. Dos fuegos encimados queman dos veces. Tu propio fuego te quema
   a vos también. Si el fuego mata al que le tocaba el turno, juega el siguiente.
 
+  **El agua.** El piso hasta altura 1 (`WATER_LEVEL`) es agua: el lago del valle, el borde del mapa
+  y el fondo de un cráter que bajó hasta ahí. Nadie nace en el agua: si el sorteo cae ahí, el tanque
+  se corre al piso firme más cercano, siempre a 60 celdas o más de los otros. Un tiro que cae al
+  agua se hunde: no explota, no abre cráter, no prende fuego ni levanta loma, y el cartel dice
+  "al agua". El tanque que queda parado en el agua al resolverse un tiro muere, y lo cobra el que
+  tiró. No lo salva el Paracaídas ni el Escudo. Con nafta no se puede entrar al agua.
+
   **La loma.** Es terreno de verdad: tapa tiros rasantes, el Rodillo la baja rodando y los cráteres
   la abren. Tierra sobre tierra sigue subiendo. Ningún tanque queda enterrado: el que estaba abajo
   (el tuyo también) sube con el piso y conserva la vida. No apaga un fuego: el disco sigue quemando

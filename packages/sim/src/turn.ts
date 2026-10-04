@@ -46,7 +46,8 @@ export interface FireCommand {
 
 export interface DamageEvent {
   targetId: string;
-  cause: "explosion" | "fall" | "burn";
+  /** "water": quedó parado en el agua y murió (solo en 3D, turn3d.ts). */
+  cause: "explosion" | "fall" | "burn" | "water";
   /** Daño quitado. [hp] */
   damage: number;
   killed: boolean;

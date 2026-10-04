@@ -57,6 +57,8 @@ export interface GhostModel {
   impact: { x: number; y: number; z: number } | null;
   /** El tiro no termina en el mapa (sale por un borde o se agota): la fantasma cierra en "se fue". */
   gone: boolean;
+  /** El tiro termina en el agua y se hunde: la fantasma cierra en "al agua". */
+  sunk?: boolean;
   shooter: TankModel;
   /** Radio de explosión del arma elegida. [wu] */
   radius: number;
@@ -816,6 +818,8 @@ export class World {
     // El final suele quedar fuera de cuadro, así que el cartel va en el último punto que se ve.
     this.ghostGone.visible = false;
     if (!g.gone) return;
+    const goneText = g.sunk ? "al agua" : "se fue";
+    if (this.ghostGone.element.textContent !== goneText) this.ghostGone.element.textContent = goneText;
     const ndc = new THREE.Vector3();
     for (let i = pts.length - 1; i >= 0; i--) {
       ndc.copy(pts[i]!).project(this.camera);

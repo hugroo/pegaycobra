@@ -369,6 +369,7 @@ function attach(r: Room<any>): void {
       impact: { x: number; y: number; z: number };
       damage: number;
       blocked: string[];
+      drowned?: string[];
     }) => {
       const shooter = r.state.players.get(m.shooterId);
       const explodes = (outcome: string) => outcome === "ground" || outcome === "tank";
@@ -390,7 +391,14 @@ function attach(r: Room<any>): void {
         impact: m.impact,
         // El número y el "bloqueado" son del server; acá solo se redondea para mostrarlo. Con un
         // Racimo el número ya viene sumado: es un solo cartel para las cinco cabezas.
-        label: lands && w.burn ? "fuego" : lands && w.mound ? "loma" : impactLabel(lands, m.damage, (m.blocked?.length ?? 0) > 0),
+        label:
+          m.outcome === "water"
+            ? "al agua"
+            : lands && w.burn
+              ? "fuego"
+              : lands && w.mound
+                ? "loma"
+                : impactLabel(lands, m.damage, (m.blocked?.length ?? 0) > 0),
       };
       play("fire");
       // Cada cabeza de un Racimo explota cuando llega: el mismo "boom", una vez por cabeza.
@@ -419,6 +427,9 @@ function attach(r: Room<any>): void {
         // Todas las pestañas reciben el mismo "shot": todas muestran que se fue.
         window.setTimeout(() => room === r && showBanner("¡Malardo, se fue!", 2500), m.durationMs);
       }
+      // El que quedó en el agua muere aunque tenga escudo o paracaídas: todas las pestañas lo dicen.
+      const drowned = (m.drowned ?? []).map((id) => r.state.players.get(id)?.name ?? "?");
+      if (drowned.length > 0) window.setTimeout(() => room === r && showBanner(`${drowned.join(", ")}: al agua`, 2500), m.durationMs);
     },
   );
   r.onMessage("moved", (m: { id: string }) => {
@@ -1284,6 +1295,7 @@ function computeGhost(mine: TankModel | undefined, tanks: TankModel[], wind: { x
       // abierto no tiene un impacto solo: tiene uno por cabeza.
       impact: fire ? { x: fire.x, y: terrainHeightAt(terrain, fire.x, fire.z), z: fire.z } : lands && !heads ? { x: r.x, y: r.y, z: r.z } : null,
       gone: !lands,
+      sunk: heads ? heads.every((h) => h.outcome === "water") : r.outcome === "water",
       shooter: mine,
       radius: fire ? fire.radius : (w.mound?.radius ?? w.explosionRadius),
       heads: heads?.map((h) => ({ path: h.path ?? [], impact: explodes(h) ? { x: h.x, y: h.y, z: h.z } : null })),

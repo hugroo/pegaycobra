@@ -67,6 +67,14 @@ export const GUN_LENGTH = 1;
 /** OptionsGame "MinimumLandHeight", default 0. Un cráter no baja de acá. [wu] */
 export const MIN_LAND_HEIGHT = 0;
 
+/**
+ * Hasta esta altura el piso es agua: el lago del valle, el borde del mapa y el fondo de un cráter
+ * que bajó hasta ahí. Regla propia (el original dibuja agua pero no la juega): en el agua no nace
+ * nadie, el tiro que cae ahí se hunde y el tanque que queda ahí parado muere (turn3d.ts). Es la
+ * misma altura hasta la que el cliente pinta turquesa (landscape.ts). [wu]
+ */
+export const WATER_LEVEL = 1;
+
 /** DeformLandscape: el radio entero se limita a 49 (`if (49 < iradius) iradius = 49`). [wu] */
 export const CRATER_MAX_RADIUS = 49;
 

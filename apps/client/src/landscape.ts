@@ -3,7 +3,7 @@
 // pendiente. La usan la vista 3D y el minimapa, así los dos muestran el mismo paisaje.
 // Solo visual: no toca el heightmap ni ninguna regla.
 
-import type { Terrain } from "@pegaycobra/sim";
+import { WATER_LEVEL, type Terrain } from "@pegaycobra/sim";
 
 /** sRGB, 0..1. */
 export type RGB = [number, number, number];
@@ -30,8 +30,8 @@ const STOPS: [number, RGB][] = [
 export const LAKE = STOPS[0]![1];
 export const SKY = hex("#a5cbe8");
 const ROCK = hex("#6d6a68");
-/** Altura hasta la que el piso es agua: ahí no hay ni roca ni mata. [wu] */
-const WATER_TOP = 1;
+/** Altura hasta la que el piso es agua: ahí no hay ni roca ni mata. La misma que juega el sim. [wu] */
+const WATER_TOP = WATER_LEVEL;
 /** Pendiente desde la que la ladera empieza a pelarse, y desde la que ya es roca. [wu / wu] */
 const SLOPE_FLAT = 0.45;
 const SLOPE_STEEP = 1.3;

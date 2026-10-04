@@ -30,8 +30,8 @@ export interface ShotBroadcast {
   /** "babyMissile" | "missile" | "roller" | "napalm" | "nuke" | "dirt" | "mirv" | "leapfrog" */
   weapon: string;
   /**
-   * "ground" | "tank" | "offmap" | "timeout". Con "offmap" todos muestran "se fue". Con un Racimo
-   * abierto vale por el tiro entero: explotó si explotó alguna cabeza.
+   * "ground" | "tank" | "water" | "offmap" | "timeout". Con "offmap" todos muestran "se fue" y con
+   * "water", "al agua". Con un Racimo abierto vale por el tiro entero: explotó si explotó alguna cabeza.
    */
   outcome: string;
   /**
@@ -55,6 +55,8 @@ export interface ShotBroadcast {
    * vacío. Con el Racimo el escudo absorbe una cabeza: si otra le pegó, además hay daño.
    */
   blocked: string[];
+  /** Tanques que este tiro dejó en el agua: murieron ahí, con escudo o paracaídas y todo. */
+  drowned: string[];
 }
 
 /** Mensaje "burn": a un tanque le empezó el turno parado en el fuego. La vida nueva va en el estado. */
@@ -216,6 +218,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       impact: { x: round2(r.x), y: round2(r.y), z: round2(r.z) },
       damage: round2(shot.result.damage.reduce((sum, d) => sum + d.damage, 0)),
       blocked: shot.result.blocked,
+      drowned: shot.result.damage.filter((d) => d.cause === "water").map((d) => d.targetId),
     };
     if (heads) payload.heads = heads.map((h) => ({ path: (h.path ?? []).map(round2), outcome: h.outcome }));
     if (shotResult.bounce) payload.bounce = { tick: shotResult.bounce.tick };

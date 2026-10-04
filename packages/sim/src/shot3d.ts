@@ -20,6 +20,7 @@ import {
   POWER_TO_VELOCITY,
   TANK_RADIUS,
   VELOCITY_TO_POSITION,
+  WATER_LEVEL,
   WIND_MAX,
   WIND_SCALE,
 } from "./constants";
@@ -55,7 +56,8 @@ export interface ShotTank3D {
   z: number;
 }
 
-export type Shot3DOutcome = "ground" | "tank" | "offmap" | "timeout";
+/** "water": cayó al agua (WATER_LEVEL) y se hundió. No explota, no abre cráter y no deja nada. */
+export type Shot3DOutcome = "ground" | "tank" | "water" | "offmap" | "timeout";
 
 /** Una cabeza de un tiro que se abrió en el aire (mirv.ts): cómo terminó. */
 export interface ShotHead {
@@ -166,8 +168,8 @@ export function launchBody3D(params: Shot3DParams): ShotBody {
 }
 
 /**
- * Un tramo de vuelo: mueve `body` hasta que pega en un tanque, en el suelo, sale del mapa o se
- * agota, y lo deja con la posición y la velocidad del final. Con `path`, le agrega un trío por paso.
+ * Un tramo de vuelo: mueve `body` hasta que pega en un tanque, en el suelo (o en el agua), sale del
+ * mapa o se agota, y lo deja con la posición y la velocidad del final. Con `path`, le agrega un trío por paso.
  * Orden de chequeo después de cada paso: tanques, bordes, suelo (igual que el perfil).
  * Con `untilApex` corta además en la cima: el primer paso en que ya no sube, habiendo subido antes
  * (ShotProjectile.cpp, `up_`). Un tiro que choca mientras sube no llega a la cima.
@@ -210,7 +212,8 @@ export function flyShot3D(
       if (dx * dx + dy * dy + dz * dz <= r2) return done("tank", tick, t.id);
     }
     if (x < 0 || x > maxX || z < 0 || z > maxZ) return done("offmap", tick);
-    if (y <= terrainHeightAt(terrain, x, z)) return done("ground", tick);
+    const ground = terrainHeightAt(terrain, x, z);
+    if (y <= ground) return done(ground <= WATER_LEVEL ? "water" : "ground", tick);
     if (vy > 0) up = true;
     else if (up && untilApex) return done("apex", tick);
   }

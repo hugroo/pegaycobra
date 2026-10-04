@@ -32,7 +32,7 @@
 import { INTEREST_RATE, MONEY_PER_ROUND, MONEY_WON_FOR_ROUND, TANK_MAX_LIFE } from "./constants";
 import { isAlive } from "./damage";
 import { clampMoney, type Inventory } from "./economy";
-import { GAME_TERRAIN_3D, generateTerrain, terrainHeightAt } from "./terrain";
+import { GAME_TERRAIN_3D, generateTerrain, isWater, terrainHeightAt } from "./terrain";
 import { createRng } from "./rng";
 import { WEAPONS } from "./weapons";
 import type { DamageEvent, Player } from "./turn";
@@ -290,7 +290,8 @@ export type MoveCheck = { ok: true; x: number; y: number; z: number } | { ok: fa
  * Valida un destino de nafta. Lo usan el server (autoridad) y el cliente (para no mandar
  * movimientos que el server va a rechazar):
  *   tener nafta, tanque vivo, destino dentro del mapa, a ≤ FUEL_MOVE_RANGE en XZ, y a ≥ FUEL_MIN_GAP
- *   de cualquier otro tanque vivo. El tanque queda apoyado en el suelo del destino.
+ *   de cualquier otro tanque vivo, y sobre piso firme: al agua no se entra. El tanque queda apoyado
+ *   en el suelo del destino.
  * No hay chequeo de pendiente (el original limita con MaxClimbingDistance por casillero).
  */
 export function validateMove(state: MatchState3D, playerId: string, to: { x: number; z: number }): MoveCheck {
@@ -302,6 +303,7 @@ export function validateMove(state: MatchState3D, playerId: string, to: { x: num
   if (!Number.isFinite(to.x) || !Number.isFinite(to.z)) return { ok: false, reason: "destino inválido" };
   const { width, depth } = state.terrain;
   if (to.x < 1 || to.z < 1 || to.x > width - 2 || to.z > depth - 2) return { ok: false, reason: "fuera del mapa" };
+  if (isWater(state.terrain, to.x, to.z)) return { ok: false, reason: "ahí hay agua" };
   if (Math.hypot(to.x - tank.x, to.z - tank.z) > FUEL_MOVE_RANGE) return { ok: false, reason: `más lejos de ${FUEL_MOVE_RANGE}` };
   for (const other of state.tanks) {
     if (other.id === playerId || !isAlive(other)) continue;

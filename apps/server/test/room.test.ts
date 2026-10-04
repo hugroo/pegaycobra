@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
 import type { Server } from "@colyseus/core";
-import { fireFromShot, inFire, SHOP_ITEMS, simulateShot3D, simulateWeaponShot3D, terrainHeightAt, WEAPONS, WIND_DRIFT_MAX, type Terrain } from "@pegaycobra/sim";
+import { fireFromShot, inFire, SHOP_ITEMS, simulateShot3D, simulateWeaponShot3D, terrainHeightAt, WATER_LEVEL, WEAPONS, WIND_DRIFT_MAX, type Terrain } from "@pegaycobra/sim";
 import { createServer, ROOM_NAME } from "../src/server";
 import { GameRoom, type RoundEndBroadcast } from "../src/room";
 import { applyTerrainMessage, type TerrainMessage } from "../src/terrain-net";
@@ -574,6 +574,61 @@ describe("partida de 5 rondas por red", () => {
     expect(tb.terrain!.heights.every((h, i) => h <= heights[i]!)).toBe(true);
     await until(() => seenBy(b, a.sessionId).leapfrogs === 1);
     expect(seenBy(a, a.sessionId).leapfrogs).toBe(1);
+
+    await a.leave();
+    await b.leave();
+  }, 60_000);
+
+  it("Agua: nadie nace en el lago y un tiro al lago se hunde; los dos clientes ven lo mismo y ningún hoyo", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto" });
+    const ta = trackTerrain(a);
+    const tb = trackTerrain(b);
+    const shotsSeenByA: any[] = [];
+    const shotsSeenByB: any[] = [];
+    a.onMessage("shot", (m) => shotsSeenByA.push(m));
+    b.onMessage("shot", (m) => shotsSeenByB.push(m));
+    for (const r of [a, b]) for (const type of ["skip", "moved", "roundEnd", "burn"]) r.onMessage(type, () => {});
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    a.send("start");
+    await until(() => a.state.phase === "aiming" && ta.fulls === 1 && tb.fulls === 1);
+
+    // Los dos ven a los dos tanques en piso firme.
+    for (const r of [a, b]) {
+      for (const p of r.state.players.values()) expect(terrainHeightAt(tb.terrain!, p.x, p.z)).toBeGreaterThan(WATER_LEVEL);
+    }
+
+    // El del turno busca, con el sim, una Chispa que termine en el agua.
+    const id = a.state.turnId as string;
+    const me = a.state.players.get(id);
+    const tanks = [...a.state.players.values()].map((p: any) => ({ id: p.id as string, x: p.x as number, y: p.y as number, z: p.z as number }));
+    const wind = { x: a.state.windX, z: a.state.windZ };
+    let aim: { yaw: number; pitch: number; power: number } | null = null;
+    search: for (let yaw = 0; yaw < 360; yaw += 15) {
+      for (let power = 200; power <= 1000; power += 20) {
+        const r = simulateShot3D(ta.terrain!, { originX: me.x, originY: me.y, originZ: me.z, yaw, pitch: 45, power, wind, shooterId: id }, tanks);
+        if (r.outcome !== "water") continue;
+        aim = { yaw, pitch: 45, power };
+        break search;
+      }
+    }
+    expect(aim).not.toBeNull();
+
+    const heights = tb.terrain!.heights.slice();
+    (id === a.sessionId ? a : b).send("fire", aim!);
+    await until(() => a.state.turnId !== id && a.state.phase === "aiming" && b.state.turnId !== id);
+
+    const shot = shotsSeenByB.at(-1);
+    expect(shot).toEqual(shotsSeenByA.at(-1));
+    expect(shot).toMatchObject({ shooterId: id, outcome: "water", damage: 0, blocked: [], drowned: [] });
+    expect(terrainHeightAt(tb.terrain!, shot.impact.x, shot.impact.z)).toBeLessThanOrEqual(WATER_LEVEL);
+    // Ni un parche de terreno: el lago quedó como estaba, para los dos.
+    await sleep(100);
+    expect([ta.patches, tb.patches]).toEqual([0, 0]);
+    expect(tb.terrain!.heights).toEqual(heights);
+    expect(ta.terrain!.heights).toEqual(heights);
+    for (const p of b.state.players.values()) expect(p.life).toBe(100);
 
     await a.leave();
     await b.leave();
