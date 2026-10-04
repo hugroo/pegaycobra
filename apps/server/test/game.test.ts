@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CODE_ALPHABET, generateCode, isValidCode } from "../src/codes";
-import { Game, parseFireMessage, shotDurationMs } from "../src/game";
+import { Game, parseFireMessage, shotDurationMs, shotMark } from "../src/game";
 
 describe("códigos de sala", () => {
   it("son 4 letras mayúsculas sin O, I, 0 ni 1", () => {
