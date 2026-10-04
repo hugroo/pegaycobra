@@ -921,6 +921,8 @@ function renderLobby(): void {
   paintMapPicker(s.map, host);
   paintClock(s, host);
   paintSteps(host);
+  // Con los cuatro adentro ya no hay a quién pasarle el código: en pantalla chica ese renglón se va (style.css).
+  screens.lobby.querySelector(".card")!.classList.toggle("full", players.length >= 4);
   ui.start.disabled = players.length < 2;
   // Los bots completan hasta 2: con 2 o más ya no hay nada que llenar.
   ui.fillBots.hidden = !host;

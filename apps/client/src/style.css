@@ -478,6 +478,15 @@ kbd {
   #screen-lobby { padding: 12px; }
   #screen-lobby .card { padding: 20px; }
   #screen-lobby button { touch-action: manipulation; }
+  /* Con la sala llena la tarjeta tiene que entrar parada sin deslizar, así Salir y el chat quedan a mano:
+     el código en una línea con su rótulo, la lista en filas finitas y, ya con cuatro, sin el "pasale el código". */
+  .lobby-head { grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+  .lobby-head .code { font-size: 34px; letter-spacing: 6px; text-align: right; }
+  .lobby-head .hint { grid-column: 1 / -1; }
+  #screen-lobby .card.full .lobby-head .hint { display: none; }
+  .players { gap: 4px; }
+  .players li { padding: 4px 10px; }
+  .players li > span:not(.tag) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .map { padding: 6px 6px 8px; gap: 6px; }
   .map svg { width: 100%; height: auto; }
   .map-hint { display: block; margin-top: -6px; }
