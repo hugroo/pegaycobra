@@ -167,13 +167,18 @@
           <div class="card end-card">
             <h2 id="overlay-title"></h2>
             <p id="overlay-sub" class="sub"></p>
-            <table class="scores">
-              <thead><tr><th>#</th><th>Jugador</th><th>Puntos</th><th>Plata</th></tr></thead>
-              <tbody id="scores-body"></tbody>
-            </table>
+            <!-- Si la tabla no entra, se desliza ella sola: lo de abajo (el código, Otra vez y Salir) queda a la vista. -->
+            <div id="scores-wrap" class="scores-wrap">
+              <table class="scores">
+                <thead><tr><th>#</th><th>Jugador</th><th>Puntos</th><th>Plata</th></tr></thead>
+                <tbody id="scores-body"></tbody>
+              </table>
+            </div>
             <p id="overlay-wait" class="sub"></p>
-            <button id="btn-again" class="primary">Otra vez</button>
-            <button id="btn-back">Salir</button>
+            <div class="end-actions">
+              <button id="btn-again" class="primary">Otra vez</button>
+              <button id="btn-back">Salir</button>
+            </div>
           </div>
         </div>
       </div>

@@ -91,6 +91,7 @@ const ui = {
   overlayTitle: $("overlay-title"),
   overlaySub: $("overlay-sub"),
   scoresBody: $("scores-body"),
+  scoresWrap: $("scores-wrap"),
   overlayWait: $("overlay-wait"),
   again: $<HTMLButtonElement>("btn-again"),
   back: $<HTMLButtonElement>("btn-back"),
@@ -1370,7 +1371,7 @@ function renderEnd(phase: string): void {
       : "Empate";
   ui.overlaySub.textContent =
     s.endReason === "forfeit"
-      ? "Se fueron los demás."
+      ? "Se fueron."
       : `Después de ${s.rounds === 1 ? "1 ronda" : `${s.rounds} rondas`}, por puntos (daño + kills).`;
   const rows = playersInOrder()
     .slice()
@@ -1379,8 +1380,9 @@ function renderEnd(phase: string): void {
   // al final (el que gana porque se fueron los demás no cobró ronda) y la cuenta es de esa ronda.
   const last = s.endReason === "rounds" && lastRoundEnd?.round === s.round ? lastRoundEnd : null;
   const pay = new Map((last?.payouts ?? []).map((p) => [p.id, p]));
-  ui.scoresBody.replaceChildren(
-    ...rows.flatMap((p, i) => {
+  // `short`: la cuenta del que no ganó en un renglón, "Ronda 5 · +$1.150" (la suma, sin el detalle).
+  const table = (short: boolean) =>
+    rows.flatMap((p, i) => {
       const tr = document.createElement("tr");
       if (winners.includes(p.id)) tr.className = "win";
       const who = `${p.name}${isMe(p.id) ? " (vos)" : ""}${p.connected ? "" : " · se fue"}`;
@@ -1397,11 +1399,17 @@ function renderEnd(phase: string): void {
       const td = document.createElement("td");
       td.colSpan = 3;
       td.className = "payout";
-      td.append(...payoutNodes([`Ronda ${s.round}`, ...parts]));
+      const total = payoutTotal(po!);
+      const sum = `${total < 0 ? "−" : "+"}${fmtMoney(Math.abs(total))}`;
+      td.append(...payoutNodes([`Ronda ${s.round}`, ...(short && !winners.includes(p.id) ? [sum] : parts)]));
       count.append(document.createElement("td"), td);
       return [tr, count];
-    }),
-  );
+    });
+  if (ui.overlay.hidden && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  ui.overlay.hidden = false; // a la vista antes de armar la tabla: hay que medirla
+  ui.scoresBody.replaceChildren(...table(false));
+  // En el teléfono, si la tabla no entra entera (sala llena), solo el que ganó se queda con la cuenta completa.
+  if (compact.matches && ui.scoresWrap.scrollHeight > ui.scoresWrap.clientHeight) ui.scoresBody.replaceChildren(...table(true));
   // Revancha en la misma sala: la arranca el anfitrión, con al menos 2 sentados (el bot cuenta).
   const host = isMe(s.hostId);
   const here = rows.filter((p) => p.connected).length;
@@ -1412,9 +1420,10 @@ function renderEnd(phase: string): void {
     : here < 2
       ? `Falta uno para la revancha. Pasá el código: ${room!.roomId}`
       : "¿Va la revancha? Dale, otra vez.";
-  if (ui.overlay.hidden && document.activeElement instanceof HTMLElement) document.activeElement.blur();
-  ui.overlay.hidden = false;
 }
+window.addEventListener("resize", () => {
+  if (room && !ui.overlay.hidden) renderEnd(room.state.phase);
+});
 
 // ---------------------------------------------------------------------------
 // Apuntar, elegir arma, nafta y tirar

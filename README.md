@@ -138,7 +138,11 @@ continua, quieta y más pálida.
   6 s o cuando arranca la ronda siguiente. La suma es el `+$` que tiene cada uno en la tienda.
   Sale sobre el cerro, debajo de la lista de jugadores y del minimapa; en el celular, si no entra en
   un renglón, baja a un segundo y se achica. La última ronda no tiene tienda: su cuenta va en la tabla
-  final, un renglón abajo de cada jugador, hasta *Otra vez* o *Salir*.
+  final, un renglón abajo de cada jugador, hasta *Otra vez* o *Salir*. En el celular, si con la sala
+  llena la tabla no entra, la cuenta completa le queda solo al que ganó y los demás ven la suma
+  (`Ronda 5 · +$1.150`); *Otra vez* y *Salir* van en un renglón y no se deslizan nunca: si algo no
+  entra, se desliza la tabla. Si la partida terminó porque se fueron los demás no hay cuenta: dice
+  "Se fueron." y *Otra vez* queda apagado hasta que haya dos.
 - **Tienda de 30 s entre rondas** (o lo que escribió el anfitrión), visible para todos, con la plata de cada uno: una fila de
   cartas abajo (precio y qué hace cada cosa), sin tapar el mapa. Cierra antes si
   todos tocan *Listo*. No se puede comprar más de lo que alcanza.

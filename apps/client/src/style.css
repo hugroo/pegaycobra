@@ -324,8 +324,13 @@ kbd {
 
 /* Fin de partida */
 .overlay { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; background: rgba(12, 10, 7, 0.55); }
-/* Con la cuenta de cada uno la tabla es más alta: en un teléfono bajo con la sala llena se desliza, así Otra vez y Salir no se pierden. */
-.end-card { width: min(580px, 100%); max-height: 100%; overflow-y: auto; }
+/* Con la cuenta de cada uno la tabla es más alta. Si no entra, se desliza la tabla y no la tarjeta:
+   el código, Otra vez y Salir quedan siempre a la vista. */
+.overlay { grid-template-rows: minmax(0, 1fr); }
+.end-card { width: min(580px, 100%); max-height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.end-card > * { flex: none; }
+.end-card > .scores-wrap { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+.end-actions { display: grid; gap: 14px; }
 .scores { width: 100%; border-collapse: collapse; font-size: 15px; }
 .scores th { text-align: left; color: var(--muted); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; padding: 4px 6px; }
 .scores td { padding: 8px 6px; border-top: 1px solid var(--line); }
@@ -515,6 +520,16 @@ kbd {
   .map svg { width: 100%; height: auto; }
   .map-hint { display: block; margin-top: -6px; }
   .clock input { min-height: 56px; font-size: 20px; }
+
+  /* Fin de partida parado: con cuatro, Otra vez y Salir tienen que entrar sin deslizar. Menos aire,
+     los dos botones en un renglón y, abajo, el lugar del botón de Chat. Si aun así la tabla no entra,
+     main.ts deja la cuenta completa solo al que ganó (renderEnd). */
+  .overlay { padding: 8px 8px 60px; }
+  .end-card { padding: 16px; gap: 10px; }
+  .end-card h2 { font-size: 22px; }
+  .end-card .sub { font-size: 14px; }
+  .scores td { padding: 6px; }
+  .end-actions { grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
 }
 
 /* Teléfono bajo (375×667): la espera tiene que entrar sin deslizar también en el paso del reloj, que
