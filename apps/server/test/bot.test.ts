@@ -394,7 +394,7 @@ describe("sala con bot", () => {
     await a.leave();
   }, 60_000);
 
-  it("con nafta y un cerro de por medio, el bot sube y después tira en el mismo turno", async () => {
+  it("con un cerro de por medio, el bot sube con el paso gratis (la nafta la guarda) y después tira en el mismo turno", async () => {
     const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
     quiet(a);
     const events: any[] = [];
@@ -430,8 +430,9 @@ describe("sala con bot", () => {
     expect(moved).toBeLessThan(shot);
     expect(events[moved].id).toBe(bot.id);
     expect(events[moved].y).toBe(20);
+    expect(events[moved].free).toBe(true);
     expect(events.filter((e) => e.type === "moved")).toHaveLength(1);
-    await until(() => bot.fuel === 0 && bot.y === 20);
+    await until(() => bot.fuel === 1 && bot.y === 20);
     await a.leave();
   }, 20_000);
 

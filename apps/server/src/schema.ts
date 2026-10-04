@@ -89,6 +89,8 @@ export const GameState = schema(
     shopSeconds: t.uint8().default(30),
     /** El del turno ya usó nafta. */
     moved: t.boolean().default(false),
+    /** El del turno todavía tiene el paso gratis (su primer turno de la ronda, sin haberlo dado). */
+    step: t.boolean().default(false),
     /** Viento en el piso (XZ). [unidad de viento] */
     windX: t.float32().default(0),
     windZ: t.float32().default(0),

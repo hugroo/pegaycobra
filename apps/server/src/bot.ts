@@ -10,6 +10,7 @@ import {
   cannotBuy,
   collisionDistance3D,
   explosionDamage,
+  FREE_STEP_RANGE,
   FUEL_MOVE_RANGE,
   isAlive,
   onShore,
@@ -137,22 +138,24 @@ function hillBetween(terrain: Terrain, a: Tank3D, b: Tank3D): boolean {
 /**
  * Nafta: si tiene, el rival más cercano está cerro de por medio y hay piso más alto que el suyo a
  * menos de FUEL_MOVE_RANGE celdas, el punto más alto al que puede ir. null = se queda donde está.
+ * Con `free` es el paso gratis: no pide nafta y busca a menos de FREE_STEP_RANGE.
  */
-export function botMovePick(match: MatchState3D, botId: string): { x: number; z: number } | null {
+export function botMovePick(match: MatchState3D, botId: string, free = false): { x: number; z: number } | null {
   const alive = match.tanks.filter(isAlive);
   const me = alive.find((t) => t.id === botId);
   const foes = alive.filter((t) => t.id !== botId);
   const fuel = match.players.find((p) => p.id === botId)?.inventory.fuel ?? 0;
-  if (!me || fuel <= 0 || foes.length === 0) return null;
+  if (!me || (!free && fuel <= 0) || foes.length === 0) return null;
   if (!hillBetween(match.terrain, me, nearestFoe(me, foes))) return null;
 
   let best: { x: number; z: number } | null = null;
   let top = me.y;
-  for (let dz = -FUEL_MOVE_RANGE; dz <= FUEL_MOVE_RANGE; dz++) {
-    for (let dx = -FUEL_MOVE_RANGE; dx <= FUEL_MOVE_RANGE; dx++) {
-      if (Math.hypot(dx, dz) >= FUEL_MOVE_RANGE) continue;
+  const range = free ? FREE_STEP_RANGE : FUEL_MOVE_RANGE;
+  for (let dz = -range; dz <= range; dz++) {
+    for (let dx = -range; dx <= range; dx++) {
+      if (Math.hypot(dx, dz) >= range) continue;
       const to = { x: me.x + dx, z: me.z + dz };
-      const check = validateMove(match, botId, to);
+      const check = validateMove(match, botId, to, free);
       if (check.ok && check.y > top) {
         top = check.y;
         best = to;

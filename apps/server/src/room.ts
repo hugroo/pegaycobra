@@ -3,7 +3,7 @@
 //
 // Mensajes del cliente:  start · rematch · fillBots · map { map } · clock { turn, shop, rounds }
 //                        fire { yaw, pitch, power, weapon }
-//                        move { moveTo: { x, z } } · buy { item } · sell { item } · ready · chat { text }
+//                        move { moveTo: { x, z } } · step { moveTo: { x, z } } · buy { item } · sell { item } · ready · chat { text }
 // Los bots (bot.ts) no tienen conexión: la sala les pasa sus mensajes por los mismos métodos.
 // Mensajes del server:   terrain (binario) · shot · moved · skip · burn · roundEnd · chat
 
@@ -192,6 +192,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
 
     this.onMessage("move", (client, message: unknown) => void this.onMove(client.sessionId, message));
+    this.onMessage("step", (client, message: unknown) => void this.onMove(client.sessionId, message, true));
     this.onMessage("fire", (client, message: unknown) => this.onFire(client.sessionId, message));
     this.onMessage("buy", (client, message: unknown) => this.onBuy(client.sessionId, message));
     this.onMessage("sell", (client, message: unknown) => {
@@ -255,12 +256,12 @@ export class GameRoom extends Room<{ state: GameState }> {
     }, 1000);
   }
 
-  /** false = ignorado. */
-  private onMove(id: string, message: unknown): boolean {
-    const to = this.game.move(id, message);
+  /** Nafta, o (`free`) el paso gratis del primer turno de la ronda. false = ignorado. */
+  private onMove(id: string, message: unknown, free = false): boolean {
+    const to = free ? this.game.step(id, message) : this.game.move(id, message);
     if (!to) return false;
-    this.broadcast("moved", { id, ...to });
-    this.log(`${this.nameOf(id)} usa nafta -> (${to.x.toFixed(1)}, ${to.z.toFixed(1)})`);
+    this.broadcast("moved", { id, ...to, free });
+    this.log(`${this.nameOf(id)} ${free ? "da el paso gratis" : "usa nafta"} -> (${to.x.toFixed(1)}, ${to.z.toFixed(1)})`);
     this.flush();
     return true;
   }
@@ -347,9 +348,11 @@ export class GameRoom extends Room<{ state: GameState }> {
   private botAct(): void {
     const g = this.game;
     if (g.phase === "aiming" && g.turnId !== null && this.bots.has(g.turnId) && g.match) {
-      // Con nafta y un cerro de por medio, primero sube; el flush de onMove lo agenda de nuevo y ahí tira.
-      const to = g.movedThisTurn ? null : botMovePick(g.match, g.turnId);
-      if (to && this.onMove(g.turnId, { moveTo: to })) return;
+      // Con un cerro de por medio, primero sube: con el paso gratis si lo tiene, si no con nafta. El
+      // flush de onMove lo agenda de nuevo y ahí tira.
+      const free = g.stepLeft;
+      const to = free || !g.movedThisTurn ? botMovePick(g.match, g.turnId, free) : null;
+      if (to && this.onMove(g.turnId, { moveTo: to }, free)) return;
       const shot = pickBotShot(g.match, g.turnId, this.botRng);
       if (shot) this.onFire(g.turnId, { yaw: shot.yaw, pitch: shot.pitch, power: shot.power, weapon: shot.weapon });
     } else if (g.phase === "shop") {
@@ -497,6 +500,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     s.turnSeconds = g.turnSeconds;
     s.shopSeconds = g.shopSeconds;
     s.moved = g.movedThisTurn;
+    s.step = g.stepLeft;
     s.winnerId = g.winnerId ?? "";
     s.endReason = g.endReason ?? "";
     if (s.winners.length !== g.winners.length || g.winners.some((w, i) => s.winners[i] !== w)) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createFlatTerrain,
+  FREE_STEP_RANGE,
   FUEL_MOVE_RANGE,
   INTEREST_RATE,
   launchPower,
@@ -13,6 +14,7 @@ import {
   startingInventory,
   SURVIVOR_BONUS,
   terrainHeightAt,
+  validateMove,
   WEAPONS,
   type WeaponId,
 } from "@pegaycobra/sim";
@@ -703,6 +705,76 @@ describe("nafta", () => {
     expect(g.match!.tanks.find((tk) => tk.id === id)!.x).toBe(t.x);
     expect(parseMoveMessage({ moveTo: { x: "1", z: 2 } })).toBeNull();
     expect(parseMoveMessage({ x: 1, z: 2 })).toBeNull();
+  });
+});
+
+describe("paso gratis", () => {
+  /** Piso plano a 10, A en (100, 128) y B en (200, 128), y un charco pegado a A, del lado de las x: de 108 a 112. */
+  function flat() {
+    const g = started();
+    const terrain = createFlatTerrain(257, 257, 10);
+    for (let z = 120; z <= 136; z++) for (let x = 108; x <= 112; x++) terrain.heights[x + z * 257] = 0;
+    g.match = { ...g.match!, terrain, tanks: g.match!.tanks.map((t) => ({ ...t, x: t.id === "A" ? 100 : 200, y: 10, z: 128 })) };
+    return g;
+  }
+  const at = (g: Game, id: string) => g.match!.tanks.find((t) => t.id === id)!;
+  const SHOT = { yaw: 90, pitch: 60, power: 200 }; // corto y para el costado: no le pega a nadie
+
+  it("no pasa de 15, no entra al agua, no gasta nada, y en el segundo turno de la ronda ya no está", () => {
+    const g = flat();
+    expect(FREE_STEP_RANGE).toBe(15);
+    expect(g.turnId).toBe("A");
+    expect(g.stepLeft).toBe(true);
+    const before = { money: money(g, "A"), inventory: inv(g, "A") };
+
+    expect(g.step("B", { moveTo: { x: 190, z: 128 } })).toBeNull(); // no es su turno
+    expect(g.step("A", { moveTo: { x: 100, z: 128 + FREE_STEP_RANGE + 0.5 } })).toBeNull(); // más de 15
+    expect(g.step("A", { moveTo: { x: 110, z: 128 } })).toBeNull(); // agua, a 10
+    expect(g.step("A", { moveTo: { x: 100 }, x: 100, z: 120 })).toBeNull(); // mensaje roto
+    expect(at(g, "A")).toMatchObject({ x: 100, z: 128 });
+    expect(g.stepLeft).toBe(true); // un destino rechazado no gasta el paso
+
+    expect(g.step("A", { moveTo: { x: 100, z: 128 - FREE_STEP_RANGE } })).toEqual({ x: 100, y: 10, z: 113 }); // 15 justos
+    expect(at(g, "A")).toMatchObject({ x: 100, y: 10, z: 113 });
+    expect({ money: money(g, "A"), inventory: inv(g, "A") }).toEqual(before); // ni plata ni nafta
+    expect(g.stepLeft).toBe(false);
+    expect(g.step("A", { moveTo: { x: 100, z: 120 } })).toBeNull(); // una sola vez
+    expect(g.move("A", { moveTo: { x: 100, z: 120 } })).toBeNull(); // y no regala nafta
+    expect(g.phase).toBe("aiming"); // el turno sigue con el tiro
+    expect(g.fire("A", SHOT)).not.toBeNull();
+    g.finishShot();
+
+    // B tiene el suyo en su primer turno; lo deja pasar y tira igual.
+    expect(g.turnId).toBe("B");
+    expect(g.stepLeft).toBe(true);
+    expect(g.fire("B", SHOT)).not.toBeNull();
+    g.finishShot();
+
+    // Segundo turno de cada uno: ya no está, ni para el que lo usó ni para el que no (no se guarda).
+    for (const id of ["A", "B"]) {
+      expect(g.turnId).toBe(id);
+      expect(g.stepLeft).toBe(false);
+      const { x, z } = at(g, id);
+      expect(g.step(id, { moveTo: { x, z: z + 5 } })).toBeNull();
+      expect(at(g, id)).toMatchObject({ x, z });
+      expect(g.fire(id, SHOT)).not.toBeNull();
+      g.finishShot();
+    }
+  });
+
+  it("vuelve con cada ronda, y al que se le va el reloj en su primer turno lo pierde", () => {
+    const g = flat();
+    for (let i = 0; i < TURN_SECONDS; i++) g.tickSecond(); // A se cuelga sin usarlo
+    for (let i = 0; i < TURN_SECONDS; i++) g.tickSecond(); // B también
+    expect(g.turnId).toBe("A");
+    expect(g.stepLeft).toBe(false);
+    killAndPass(g, "B");
+    g.setReady("A");
+    g.setReady("B");
+    expect(g.round).toBe(2);
+    expect(g.stepLeft).toBe(true);
+    const t = at(g, g.turnId!);
+    expect(validateMove(g.match!, t.id, { x: t.x, z: t.z }, true).ok).toBe(true);
   });
 });
 

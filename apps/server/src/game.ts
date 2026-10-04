@@ -239,6 +239,8 @@ export class Game {
   readonly ready = new Set<string>();
   /** El del turno ya usó nafta en este turno. */
   movedThisTurn = false;
+  /** El del turno ya dio el paso gratis en este turno. */
+  private steppedThisTurn = false;
   /** Último yaw/pitch que usó cada jugador (solo para dibujar el cañón). */
   readonly aims = new Map<string, Aim>();
   /** Marca del último tiro de cada tanque en la ronda: aparece cuando cae y dura hasta que ese jugador tira de nuevo. */
@@ -394,6 +396,7 @@ export class Game {
     this.marks.clear(); // terreno y posiciones nuevos: las marcas de la ronda anterior no dicen nada
     this.ready.clear();
     this.movedThisTurn = false;
+    this.steppedThisTurn = false;
     // Empieza un jugador distinto cada ronda.
     const n = this.seats.length;
     const alive = new Set(tanks.filter((t) => t.life > 0).map((t) => t.id));
@@ -416,6 +419,25 @@ export class Game {
     if (!to || !validateMove(this.match, byId, to).ok) return null;
     this.match = moveTank(this.match, byId, to);
     this.movedThisTurn = true;
+    const t = this.match.tanks.find((tk) => tk.id === byId)!;
+    return { x: t.x, y: t.y, z: t.z };
+  }
+
+  /**
+   * El del turno todavía tiene el paso gratis: es su primer turno de la ronda y no lo dio. No se
+   * guarda: si tira (o se le va el reloj) sin usarlo, lo pierde.
+   */
+  get stepLeft(): boolean {
+    return this.phase === "aiming" && this.turnId !== null && !this.steppedThisTurn && (this.turnsTaken.get(this.turnId) ?? 0) === 0;
+  }
+
+  /** Paso gratis: como move, pero sin nafta y hasta FREE_STEP_RANGE. null = ignorado. */
+  step(byId: string, raw: unknown): { x: number; y: number; z: number } | null {
+    if (byId !== this.turnId || !this.match || !this.stepLeft) return null;
+    const to = parseMoveMessage(raw);
+    if (!to || !validateMove(this.match, byId, to, true).ok) return null;
+    this.match = moveTank(this.match, byId, to, true);
+    this.steppedThisTurn = true;
     const t = this.match.tanks.find((tk) => tk.id === byId)!;
     return { x: t.x, y: t.y, z: t.z };
   }
@@ -539,6 +561,7 @@ export class Game {
 
   private afterTurn(): void {
     this.movedThisTurn = false;
+    this.steppedThisTurn = false;
     if (!this.match) return;
     // Si al que le toca lo mata el fuego al empezar, el turno sigue de largo al próximo.
     for (;;) {
