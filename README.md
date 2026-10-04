@@ -46,6 +46,10 @@ incógnito). En uno: escribí tu nombre y tocá *Crear sala*. Te da un código d
 otro: escribí el código y tocá *Entrar*. Cuando hay 2 o más, el anfitrión (el que creó la sala)
 toca *Arrancar*.
 
+En la espera cada uno elige la silueta de su tanque: *Caja*, *Chato* (ancho y bajo) o *Torre*
+(con un mástil alto). Queda guardada en el navegador y sigue igual en la revancha. Solo cambia el
+dibujo: el tiro y el daño son los mismos. El bot usa Caja.
+
 Controles (la barra de abajo aparece solo en tu turno; un arma sin munición no se muestra):
 
 | Qué | Cómo |
