@@ -28,6 +28,12 @@
         <p class="sub">Código de la sala</p>
         <div id="lobby-code" class="code"></div>
         <p class="hint">Pasale este código a los demás. Hacen falta entre 2 y 4 jugadores.</p>
+        <div class="hulls-head lbl">Tu tanque</div>
+        <div id="hulls" class="hulls" role="radiogroup" aria-label="Silueta del tanque">
+          <button data-hull="box" class="hull" role="radio" aria-checked="true">Caja</button>
+          <button data-hull="flat" class="hull" role="radio" aria-checked="false">Chato</button>
+          <button data-hull="tower" class="hull" role="radio" aria-checked="false">Torre</button>
+        </div>
         <ul id="lobby-players" class="players"></ul>
         <button id="btn-start" class="primary">Arrancar</button>
         <button id="btn-bots">Llenar con bots</button>

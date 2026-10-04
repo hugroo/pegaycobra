@@ -43,10 +43,14 @@ const GHOST_DASH_SPEED = 3;
 const BLAST = "#ffb347";
 const DUST = "#a8845a";
 
+/** Silueta del tanque, como la manda el server. Solo cambia el dibujo. */
+export type Hull = "box" | "flat" | "tower";
+
 export interface TankModel {
   id: string;
   name: string;
   slot: number;
+  hull: Hull;
   x: number;
   y: number;
   z: number;
@@ -144,6 +148,8 @@ interface TankView {
   root: THREE.Group;
   yawG: THREE.Group;
   pitchG: THREE.Group;
+  /** Lo que sigue al giro del cañón pero queda a la vista con el tanque muerto (el mástil de la Torre). */
+  deckG: THREE.Group;
   bodyMat: THREE.MeshLambertMaterial;
   label: CSS2DObject;
   labelEl: HTMLDivElement;
@@ -160,9 +166,55 @@ interface TankView {
   /** Burbuja del escudo. */
   shield: THREE.Mesh;
   slot: number;
+  hull: Hull;
+  /** Altura de la flecha de turno (local, antes de escalar): la Torre la lleva más arriba. */
+  markerY: number;
 }
 
 const rad = (d: number) => (d * Math.PI) / 180;
+
+/** Hasta dónde llega cada silueta (local, antes de escalar): ahí va el cartel, y la flecha de turno arriba. */
+const HULL_TOP: Record<Hull, number> = { box: 3.6, flat: 3.6, tower: 6.2 };
+
+/**
+ * Las tres siluetas, con primitivas. El pivote y el largo del cañón son los mismos en las tres (el
+ * tiro sale del mismo lugar); cambia el casco. Nada pasa por el arco que barre el cañón: el mástil
+ * de la Torre va atrás y a un costado, en `deck`, que gira con el cañón.
+ */
+function buildHull(hull: Hull, bodyMat: THREE.Material, dark: THREE.Material, deck: THREE.Group): THREE.Mesh[] {
+  const box = (w: number, h: number, d: number, y: number, mat: THREE.Material) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    mesh.position.y = y;
+    return mesh;
+  };
+  const dome = (r: number, y: number, squash = 1) => {
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), bodyMat);
+    mesh.position.y = y;
+    mesh.scale.y = squash;
+    return mesh;
+  };
+  if (hull === "flat") {
+    // Chato: ancho y bajo, una torreta aplastada. Nada sobresale por encima del cañón.
+    return [box(4.4, 0.4, 3.2, 0.2, dark), box(4.0, 0.45, 2.9, 0.62, bodyMat), dome(1.15, 0.84, 0.5)];
+  }
+  if (hull === "tower") {
+    // Torre: casco redondo y un mástil alto con una cofa arriba. Se ve de lejos por encima del cerro.
+    // El casco es un cilindro para que el mástil, que gira con el cañón, siempre pise sobre él.
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.42, 3.6, 10), bodyMat);
+    mast.position.set(-0.85, 2.9, 0.85);
+    const nest = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.6, 1.1), bodyMat);
+    nest.position.set(-0.85, 4.95, 0.85);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.7, 8), dark);
+    tip.position.set(-0.85, 5.6, 0.85);
+    for (const part of [mast, nest, tip]) part.castShadow = true;
+    deck.add(mast, nest, tip);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.45, 0.9, 20), bodyMat);
+    body.position.y = 1.0;
+    return [box(2.8, 0.6, 2.4, 0.3, dark), body, dome(0.7, PIVOT_Y + 0.25)];
+  }
+  // Caja: la de siempre.
+  return [box(3.4, 0.6, 2.6, 0.3, dark), box(3, 0.8, 2.2, 0.95, bodyMat), dome(0.75, PIVOT_Y + 0.25)];
+}
 
 export class World {
   readonly renderer: THREE.WebGLRenderer;
@@ -692,17 +744,12 @@ export class World {
 
   private tankView(m: TankModel): TankView {
     let v = this.tanks.get(m.id);
-    if (v) return v;
+    if (v && v.hull === m.hull) return v;
+    if (v) this.dropTank(m.id, v); // cambió de silueta: se arma de nuevo
     const color = new THREE.Color(SLOT_COLORS[m.slot] ?? "#cccccc");
     const bodyMat = new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: TANK_GLOW });
     const dark = new THREE.MeshLambertMaterial({ color: "#222833" });
     const root = new THREE.Group();
-    const treads = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.6, 2.6), dark);
-    treads.position.y = 0.3;
-    const body = new THREE.Mesh(new THREE.BoxGeometry(3, 0.8, 2.2), bodyMat);
-    body.position.y = 0.95;
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.75, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), bodyMat);
-    dome.position.y = PIVOT_Y + 0.25;
     const yawG = new THREE.Group();
     yawG.position.y = PIVOT_Y + 0.35;
     const pitchG = new THREE.Group();
@@ -711,15 +758,19 @@ export class World {
     barrel.rotation.z = -Math.PI / 2; // el cilindro nace en Y; lo acostamos sobre +X
     barrel.position.x = BARREL_LEN / 2;
     pitchG.add(barrel);
-    for (const part of [treads, body, dome, barrel]) part.castShadow = true;
-    root.add(treads, body, dome, yawG);
+    const deckG = new THREE.Group();
+    const hullParts = buildHull(m.hull, bodyMat, dark, deckG);
+    for (const part of [...hullParts, barrel]) part.castShadow = true;
+    root.add(...hullParts, deckG, yawG);
     root.scale.setScalar(TANK_SCALE);
+    const top = HULL_TOP[m.hull];
 
     const marker = new THREE.Mesh(
       new THREE.ConeGeometry(0.9, 1.6, 4).rotateX(Math.PI),
       new THREE.MeshBasicMaterial({ color }),
     );
-    marker.position.y = 5.2;
+    const markerY = top + 1.6;
+    marker.position.y = markerY;
     root.add(marker);
 
     // Escudo: burbuja translúcida alrededor del tanque. Solo visual; la regla está en el sim.
@@ -747,7 +798,7 @@ export class World {
     head.append(nameEl, shoreEl);
     labelEl.append(head, bar, distEl);
     const label = new CSS2DObject(labelEl);
-    label.position.set(0, 3.6, 0);
+    label.position.set(0, top, 0);
     root.add(label);
 
     const edgeEl = document.createElement("div");
@@ -760,7 +811,7 @@ export class World {
     this.edgeLayer.appendChild(edgeEl);
 
     this.scene.add(root);
-    v = { root, yawG, pitchG, bodyMat, label, labelEl, nameEl, shoreEl, distEl, barEl, edgeEl, edgeArrow, edgeText, marker, shield, slot: m.slot };
+    v = { root, yawG, pitchG, deckG, bodyMat, label, labelEl, nameEl, shoreEl, distEl, barEl, edgeEl, edgeArrow, edgeText, marker, shield, slot: m.slot, hull: m.hull, markerY };
     this.tanks.set(m.id, v);
     return v;
   }
@@ -773,12 +824,13 @@ export class World {
       const alive = m.life > 0;
       v.root.position.set(m.x, m.y, m.z);
       v.yawG.rotation.y = -rad(m.yaw);
+      v.deckG.rotation.y = v.yawG.rotation.y;
       v.pitchG.rotation.z = rad(m.pitch);
       v.bodyMat.color.set(alive ? (SLOT_COLORS[m.slot] ?? "#ccc") : "#4b515c");
       v.bodyMat.emissive.copy(v.bodyMat.color);
       v.yawG.visible = alive;
       v.marker.visible = alive && m.isTurn;
-      v.marker.position.y = 5.2 + Math.sin(now / 220) * 0.25;
+      v.marker.position.y = v.markerY + Math.sin(now / 220) * 0.25;
       v.marker.rotation.y = now / 600;
       v.shield.visible = alive && m.shield;
       (v.shield.material as THREE.MeshBasicMaterial).opacity = 0.22 + 0.06 * Math.sin(now / 350);
@@ -788,14 +840,14 @@ export class World {
       v.labelEl.classList.toggle("turn", m.isTurn && alive);
       v.labelEl.classList.toggle("dead", !alive);
     }
-    for (const [id, v] of this.tanks) {
-      if (!seen.has(id)) {
-        this.scene.remove(v.root);
-        v.labelEl.remove();
-        v.edgeEl.remove();
-        this.tanks.delete(id);
-      }
-    }
+    for (const [id, v] of this.tanks) if (!seen.has(id)) this.dropTank(id, v);
+  }
+
+  private dropTank(id: string, v: TankView): void {
+    this.scene.remove(v.root);
+    v.labelEl.remove();
+    v.edgeEl.remove();
+    this.tanks.delete(id);
   }
 
   /**

@@ -11,6 +11,8 @@ export const PlayerState = schema(
     id: t.string().default(""),
     name: t.string().default(""),
     slot: t.uint8().default(0),
+    /** Silueta: "box" (Caja), "flat" (Chato) o "tower" (Torre). Solo se dibuja. */
+    hull: t.string().default("box"),
     connected: t.boolean().default(true),
     /** Base del tanque; y es la altura. [wu] */
     x: t.float32().default(0),

@@ -178,7 +178,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       if (this.game.phase !== "lobby" || client.sessionId !== this.game.hostId) return;
       while (this.game.seats.length < MIN_PLAYERS) {
         const id = `bot-${++this.botSerial}`;
-        this.game.addPlayer(id, BOT_NAME);
+        this.game.addPlayer(id, BOT_NAME, "box"); // el bot usa Caja
         this.bots.add(id);
         this.log(`entra ${BOT_NAME}`);
       }
@@ -194,6 +194,11 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.flush();
     });
     this.onMessage("ready", (client) => this.onReady(client.sessionId));
+    // Silueta: { hull: "box" | "flat" | "tower" }, solo en la espera.
+    this.onMessage("hull", (client, message: unknown) => {
+      if (!this.game.setHull(client.sessionId, (message as { hull?: unknown } | null)?.hull)) return; // ignorado
+      this.flush();
+    });
 
     // Chat de sala: en cualquier fase. Sale para todos en el orden en que llegó acá; no se guarda.
     this.onMessage("chat", (client, message: unknown) => {
@@ -323,7 +328,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     }
   }
 
-  onJoin(client: Client, options?: { name?: unknown }): void {
+  onJoin(client: Client, options?: { name?: unknown; hull?: unknown }): void {
     // Un bot le deja el lugar a un humano si la sala pasaría de MAX_PLAYERS.
     const bot = [...this.bots][0];
     if (bot && this.game.phase === "lobby" && this.game.seats.length >= MAX_PLAYERS) {
@@ -331,7 +336,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.bots.delete(bot);
       this.log(`sale ${BOT_NAME}`);
     }
-    const seat = this.game.addPlayer(client.sessionId, options?.name); // tira si ya empezó o está llena
+    const seat = this.game.addPlayer(client.sessionId, options?.name, options?.hull); // tira si ya empezó o está llena
     // Entró con la partida terminada, a esperar la revancha: ve el terreno como quedó.
     if (this.game.match) client.send("terrain", fullTerrain(this.game.match.terrain));
     this.sync();
@@ -470,6 +475,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       }
       p.name = seat.name;
       p.slot = seat.slot;
+      p.hull = seat.hull;
       p.connected = seat.connected && !this.away.has(seat.id);
       p.ready = g.ready.has(seat.id);
       const aim = g.aims.get(seat.id);

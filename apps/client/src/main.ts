@@ -27,7 +27,7 @@ import {
 } from "@pegaycobra/sim";
 import { play, toggleMute } from "./audio";
 import { Minimap, type MiniModel } from "./minimap";
-import { LINGER_MS, SLOT_COLORS, World, type GhostModel, type MarkModel, type MoveModel, type ShotModel, type TankModel } from "./scene3d";
+import { LINGER_MS, SLOT_COLORS, World, type GhostModel, type Hull, type MarkModel, type MoveModel, type ShotModel, type TankModel } from "./scene3d";
 
 const ROOM_NAME = "pegaycobra";
 // En el build de producción el server sirve esta web, así que el WebSocket va al mismo dominio.
@@ -52,6 +52,7 @@ const ui = {
   fillBots: $<HTMLButtonElement>("btn-bots"),
   lobbyWait: $("lobby-wait"),
   lobbyLeave: $<HTMLButtonElement>("btn-lobby-leave"),
+  hulls: $("hulls"),
   hudRound: $("hud-round"),
   turnPill: $("turn-pill"),
   hudTurn: $("hud-turn"),
@@ -153,6 +154,66 @@ try {
 } catch {
   /* sin storage */
 }
+
+// ---------------------------------------------------------------------------
+// Silueta del tanque: se elige en la espera, se guarda en el navegador y se manda al entrar.
+// ---------------------------------------------------------------------------
+
+const HULLS: readonly Hull[] = ["box", "flat", "tower"];
+const HULL_KEY = "pyc:hull";
+
+/** De costado, con el cañón a la derecha: lo mismo que se ve en el cerro. Se pinta con currentColor. */
+const HULL_SVG: Record<Hull, string> = {
+  box:
+    '<rect x="5" y="21" width="30" height="6" rx="3" opacity=".55"/><rect x="7" y="13" width="26" height="8"/>' +
+    '<path d="M14 13a6 6 0 0 1 12 0z"/><path d="M20 10L36 4" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>',
+  flat:
+    '<rect x="1" y="23" width="38" height="4" rx="2" opacity=".55"/><rect x="2" y="19" width="36" height="4"/>' +
+    '<path d="M10 19a10 4 0 0 1 20 0z"/><path d="M20 16L37 11" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>',
+  tower:
+    '<rect x="8" y="21" width="24" height="6" rx="3" opacity=".55"/><rect x="9" y="14" width="22" height="7" rx="2"/>' +
+    '<rect x="11" y="3" width="3.5" height="11"/><rect x="9.5" y="0" width="6.5" height="3.5"/>' +
+    '<path d="M16 14a4.5 4.5 0 0 1 9 0z"/><path d="M20.5 11L36 5" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>',
+};
+
+function hullSvg(hull: Hull): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 40 28");
+  svg.setAttribute("fill", "currentColor");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = HULL_SVG[hull];
+  return svg;
+}
+
+const asHull = (raw: unknown): Hull => (HULLS.includes(raw as Hull) ? (raw as Hull) : "box");
+
+let myHull: Hull = "box";
+try {
+  myHull = asHull(localStorage.getItem(HULL_KEY));
+} catch {
+  /* sin storage: Caja */
+}
+
+function paintHullPicker(shown: Hull = myHull): void {
+  for (const btn of ui.hulls.querySelectorAll<HTMLButtonElement>("[data-hull]")) {
+    btn.setAttribute("aria-checked", String(btn.dataset.hull === shown));
+  }
+}
+
+for (const btn of ui.hulls.querySelectorAll<HTMLButtonElement>("[data-hull]")) {
+  btn.prepend(hullSvg(asHull(btn.dataset.hull)));
+  btn.addEventListener("click", () => {
+    myHull = asHull(btn.dataset.hull);
+    try {
+      localStorage.setItem(HULL_KEY, myHull);
+    } catch {
+      /* ignorado */
+    }
+    paintHullPicker();
+    room?.send("hull", { hull: myHull });
+  });
+}
+paintHullPicker();
 
 /** Lo que tarda el chapuzón de un ahogado después de que cae el tiro: lo mismo que el server en bajar el piso. [ms] */
 const DROWN_DELAY_MS = 250;
@@ -265,7 +326,7 @@ async function enter(action: () => Promise<Room<any>>): Promise<void> {
   }
 }
 
-ui.create.addEventListener("click", () => enter(() => client.create(ROOM_NAME, { name: playerName() })));
+ui.create.addEventListener("click", () => enter(() => client.create(ROOM_NAME, { name: playerName(), hull: myHull })));
 
 function joinWithCode(): void {
   const code = ui.code.value.trim().toUpperCase();
@@ -273,7 +334,7 @@ function joinWithCode(): void {
     ui.homeError.textContent = "El código son 4 letras (sin O ni I).";
     return;
   }
-  void enter(() => client.joinById(code, { name: playerName() }));
+  void enter(() => client.joinById(code, { name: playerName(), hull: myHull }));
 }
 ui.join.addEventListener("click", joinWithCode);
 ui.code.addEventListener("input", () => (ui.code.value = ui.code.value.toUpperCase()));
@@ -646,18 +707,22 @@ function renderLobby(): void {
   ui.lobbyPlayers.replaceChildren(
     ...players.map((p) => {
       const li = document.createElement("li");
-      const dot = document.createElement("span");
-      dot.className = "dot";
-      dot.style.background = SLOT_COLORS[p.slot] ?? "#ccc";
+      // La silueta de cada uno, en su color: así se ve qué eligió el otro antes de arrancar.
+      const icon = hullSvg(asHull(p.hull));
+      icon.classList.add("hull-icon");
+      icon.style.color = SLOT_COLORS[p.slot] ?? "#ccc";
       const name = document.createElement("span");
       name.textContent = p.name + (isMe(p.id) ? " (vos)" : "");
       const tag = document.createElement("span");
       tag.className = "tag";
       tag.textContent = p.id === s.hostId ? "anfitrión" : "";
-      li.append(dot, name, tag);
+      li.append(icon, name, tag);
       return li;
     }),
   );
+  // El elegido es el que tiene el server (al volver con el token puede no ser el guardado).
+  const me = players.find((p) => isMe(p.id));
+  if (me) paintHullPicker(asHull(me.hull));
   const host = isMe(s.hostId);
   ui.start.hidden = !host;
   ui.start.disabled = players.length < 2;
@@ -1400,6 +1465,7 @@ function frame(now: number): void {
     id: p.id,
     name: p.name,
     slot: p.slot,
+    hull: asHull(p.hull),
     x: p.x,
     y: p.y,
     z: p.z,

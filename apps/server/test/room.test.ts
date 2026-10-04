@@ -896,6 +896,50 @@ describe("partida de 5 rondas por red", () => {
     await a.leave();
   }, 15_000);
 
+  it("silueta: dos clientes eligen distinto y cada uno ve la del otro, también después de una revancha; el bot usa Caja", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana", hull: "tower" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto", hull: "flat" });
+    for (const r of [a, b]) for (const type of ["terrain", "shot", "skip", "moved", "roundEnd", "burn"]) r.onMessage(type, () => {});
+    const hulls = (r: Room<any>) => [r.state.players.get(a.sessionId)?.hull, r.state.players.get(b.sessionId)?.hull];
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    expect(hulls(a)).toEqual(["tower", "flat"]);
+    expect(hulls(b)).toEqual(["tower", "flat"]);
+
+    // En la espera se puede cambiar; algo que no es una silueta se ignora.
+    b.send("hull", { hull: "box" });
+    await until(() => a.state.players.get(b.sessionId).hull === "box");
+    b.send("hull", { hull: "tanque de foto" });
+    b.send("hull", { hull: "flat" });
+    await until(() => a.state.players.get(b.sessionId).hull === "flat");
+    expect(hulls(b)).toEqual(["tower", "flat"]);
+
+    // Jugando no se cambia.
+    a.send("start");
+    await until(() => a.state.phase === "aiming" && b.state.phase === "aiming");
+    a.send("hull", { hull: "box" });
+    await sleep(100);
+    expect(hulls(b)).toEqual(["tower", "flat"]);
+
+    // Revancha: cada uno sigue con la suya.
+    const game = (matchMaker.getLocalRoomById(a.roomId) as any).game as Game;
+    game.phase = "ended";
+    a.send("rematch");
+    await until(() => b.state.phase === "aiming" && b.state.round === 1);
+    expect(hulls(a)).toEqual(["tower", "flat"]);
+    expect(hulls(b)).toEqual(["tower", "flat"]);
+    await a.leave();
+    await b.leave();
+
+    const c: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Caro", hull: "tower" });
+    c.send("fillBots");
+    await until(() => c.state.players?.size === 2);
+    const bot = [...c.state.players.values()].find((p: any) => p.id !== c.sessionId);
+    expect(bot.hull).toBe("box");
+    expect(c.state.players.get(c.sessionId).hull).toBe("tower");
+    await c.leave();
+  });
+
   it("un código que no existe falla", async () => {
     await expect(new Client(`ws://localhost:${PORT}`).joinById("ZZZZ", {})).rejects.toBeTruthy();
   });

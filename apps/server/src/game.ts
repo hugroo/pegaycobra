@@ -47,6 +47,16 @@ export const PLAYBACK_SPEED = 1.5;
 export const MAX_SHOT_MS = 8000;
 export const NAME_MAX = 16;
 
+/** Siluetas del tanque: solo cambian cómo se dibuja (caja, chato o torre). El tiro y el daño son los mismos. */
+export const HULLS = ["box", "flat", "tower"] as const;
+export type Hull = (typeof HULLS)[number];
+export const DEFAULT_HULL: Hull = "box";
+
+/** Lo que mandó el cliente → una silueta conocida, o null. */
+export function parseHull(raw: unknown): Hull | null {
+  return typeof raw === "string" && (HULLS as readonly string[]).includes(raw) ? (raw as Hull) : null;
+}
+
 export type Phase = "lobby" | "aiming" | "animating" | "shop" | "ended";
 
 export interface Seat {
@@ -54,6 +64,8 @@ export interface Seat {
   name: string;
   /** 0..3, define el color. */
   slot: number;
+  /** Silueta del tanque. Se queda con el asiento, también en la revancha. */
+  hull: Hull;
   connected: boolean;
 }
 
@@ -220,7 +232,7 @@ export class Game {
     return this.match?.players.find((p) => p.id === id);
   }
 
-  addPlayer(id: string, rawName: unknown): Seat {
+  addPlayer(id: string, rawName: unknown, rawHull?: unknown): Seat {
     if (this.phase !== "lobby" && this.phase !== "ended") throw new Error("la partida ya empezó");
     // Con la partida terminada, el que se fue no vuelve: si hace falta el lugar, se libera.
     if (this.phase === "ended" && this.seats.length >= MAX_PLAYERS) this.seats = this.connectedSeats;
@@ -228,10 +240,19 @@ export class Game {
     const used = new Set(this.seats.map((s) => s.slot));
     let slot = 0;
     while (used.has(slot)) slot++;
-    const seat: Seat = { id, name: sanitizeName(rawName, `Jugador ${slot + 1}`), slot, connected: true };
+    const seat: Seat = { id, name: sanitizeName(rawName, `Jugador ${slot + 1}`), slot, hull: parseHull(rawHull) ?? DEFAULT_HULL, connected: true };
     this.seats.push(seat);
     this.hostId ??= id;
     return seat;
+  }
+
+  /** Cambia de silueta mientras se espera (antes de arrancar o con la partida terminada). */
+  setHull(id: string, raw: unknown): boolean {
+    const seat = this.seats.find((s) => s.id === id);
+    const hull = parseHull(raw);
+    if (!seat || !hull || (this.phase !== "lobby" && this.phase !== "ended") || seat.hull === hull) return false;
+    seat.hull = hull;
+    return true;
   }
 
   canStart(byId: string): boolean {

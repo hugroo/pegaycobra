@@ -85,6 +85,13 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   background: var(--glass-2); border-radius: 12px; padding: 10px 12px;
 }
 .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.hulls-head { margin-bottom: -6px; }
+.hulls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.hull { display: grid; justify-items: center; gap: 2px; padding: 8px 4px; font-weight: 700; }
+.hull svg { width: 52px; height: 36px; color: var(--muted); }
+.hull[aria-checked="true"] { border-color: var(--ocre); background: var(--glass-3); }
+.hull[aria-checked="true"] svg { color: var(--ocre); }
+.hull-icon { width: 30px; height: 21px; flex: none; }
 .tag { margin-left: auto; font-size: 13px; color: var(--muted); }
 .lbl { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; }
 
