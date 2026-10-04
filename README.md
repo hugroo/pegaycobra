@@ -106,7 +106,7 @@ el cartel quedan en el segundo golpe.
   | Racimo ×1 | $2.500 | Sale como un Misil y, en la cima de la parábola, se abre en 5. Una cabeza sigue el tiro y cae donde caería el Misil; las otras cuatro caen a 7 celdas de esa, en X. Cada una explota por su cuenta (radio 4.5) y deja un cráter chico. El daño de todas se suma. El escudo frena una sola |
   | Rebote ×2 | $1.600 | Sale como un Misil, pega en el piso y sigue, una sola vez, con la mitad de la velocidad. Donde pica no explota ni abre cráter: explota en el segundo golpe, como un Misil (radio 6). Si el primer golpe es contra un tanque, explota ahí y no sigue. No rueda y no se abre |
   | Escudo | $2.000 | Absorbe el próximo tiro cuya explosión te alcance (Chispa, Misil o Rodillo; el Bombazo no; del Racimo, una cabeza) y se gasta. Uno por vez; si nadie te pega, lo seguís teniendo la ronda siguiente |
-  | Paracaídas | $1.250 | La ronda siguiente, caer no te hace daño. Uno por ronda |
+  | Paracaídas | $1.250 | La ronda siguiente, la caída al cráter no te hace daño. El agua sí: si el hoyo llega al lago, te morís igual. Uno por ronda |
   | Nafta | $3.000 | Antes de tirar, mové el tanque hasta 20 celdas. Una vez por turno |
 
   La Chispa es infinita y no está en la tienda.
@@ -138,6 +138,12 @@ el cartel quedan en el segundo golpe.
   agua se hunde: no explota, no abre cráter, no prende fuego ni levanta loma, y el cartel dice
   "al agua". El tanque que queda parado en el agua al resolverse un tiro muere, y lo cobra el que
   tiró. No lo salva el Paracaídas ni el Escudo. Con nafta no se puede entrar al agua.
+
+  **La orilla.** Un tanque parado en piso bajo (hasta altura 8: el agua más los 7 que cava un Misil)
+  está a un hoyo del lago. Se ve antes de tirar, igual en todas las pestañas: un "≈" turquesa al
+  lado del nombre en el cartel del tanque, una olita debajo de su punto en el minimapa y "en la
+  orilla" en el panel de la izquierda. Es un aviso (`onShore` del sim): no es un escudo ni cambia
+  el daño.
 
   **La loma.** Es terreno de verdad: tapa tiros rasantes, el Rodillo la baja rodando y los cráteres
   la abren. Tierra sobre tierra sigue subiendo. Ningún tanque queda enterrado: el que estaba abajo
@@ -206,7 +212,9 @@ de la misma sala podrían caer en servidores distintos.
   la animación, el daño y `blocked` (a quién le absorbió el tiro un escudo). Con un Racimo que
   se abrió, `path` llega hasta el punto de apertura y `heads` trae el recorrido de cada cabeza
   desde ahí; el daño es el de todas sumado. Con un Rebote que picó, `path` trae los dos tramos
-  seguidos y `bounce.tick` dice en qué punto tocó el piso. La munición se
+  seguidos y `bounce.tick` dice en qué punto tocó el piso. `drowned` trae a quién dejó en el agua y
+  `splashes` dónde chapotea (`{ x, z, big }`: grande donde se ahogó un tanque, chico donde un golpe se
+  hundió en el lago); el cliente dibuja el chapuzón, mueve la cámara y suena solo con eso. La munición se
   descuenta al disparar (todos ven el Misil gastado); la vida, la plata, los puntos, el cráter
   (o la loma), el fuego y los escudos gastados se aplican recién cuando termina la animación.
 - Los fuegos de Quema van en el estado de Colyseus (`fires`: centro y radio de cada disco), así
@@ -217,6 +225,9 @@ de la misma sala podrían caer en servidores distintos.
   tenga (Misil, si no Rebote, si no Rodillo, si no la Chispa) apuntando igual que siempre. La nafta
   la usa antes de tirar si el rival está cerro de por medio y hay piso más alto a menos de 20
   celdas: sube al punto más alto. No compra Quema, Bombazo, Tierra, Racimo ni paracaídas.
+  Si el rival está en la orilla y alguna de sus 24 punterías lo deja en el agua, tira esa; si
+  ninguna lo ahoga, la que cae más cerca, como siempre. Solo con Chispa, Misil o Rebote: con el
+  Rodillo no mira el agua.
 - Otros mensajes del server: `moved` (alguien usó nafta), `skip` (turno perdido por tiempo),
   `burn` (a alguien le empezó el turno en el fuego) y `roundEnd` (lo que cobró cada uno al terminar
   la ronda).

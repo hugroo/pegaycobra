@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Sonido generado acá con un oscilador por nota: sin archivos. Cuatro eventos: disparo, explosión,
-// impacto a un tanque e inicio de tu turno. El navegador no deja sonar nada hasta un gesto del
+// Sonido generado acá con un oscilador por nota: sin archivos. Cinco eventos: disparo, explosión,
+// impacto a un tanque, inicio de tu turno y chapuzón. El navegador no deja sonar nada hasta un gesto del
 // usuario: el primer clic (o tecla) crea y habilita el AudioContext; lo anterior queda mudo.
 
-export type Sfx = "fire" | "boom" | "hit" | "turn";
+export type Sfx = "fire" | "boom" | "hit" | "turn" | "splash";
 
 interface Note {
   type: OscillatorType;
@@ -24,6 +24,11 @@ const SOUNDS: Record<Sfx, Note[]> = {
   turn: [
     { type: "sine", from: 660, to: 660, at: 0, dur: 0.11, gain: 0.18 },
     { type: "sine", from: 880, to: 880, at: 0.13, dur: 0.16, gain: 0.18 },
+  ],
+  // Golpe corto de agua: un "plop" que baja y, atrás, la salpicada.
+  splash: [
+    { type: "sine", from: 520, to: 70, at: 0, dur: 0.2, gain: 0.3 },
+    { type: "triangle", from: 1400, to: 500, at: 0.05, dur: 0.14, gain: 0.07 },
   ],
 };
 

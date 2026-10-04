@@ -1,8 +1,22 @@
 // Integración: server real + dos clientes del SDK jugando una partida completa de 5 rondas en 3D.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
-import type { Server } from "@colyseus/core";
-import { fireFromShot, inFire, SHOP_ITEMS, simulateShot3D, simulateWeaponShot3D, terrainHeightAt, WATER_LEVEL, WEAPONS, WIND_DRIFT_MAX, type Terrain } from "@pegaycobra/sim";
+import { matchMaker, type Server } from "@colyseus/core";
+import {
+  createFlatTerrain,
+  fireFromShot,
+  inFire,
+  resolveTurn3D,
+  SHOP_ITEMS,
+  simulateShot3D,
+  simulateWeaponShot3D,
+  terrainHeightAt,
+  WATER_LEVEL,
+  WEAPONS,
+  WIND_DRIFT_MAX,
+  type Terrain,
+} from "@pegaycobra/sim";
+import type { Game } from "../src/game";
 import { createServer, ROOM_NAME } from "../src/server";
 import { GameRoom, type RoundEndBroadcast } from "../src/room";
 import { applyTerrainMessage, type TerrainMessage } from "../src/terrain-net";
@@ -622,6 +636,8 @@ describe("partida de 5 rondas por red", () => {
     const shot = shotsSeenByB.at(-1);
     expect(shot).toEqual(shotsSeenByA.at(-1));
     expect(shot).toMatchObject({ shooterId: id, outcome: "water", damage: 0, blocked: [], drowned: [] });
+    // Chapotea donde se hundió, en chico: nadie se ahogó.
+    expect(shot.splashes).toEqual([{ x: shot.impact.x, z: shot.impact.z, big: false }]);
     expect(terrainHeightAt(tb.terrain!, shot.impact.x, shot.impact.z)).toBeLessThanOrEqual(WATER_LEVEL);
     // Ni un parche de terreno: el lago quedó como estaba, para los dos.
     await sleep(100);
@@ -633,6 +649,70 @@ describe("partida de 5 rondas por red", () => {
     await a.leave();
     await b.leave();
   }, 60_000);
+
+  it("el ahogo lo trae el mensaje del server: a quién y dónde chapotea, igual para los dos; un impacto normal no trae ninguno", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto" });
+    const seen: any[][] = [[], []];
+    a.onMessage("shot", (m) => seen[0]!.push(m));
+    b.onMessage("shot", (m) => seen[1]!.push(m));
+    for (const r of [a, b]) for (const type of ["terrain", "skip", "moved", "roundEnd", "burn"]) r.onMessage(type, () => {});
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    a.send("start");
+    await until(() => a.state.phase === "aiming" && b.state.phase === "aiming");
+
+    // Se arma el caso en el server: piso plano y bajo (orilla), sin viento, los tanques a 50 celdas.
+    const game = (matchMaker.getLocalRoomById(a.roomId) as any).game as Game;
+    const id = a.state.turnId as string;
+    const foe = [a, b].find((r) => r.sessionId !== id)!.sessionId;
+    const rooms: Record<string, Room<any>> = { [a.sessionId]: a, [b.sessionId]: b };
+    game.match = {
+      ...game.match!,
+      terrain: createFlatTerrain(257, 257, 2),
+      wind: { x: 0, z: 0 },
+      tanks: game.match!.tanks.map((t) => ({ ...t, x: t.id === id ? 60 : 110, y: 2, z: 128 })),
+    };
+    // Con el sim (y el viento del turno) se busca una Chispa: `wet` deja al rival en el agua; si no, cae al piso sin tocar a nadie.
+    const search = (wet: boolean): { yaw: number; pitch: number; power: number } | null => {
+      for (let yaw = -4; yaw <= 4; yaw += 0.5) {
+        for (let power = 300; power <= 1000; power += 1) {
+          const aim = { yaw, pitch: 60, power };
+          const r = resolveTurn3D(game.match!, { playerId: id, ...aim });
+          if (wet ? r.damage.some((d) => d.targetId === foe && d.cause === "water") : r.shot.outcome === "ground" && r.damage.length === 0) return aim;
+        }
+      }
+      return null;
+    };
+    const far = search(false);
+    expect(far).not.toBeNull();
+
+    // Un impacto normal, en el piso y sin ahogar a nadie: el mensaje no trae chapuzón para dibujar.
+    rooms[id]!.send("fire", far!);
+    await until(() => seen[0]!.length === 1 && seen[1]!.length === 1);
+    expect(seen[0]![0]).toMatchObject({ outcome: "ground", damage: 0, drowned: [], splashes: [] });
+    expect(seen[1]![0]).toEqual(seen[0]![0]);
+
+    // El rival deja pasar su turno tirando para atrás, y el primero manda la que ahoga.
+    await until(() => a.state.phase === "aiming" && a.state.turnId === foe);
+    rooms[foe]!.send("fire", { yaw: 0, pitch: 60, power: 300 });
+    await until(() => seen[0]!.length === 2 && a.state.phase === "aiming" && a.state.turnId === id);
+    expect(seen[0]![1]).toMatchObject({ shooterId: foe, drowned: [], splashes: [] });
+    const wet = search(true);
+    expect(wet).not.toBeNull();
+    rooms[id]!.send("fire", wet!);
+    await until(() => seen[0]!.length === 3 && seen[1]!.length === 3);
+    const shot = seen[0]![2];
+    expect(seen[1]![2]).toEqual(shot);
+    expect(shot.outcome).toBe("ground");
+    expect(shot.drowned).toEqual([foe]);
+    expect(shot.splashes).toEqual([{ x: 110, z: 128, big: true }]);
+    // Y es cierto: cuando se aplica el tiro, el rival quedó sin vida, para los dos.
+    await until(() => a.state.players.get(foe).life === 0 && b.state.players.get(foe).life === 0);
+
+    await a.leave();
+    await b.leave();
+  }, 30_000);
 
   it("el viento se corre al empezar cada turno, nunca en pleno vuelo, y los dos clientes reciben el mismo", async () => {
     const url = `ws://localhost:${PORT}`;

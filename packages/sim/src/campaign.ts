@@ -133,6 +133,12 @@ export const FUEL_MOVE_RANGE = 20;
 /** No se puede estacionar a menos de esto de otro tanque. [wu] */
 export const FUEL_MIN_GAP = 4;
 
+/**
+ * La carta del Paracaídas, en una línea (la tienda la muestra tal cual). No promete más de lo que
+ * hace: tapa la caída al cráter, no el agua (turn3d.ts: el que queda en el lago muere igual).
+ */
+export const PARACHUTE_LINE = "Caer al cráter no duele; el agua sí";
+
 export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze({
   missile: {
     id: "missile",
@@ -210,7 +216,7 @@ export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze(
     // accessories.xml: <cost>10000</cost> por <bundlesize>8</bundlesize> → 1250 c/u.
     price: 1250,
     pack: 1,
-    description: "La próxima ronda, caer no te hace daño.",
+    description: `${PARACHUTE_LINE}: si el hoyo llega al lago, te morís igual. Dura la ronda que viene.`,
   },
   fuel: {
     id: "fuel",

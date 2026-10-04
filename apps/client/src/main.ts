@@ -13,6 +13,8 @@ import {
   fireFromShot,
   FUEL_MOVE_RANGE,
   inFire,
+  onShore,
+  PARACHUTE_LINE,
   POWER_MAX,
   SHOP_ITEMS,
   simulateWeaponShot3D,
@@ -143,6 +145,9 @@ try {
 } catch {
   /* sin storage */
 }
+
+/** Lo que tarda el chapuzón de un ahogado después de que cae el tiro: lo mismo que el server en bajar el piso. [ms] */
+const DROWN_DELAY_MS = 250;
 
 // El asiento: al entrar a una sala se guarda su token de reconexión (sala + asiento). Si la página se
 // refresca, con eso se vuelve al mismo tanque. La clave lleva un id de pestaña (sessionStorage), así
@@ -370,6 +375,8 @@ function attach(r: Room<any>): void {
       damage: number;
       blocked: string[];
       drowned?: string[];
+      /** Dónde chapotea el agua, según el server: grande donde se ahogó un tanque, chico donde se hundió un golpe. */
+      splashes?: { x: number; z: number; big: boolean }[];
     }) => {
       const shooter = r.state.players.get(m.shooterId);
       const explodes = (outcome: string) => outcome === "ground" || outcome === "tank";
@@ -430,6 +437,17 @@ function attach(r: Room<any>): void {
       // El que quedó en el agua muere aunque tenga escudo o paracaídas: todas las pestañas lo dicen.
       const drowned = (m.drowned ?? []).map((id) => r.state.players.get(id)?.name ?? "?");
       if (drowned.length > 0) window.setTimeout(() => room === r && showBanner(`${drowned.join(", ")}: al agua`, 2500), m.durationMs);
+      // El chapuzón sale de `splashes`, que arma el server: acá no se decide quién se ahogó ni dónde.
+      // El del ahogado va un momento después de la explosión, cuando el tanque ya cayó al hoyo.
+      for (const big of [false, true]) {
+        const spots = (m.splashes ?? []).filter((s) => s.big === big);
+        if (spots.length === 0) continue;
+        window.setTimeout(() => {
+          if (room !== r) return;
+          for (const s of spots) world?.splash(s.x, s.z, s.big, performance.now());
+          play("splash");
+        }, m.durationMs + (big ? DROWN_DELAY_MS : 0));
+      }
     },
   );
   r.onMessage("moved", (m: { id: string }) => {
@@ -699,7 +717,9 @@ function renderHud(phase: string): void {
         `${p.points} pts · M×${p.missiles}${p.rollers > 0 ? ` · R×${p.rollers}` : ""}${p.napalms > 0 ? ` · Quema×${p.napalms}` : ""}${p.nukes > 0 ? ` · Bombazo×${p.nukes}` : ""}${p.dirts > 0 ? ` · Tierra×${p.dirts}` : ""}${p.mirvs > 0 ? ` · Racimo×${p.mirvs}` : ""}${p.leapfrogs > 0 ? ` · Rebote×${p.leapfrogs}` : ""}` +
         `${p.shield > 0 ? " · escudo" : ""}${p.parachute > 0 ? " · ☂" : ""}${p.fuel > 0 ? ` · N×${p.fuel}` : ""}` +
         // Parado en un fuego (inFire, la misma cuenta del server): va a perder vida al empezar su turno.
-        `${p.life > 0 && fires.some((f) => inFire(f, p)) ? " · en el fuego" : ""}`;
+        `${p.life > 0 && fires.some((f) => inFire(f, p)) ? " · en el fuego" : ""}` +
+        // Piso bajo (onShore, la misma cuenta en todas las pestañas): un Misil lo manda al agua.
+        `${p.life > 0 && terrain && onShore(terrain, p.x, p.z) ? " · en la orilla" : ""}`;
       li.append(dot, name, bar, life, extra);
       return li;
     }),
@@ -762,7 +782,7 @@ const SHOP_LINE: Record<ShopItemId, string> = {
   mirv: "Se abre en 5 en el aire",
   leapfrog: "Pica una vez y sigue",
   shield: "Frena el próximo tiro",
-  parachute: "Caer no te hace daño",
+  parachute: PARACHUTE_LINE,
   fuel: "Mové el tanque",
 };
 
@@ -1337,6 +1357,7 @@ function frame(now: number): void {
     z: p.z,
     life: p.life,
     shield: p.shield > 0,
+    shore: onShore(terrain!, p.x, p.z),
     yaw: mine && isMe(p.id) ? aim.yaw : p.yaw,
     pitch: mine && isMe(p.id) ? aim.pitch : p.pitch,
     isTurn: (s.phase === "aiming" || s.phase === "animating") && p.id === s.turnId,
@@ -1379,7 +1400,7 @@ function frame(now: number): void {
   minimap.draw({
     terrain: terrain!,
     terrainVersion,
-    tanks: tanks.map((t) => ({ x: t.x, z: t.z, slot: t.slot, alive: t.life > 0, isMe: t.isMe })),
+    tanks: tanks.map((t) => ({ x: t.x, z: t.z, slot: t.slot, alive: t.life > 0, isMe: t.isMe, shore: t.shore })),
     wind,
     fires,
     ghost: ghost

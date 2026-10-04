@@ -3,6 +3,7 @@
 // por los mismos caminos que los de un cliente (Game.fire, Game.move, Game.buy, Game.setReady).
 // Acá solo se decide qué manda: el tiro sale de probar unas pocas punterías con el sim, descartar
 // las que se quedan en un cerro antes del rival y quedarse con la que cae más cerca; no busca hasta pegar.
+// Si el rival está en la orilla (onShore) y alguna de esas punterías lo deja en el agua, tira esa.
 
 import {
   canFire,
@@ -11,7 +12,9 @@ import {
   explosionDamage,
   FUEL_MOVE_RANGE,
   isAlive,
+  onShore,
   POWER_MAX,
+  resolveTurn3D,
   simulateWeaponShot3D,
   TANK_RADIUS,
   terrainHeightAt,
@@ -35,6 +38,8 @@ const PITCH_MAX = 65;
 const POWER_MIN = 300;
 /** Lo que tira si tiene, en este orden. Si no tiene nada de esto, la Baby. */
 const BOT_WEAPONS: readonly WeaponId[] = ["missile", "leapfrog", "roller"];
+/** Con estas busca el agua si el rival está en la orilla. Con el Roller no: tira como siempre. */
+const SHORE_WEAPONS: readonly WeaponId[] = ["babyMissile", "missile", "leapfrog"];
 /** Lo que sortea en la tienda. El escudo va aparte (botShopPick). */
 const BOT_SHOP: readonly ShopItemId[] = ["missile", "roller", "leapfrog", "fuel"];
 
@@ -49,6 +54,8 @@ export interface BotShot {
   blocked: boolean;
   /** Distancia del final del tiro al rival vivo más cercano. [wu] */
   miss: number;
+  /** Deja en el agua a un rival que estaba en la orilla, y al bot no. Solo se mira con las SHORE_WEAPONS. */
+  drowns: boolean;
 }
 
 function nearestFoe(me: Tank3D, foes: readonly Tank3D[]): Tank3D {
@@ -70,6 +77,7 @@ export function botCandidates(match: MatchState3D, botId: string, rng: () => num
   const w = WEAPONS[weapon];
   const nearest = nearestFoe(me, foes);
   const bearing = (Math.atan2(nearest.z - me.z, nearest.x - me.x) * 180) / Math.PI;
+  const shore = SHORE_WEAPONS.includes(weapon) ? foes.filter((f) => onShore(match.terrain, f.x, f.z)).map((f) => f.id) : [];
 
   const out: BotShot[] = [];
   for (let i = 0; i < BOT_SAMPLES; i++) {
@@ -86,16 +94,25 @@ export function botCandidates(match: MatchState3D, botId: string, rng: () => num
     const miss = Math.min(...foes.map((f) => collisionDistance3D(f, r.x, r.y, r.z)));
     const short = Math.hypot(r.x - me.x, r.z - me.z) < Math.hypot(nearest.x - me.x, nearest.z - me.z);
     const blocked = r.outcome === "ground" && short && explosionDamage(miss, w.explosionRadius, w.hurtAmount) <= 0;
-    out.push({ yaw, pitch, power, weapon, landed: r.outcome === "ground" || r.outcome === "tank", blocked, miss });
+    const landed = r.outcome === "ground" || r.outcome === "tank";
+    let drowns = false;
+    if (landed && shore.length > 0) {
+      // El turno entero, como lo va a resolver la sala: cráter, caída y quién queda en el agua.
+      const { damage } = resolveTurn3D(match, { playerId: botId, yaw, pitch, power, weaponId: weapon });
+      const wet = damage.filter((d) => d.cause === "water").map((d) => d.targetId);
+      drowns = !wet.includes(botId) && wet.some((id) => shore.includes(id));
+    }
+    out.push({ yaw, pitch, power, weapon, landed, blocked, miss, drowns });
   }
   return out;
 }
 
-/** 2 = explota sin quedar tapado, 1 = explota pero tapado, 0 = se fue del mapa. */
-const rank = (c: BotShot) => (c.landed ? (c.blocked ? 1 : 2) : 0);
+/** 3 = ahoga a un rival de la orilla, 2 = explota sin quedar tapado, 1 = explota pero tapado, 0 = se fue del mapa. */
+const rank = (c: BotShot) => (c.drowns ? 3 : c.landed ? (c.blocked ? 1 : 2) : 0);
 
 /**
- * De las muestras que no quedan tapadas, la que cae más cerca de un rival. Si todas quedan tapadas
+ * Si alguna muestra manda al agua a un rival de la orilla, esa (entre varias, la que cae más cerca).
+ * Si no, de las que no quedan tapadas, la que cae más cerca de un rival. Si todas quedan tapadas
  * o se van, la menos mala. null = no hay a quién tirarle.
  */
 export function pickBotShot(match: MatchState3D, botId: string, rng: () => number): BotShot | null {

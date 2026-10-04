@@ -2,7 +2,18 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
 import { matchMaker, type Server } from "@colyseus/core";
-import { createFlatTerrain, createRng, FUEL_MOVE_RANGE, MONEY_START, SHOP_ITEMS, terrainHeightAt, type MatchState3D } from "@pegaycobra/sim";
+import {
+  createFlatTerrain,
+  createRng,
+  FUEL_MOVE_RANGE,
+  isAlive,
+  MONEY_START,
+  onShore,
+  resolveTurn3D,
+  SHOP_ITEMS,
+  terrainHeightAt,
+  type MatchState3D,
+} from "@pegaycobra/sim";
 import { BOT_NAME, BOT_SAMPLES, botCandidates, botMovePick, botShopPick, pickBotShot } from "../src/bot";
 import { Game } from "../src/game";
 import { createServer, ROOM_NAME } from "../src/server";
@@ -70,6 +81,54 @@ describe("decisiones del bot", () => {
     const pick = pickBotShot(m, "B", createRng(4))!;
     expect(pick.landed).toBe(true);
     expect(pick.miss).toBe(Math.min(...all.filter((c) => c.landed).map((c) => c.miss)));
+  });
+
+  // Piso plano sin viento, el bot en x = 60 y Ana en x = 110, los dos a la altura `ground`.
+  function onGround(ground: number, inventory: object): MatchState3D {
+    const g = started();
+    const at = (id: string, x: number) => ({ ...g.match!.tanks.find((t) => t.id === id)!, x, y: ground, z: 128 });
+    return {
+      ...g.match!,
+      terrain: createFlatTerrain(257, 257, ground),
+      wind: { x: 0, z: 0 },
+      tanks: [at("A", 110), at("B", 60)],
+      players: g.match!.players.map((p) => (p.id === "B" ? { ...p, inventory: { ...p.inventory, ...inventory } } : p)),
+    };
+  }
+
+  it("con el rival en la orilla, entre una muestra que lo ahoga y otra que solo le roza, manda la que ahoga", () => {
+    const m = onGround(3, { missile: 3 });
+    expect(onShore(m.terrain, 110, 128)).toBe(true);
+    const all = botCandidates(m, "B", createRng(82));
+    const wet = all.filter((c) => c.drowns);
+    const closest = all.reduce((a, b) => (b.miss < a.miss ? b : a));
+    // Una sola lo ahoga, y la que cae más cerca (la que tiraría sin mirar el agua) no es esa: le roza.
+    expect(wet).toHaveLength(1);
+    expect(closest.drowns).toBe(false);
+    const graze = resolveTurn3D(m, { playerId: "B", yaw: closest.yaw, pitch: closest.pitch, power: closest.power, weaponId: "missile" });
+    expect(graze.damage.some((d) => d.targetId === "A" && d.cause === "explosion")).toBe(true);
+    expect(isAlive(graze.state.tanks.find((t) => t.id === "A")!)).toBe(true);
+
+    const pick = pickBotShot(m, "B", createRng(82))!;
+    expect(pick).toEqual(wet[0]);
+    // Lo que hace Game.fire con el elegido: Ana termina en el agua.
+    const g = started();
+    g.match = m;
+    g.tickSecond();
+    for (let i = 0; i < 29; i++) g.tickSecond();
+    const fired = g.fire("B", pick)!;
+    expect(fired.result.damage).toContainEqual(expect.objectContaining({ targetId: "A", cause: "water", killed: true }));
+
+    // Si ninguna lo ahoga, tira como siempre: la que cae más cerca.
+    const dry = botCandidates(m, "B", createRng(1));
+    expect(dry.some((c) => c.drowns)).toBe(false);
+    expect(pickBotShot(m, "B", createRng(1))!.miss).toBe(Math.min(...dry.map((c) => c.miss)));
+    // Con el rival en piso alto, o con el Rodillo en la orilla, ninguna muestra cuenta como ahogo.
+    for (const other of [onGround(10, { missile: 3 }), onGround(3, { roller: 3 })]) {
+      const same = botCandidates(other, "B", createRng(82));
+      expect(same.some((c) => c.drowns)).toBe(false);
+      expect(pickBotShot(other, "B", createRng(82))!.miss).toBe(Math.min(...same.filter((c) => c.landed && !c.blocked).map((c) => c.miss)));
+    }
   });
 
   it("el tiro elegido lo acepta Game.fire como el de cualquier jugador", () => {

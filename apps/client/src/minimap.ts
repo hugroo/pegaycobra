@@ -4,7 +4,7 @@
 // la fantasma y dónde cayó el último tiro real (el del mensaje "shot", igual en todas las pestañas).
 
 import type { Terrain } from "@pegaycobra/sim";
-import { hillshade, landColor, type RGB } from "./landscape";
+import { hillshade, LAKE, landColor, type RGB } from "./landscape";
 import { SLOT_COLORS } from "./scene3d";
 
 export interface MiniTank {
@@ -13,6 +13,8 @@ export interface MiniTank {
   slot: number;
   alive: boolean;
   isMe: boolean;
+  /** En piso bajo, a un hoyo del lago: lleva la marca de orilla. */
+  shore: boolean;
 }
 
 export interface MiniModel {
@@ -41,6 +43,8 @@ export interface MiniModel {
 const WIND_COLOR = "#9ad1ff";
 /** El punto de un tanque mide 4 px: el fuego se dibuja al menos así de grande, para que asome por debajo. [px] */
 const FIRE_MIN_PX = 6.5;
+/** Marca de orilla: el color del lago, el mismo del terreno. */
+const SHORE_COLOR = `rgb(${LAKE.map((c) => Math.round(c * 255)).join(", ")})`;
 
 export class Minimap {
   private readonly ctx: CanvasRenderingContext2D;
@@ -242,6 +246,24 @@ export class Minimap {
       ctx.arc(x, y, 4, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+      // Orilla: una olita debajo del punto. Aviso y nada más.
+      if (t.shore) {
+        const wave = () => {
+          ctx.beginPath();
+          ctx.moveTo(x - 6, y + 8);
+          ctx.quadraticCurveTo(x - 3, y + 5, x, y + 8);
+          ctx.quadraticCurveTo(x + 3, y + 11, x + 6, y + 8);
+          ctx.stroke();
+        };
+        ctx.lineCap = "round";
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "#000";
+        wave();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = SHORE_COLOR;
+        wave();
+        ctx.lineCap = "butt";
+      }
     }
 
     for (const ball of m.balls) {

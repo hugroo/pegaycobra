@@ -11,7 +11,7 @@
 // rejoinSeconds: vuelve con el token de reconexión y sigue siendo el mismo id, con su tanque.
 
 import { Room, type Client } from "@colyseus/core";
-import { createRng } from "@pegaycobra/sim";
+import { createRng, type TurnResult3D } from "@pegaycobra/sim";
 import { BOT_NAME, botMovePick, botShopPick, pickBotShot } from "./bot";
 import { Game, MAX_PLAYERS, MIN_PLAYERS, type RoundSummary } from "./game";
 import { generateCode } from "./codes";
@@ -57,6 +57,31 @@ export interface ShotBroadcast {
   blocked: string[];
   /** Tanques que este tiro dejó en el agua: murieron ahí, con escudo o paracaídas y todo. */
   drowned: string[];
+  /**
+   * Dónde chapotea el agua: uno grande (`big`) por cada tanque de `drowned`, donde quedó, y uno chico
+   * por cada golpe que se hundió en el lago (el tiro, o cada cabeza de un Racimo). El cliente dibuja
+   * estos y ninguno más. [wu]
+   */
+  splashes: Splash[];
+}
+
+export interface Splash {
+  x: number;
+  z: number;
+  big: boolean;
+}
+
+/** Los chapuzones de un tiro ya resuelto: primero los ahogados, después los golpes que cayeron al lago. */
+export function shotSplashes(result: TurnResult3D): Splash[] {
+  const out: Splash[] = [];
+  for (const d of result.damage) {
+    const t = d.cause === "water" ? result.state.tanks.find((tk) => tk.id === d.targetId) : undefined;
+    if (t) out.push({ x: round2(t.x), z: round2(t.z), big: true });
+  }
+  for (const hit of result.shot.split?.heads ?? [result.shot]) {
+    if (hit.outcome === "water") out.push({ x: round2(hit.x), z: round2(hit.z), big: false });
+  }
+  return out;
 }
 
 /** Mensaje "burn": a un tanque le empezó el turno parado en el fuego. La vida nueva va en el estado. */
@@ -219,6 +244,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       damage: round2(shot.result.damage.reduce((sum, d) => sum + d.damage, 0)),
       blocked: shot.result.blocked,
       drowned: shot.result.damage.filter((d) => d.cause === "water").map((d) => d.targetId),
+      splashes: shotSplashes(shot.result),
     };
     if (heads) payload.heads = heads.map((h) => ({ path: (h.path ?? []).map(round2), outcome: h.outcome }));
     if (shotResult.bounce) payload.bounce = { tick: shotResult.bounce.tick };

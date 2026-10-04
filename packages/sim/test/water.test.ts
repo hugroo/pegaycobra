@@ -4,8 +4,12 @@ import {
   createRng,
   FUEL_MOVE_RANGE,
   MONEY_START,
+  onShore,
+  PARACHUTE_LINE,
   placeTanks3D,
   resolveTurn,
+  SHOP_ITEMS,
+  SHORE_LEVEL,
   simulateRoll,
   simulateWeaponShot3D,
   startingInventory,
@@ -83,7 +87,7 @@ describe("agua: nadie nace en el lago", () => {
         }
       }
     }
-  });
+  }, 20_000); // 450 mapas: en una máquina cargada pasa los 5 s por defecto
 
   it("si todo el anillo del sorteo es lago, cada tanque se corre a la orilla más cercana y siguen separados", () => {
     // El sorteo cae entre 78 y 102 celdas del centro: un lago en corona de 70 a 115 lo tapa entero.
@@ -209,5 +213,54 @@ describe("agua: con nafta no se entra", () => {
     const s0 = match(lake, withItems("A", { fuel: 1 }));
     expect(validateMove(s0, "A", { x: 128 + FUEL_MOVE_RANGE, z: 128 })).toEqual({ ok: false, reason: "ahí hay agua" });
     expect(validateMove(s0, "A", { x: 128, z: 128 + FUEL_MOVE_RANGE }).ok).toBe(true);
+  });
+});
+
+describe("agua: el aviso de orilla", () => {
+  it("la carta del Paracaídas no promete salvar del agua, y el Bombazo se sigue llamando Bombazo", () => {
+    const card = SHOP_ITEMS.parachute.description;
+    // Lo que tapa es la caída al cráter, y dice que el agua sí mata.
+    expect(PARACHUTE_LINE).toMatch(/cráter no duele/);
+    expect(PARACHUTE_LINE).toMatch(/el agua sí/);
+    expect(PARACHUTE_LINE.split(String.fromCodePoint(10))).toHaveLength(1);
+    expect(card.startsWith(PARACHUTE_LINE)).toBe(true);
+    // La promesa vieja, sin condiciones, no está más.
+    expect(card).not.toMatch(/caer no te hace daño/i);
+    expect(SHOP_ITEMS.nuke.name).toBe("Bombazo");
+  });
+
+  it("un tanque a altura de orilla tiene la marca y uno en el pico no", () => {
+    const low = match(createFlatTerrain(257, 257, SHORE_LEVEL));
+    const peak = match(createFlatTerrain(257, 257, 45));
+    for (const t of low.tanks) expect(onShore(low.terrain, t.x, t.z)).toBe(true);
+    for (const t of peak.tanks) expect(onShore(peak.terrain, t.x, t.z)).toBe(false);
+    // Apenas arriba de la orilla ya no, y el agua misma tampoco es orilla.
+    expect(onShore(createFlatTerrain(257, 257, SHORE_LEVEL + 1), 128, 221)).toBe(false);
+    expect(onShore(createFlatTerrain(257, 257, WATER_LEVEL), 128, 221)).toBe(false);
+  });
+
+  it("la marca dice la verdad: un Misil al pie ahoga al marcado, con escudo y paracaídas, y al de arriba no", () => {
+    const drowned = (ground: number): boolean => {
+      const s0 = match(createFlatTerrain(257, 257, ground), withItems("A", { missile: 1 }), withItems("B", { parachute: 1, shield: 1 }));
+      for (let power = 200; power <= 1000; power += 2) {
+        const { damage } = resolveTurn(s0, { playerId: "A", yaw: 90, pitch: 75, power, weaponId: "missile" });
+        if (damage.some((d) => d.targetId === "B" && d.cause === "water")) return true;
+      }
+      return false;
+    };
+    expect(onShore(createFlatTerrain(257, 257, 7), 128, 221)).toBe(true);
+    expect(drowned(7)).toBe(true);
+    expect(onShore(createFlatTerrain(257, 257, 10), 128, 221)).toBe(false);
+    expect(drowned(10)).toBe(false);
+  });
+
+  it("es un aviso: estar en la orilla no cambia el daño de un tiro", () => {
+    // El mismo tiro, lejos del tanque, en piso de orilla y en piso alto: nadie pierde vida.
+    for (const ground of [SHORE_LEVEL, 45]) {
+      const s0 = match(createFlatTerrain(257, 257, ground));
+      const { state, damage } = resolveTurn(s0, { playerId: "A", yaw: 270, pitch: 45, power: 400 });
+      expect(damage).toEqual([]);
+      expect(tankOf(state, "B").life).toBe(TANK_MAX_LIFE);
+    }
   });
 });

@@ -12,6 +12,7 @@
 // Orígenes: Explosion.cpp, TargetDamageCalc.cpp, TargetDamage.cpp, TargetFalling.cpp, Wind.cpp.
 
 import { TANK_RADIUS, WATER_LEVEL, WIND_MAX } from "./constants";
+import { craterDepthAt } from "./crater";
 import { applyDamage, explosionDamage, fallDamage, isAlive, type Tank } from "./damage";
 import { canFire, clampMoney, consumeAmmo, moneyForDamage } from "./economy";
 import { TANK_START_HEIGHT_MAX, TANK_START_HEIGHT_MIN } from "./match";
@@ -204,6 +205,22 @@ export function tanks3DAt(
     const { x, z } = spots[i]!;
     return { id, x, y: terrainHeightAt(terrain, x, z), z, life };
   });
+}
+
+/**
+ * Altura de orilla: hasta acá, el cráter de un Missile al pie baja el piso hasta el agua
+ * (WATER_LEVEL más lo que cava en el centro). [wu]
+ */
+export const SHORE_LEVEL = WATER_LEVEL + craterDepthAt(WEAPONS.missile.craterRadius, 0);
+
+/**
+ * ¿El piso en (x, z) está a un hoyo del lago? Piso firme, pero tan bajo que un Missile ahí lo deja
+ * en agua. Es solo un aviso para el cliente (la marca de orilla): no cambia el daño ni la regla del
+ * agua. Sale del terreno y la posición, que son los del server: todas las pestañas ven lo mismo.
+ */
+export function onShore(terrain: Terrain, x: number, z: number): boolean {
+  const h = terrainHeightAt(terrain, x, z);
+  return h > WATER_LEVEL && h <= SHORE_LEVEL;
 }
 
 /** Distancia del punto a la superficie de la esfera del tanque (0 adentro). [wu] */

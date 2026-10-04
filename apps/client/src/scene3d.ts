@@ -29,6 +29,9 @@ const BOUNCE_MS = 380;
 const IMPACT_LABEL_MS = 1000;
 /** Cuánto se queda la cámara mirando el impacto después de que llega el proyectil. [ms] */
 export const LINGER_MS = 1300;
+/** Lo que dura un chapuzón: el de un tanque que se ahoga y el de un tiro que se hunde. [ms] */
+const SPLASH_MS = 1000;
+const SPLASH_SMALL_MS = 600;
 /** Llamas que se dibujan sobre cada fuego de Napalm. */
 const FLAMES_PER_FIRE = 11;
 /** Color del fogonazo de una explosión, y el del polvo que levanta la Tierra. */
@@ -45,6 +48,8 @@ export interface TankModel {
   life: number;
   /** Tiene un escudo puesto: se dibuja la burbuja. */
   shield: boolean;
+  /** Está en piso bajo, a un hoyo del lago (onShore del sim): el cartel lleva la marca de orilla. */
+  shore: boolean;
   yaw: number;
   pitch: number;
   isTurn: boolean;
@@ -123,6 +128,8 @@ interface TankView {
   label: CSS2DObject;
   labelEl: HTMLDivElement;
   nameEl: HTMLSpanElement;
+  /** Marca de orilla, al lado del nombre. Es un aviso: no cambia nada del tiro. */
+  shoreEl: HTMLElement;
   distEl: HTMLElement;
   barEl: HTMLElement;
   /** Flecha en el borde de la pantalla, para cuando el tanque queda fuera de cámara. */
@@ -172,6 +179,10 @@ export class World {
   /** Racimo en vuelo: el destello de la apertura y, por cabeza, su estela, su bola y su fogonazo. */
   private readonly openFlash: THREE.Mesh;
   private readonly shotHeads: { line: THREE.Line; ball: THREE.Mesh; blast: THREE.Mesh }[] = [];
+  /** Chapuzones en curso: dos anillos que se abren sobre el agua y un chorro que sube y cae. */
+  private readonly splashes: { x: number; z: number; big: boolean; start: number; root: THREE.Group; rings: THREE.Mesh[]; spout: THREE.Mesh }[] = [];
+  private readonly splashRingGeo = new THREE.RingGeometry(0.8, 1, 40).rotateX(-Math.PI / 2);
+  private readonly splashSpoutGeo = new THREE.ConeGeometry(0.5, 1, 10).translate(0, 0.5, 0); // base en y = 0
   /** Rebote en vuelo: el polvo donde pica. */
   private readonly bounceDust: THREE.Mesh;
   private readonly impactLabel: CSS2DObject;
@@ -529,6 +540,50 @@ export class World {
   // Cámara
   // -------------------------------------------------------------------------
 
+  /**
+   * Chapuzón en (x, z), desde `now`: grande (un tanque se ahogó, la cámara lo mira) o chico (un tiro
+   * se hundió en el lago). Solo se dibuja: quién se ahogó lo dice el server.
+   */
+  splash(x: number, z: number, big: boolean, now: number): void {
+    const mat = (color: string) => new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    const root = new THREE.Group();
+    const rings = [new THREE.Mesh(this.splashRingGeo, mat("#ffffff")), new THREE.Mesh(this.splashRingGeo, mat("#9ad1ff"))];
+    const spout = new THREE.Mesh(this.splashSpoutGeo, mat("#ffffff"));
+    root.add(...rings, spout);
+    this.scene.add(root);
+    this.splashes.push({ x, z, big, start: now, root, rings, spout });
+  }
+
+  /** Anima los chapuzones y saca los que terminaron. Devuelve el grande que sigue en curso, para la cámara. */
+  private drawSplashes(now: number): { x: number; y: number; z: number } | null {
+    let look: { x: number; y: number; z: number } | null = null;
+    for (let i = this.splashes.length - 1; i >= 0; i--) {
+      const s = this.splashes[i]!;
+      const q = (now - s.start) / (s.big ? SPLASH_MS : SPLASH_SMALL_MS);
+      if (q >= 1) {
+        this.scene.remove(s.root);
+        for (const m of [...s.rings, s.spout]) (m.material as THREE.Material).dispose();
+        this.splashes.splice(i, 1);
+        continue;
+      }
+      const size = s.big ? 12 : 3;
+      const y = (this.terrain ? terrainHeightAt(this.terrain, s.x, s.z) : 0) + 0.25;
+      s.root.position.set(s.x, y, s.z);
+      s.rings.forEach((ring, n) => {
+        // El segundo anillo sale un poco después y llega menos lejos.
+        const k = Math.max(0, q - n * 0.2) / (1 - n * 0.2);
+        ring.scale.setScalar(0.5 + size * (1 - n * 0.35) * k);
+        (ring.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - k);
+      });
+      // El chorro sube rápido y cae en la primera mitad.
+      const up = Math.max(0, Math.sin(Math.min(1, q * 2) * Math.PI));
+      s.spout.scale.set(size * 0.22, Math.max(0.001, size * 1.1 * up), size * 0.22);
+      (s.spout.material as THREE.MeshBasicMaterial).opacity = 0.85 * up;
+      if (s.big) look = { x: s.x, y, z: s.z };
+    }
+    return look;
+  }
+
   /** Hacia dónde mira la cámara (se acerca suave). */
   focus(x: number, y: number, z: number): void {
     this.targetGoal.set(x, y, z);
@@ -659,7 +714,13 @@ export class World {
     barEl.style.background = SLOT_COLORS[m.slot] ?? "#ccc";
     bar.append(barEl);
     const distEl = document.createElement("small");
-    labelEl.append(nameEl, bar, distEl);
+    const shoreEl = document.createElement("em");
+    shoreEl.textContent = "≈";
+    shoreEl.title = "En la orilla: un Misil lo manda al agua";
+    shoreEl.hidden = true;
+    const head = document.createElement("div");
+    head.append(nameEl, shoreEl);
+    labelEl.append(head, bar, distEl);
     const label = new CSS2DObject(labelEl);
     label.position.set(0, 3.6, 0);
     root.add(label);
@@ -674,7 +735,7 @@ export class World {
     this.edgeLayer.appendChild(edgeEl);
 
     this.scene.add(root);
-    v = { root, yawG, pitchG, bodyMat, label, labelEl, nameEl, distEl, barEl, edgeEl, edgeArrow, edgeText, marker, shield, slot: m.slot };
+    v = { root, yawG, pitchG, bodyMat, label, labelEl, nameEl, shoreEl, distEl, barEl, edgeEl, edgeArrow, edgeText, marker, shield, slot: m.slot };
     this.tanks.set(m.id, v);
     return v;
   }
@@ -697,6 +758,7 @@ export class World {
       v.shield.visible = alive && m.shield;
       (v.shield.material as THREE.MeshBasicMaterial).opacity = 0.22 + 0.06 * Math.sin(now / 350);
       v.nameEl.textContent = (alive ? m.name : `${m.name} ✕`) + (m.isMe ? " (vos)" : "");
+      v.shoreEl.hidden = !(alive && m.shore);
       v.barEl.style.width = `${Math.max(0, Math.min(100, m.life))}%`;
       v.labelEl.classList.toggle("turn", m.isTurn && alive);
       v.labelEl.classList.toggle("dead", !alive);
@@ -1051,11 +1113,14 @@ export class World {
     this.drawWind(f.wind, turn);
     this.drawFires(f.fires, f.now);
     this.drawMove(f.move);
+    const drowning = this.drawSplashes(f.now);
 
     // Cámara: sigue al proyectil, se queda un momento en el impacto (para ver el cráter) y
     // después vuelve al tanque del turno.
     // Si el tiro levantó una loma, el punto de impacto quedó bajo tierra: se mira el piso nuevo.
-    if (ball && f.shot && f.now - f.shot.start < f.shot.durationMs + LINGER_MS) this.focus(ball.x, this.aboveGround(ball.x, ball.y, ball.z) + 2, ball.z);
+    // Mientras alguien se ahoga, la cámara mira el chapuzón.
+    if (drowning) this.focus(drowning.x, drowning.y + 2, drowning.z);
+    else if (ball && f.shot && f.now - f.shot.start < f.shot.durationMs + LINGER_MS) this.focus(ball.x, this.aboveGround(ball.x, ball.y, ball.z) + 2, ball.z);
     else if (turn) this.focus(turn.x, turn.y + 3, turn.z);
     this.updateCamera(dt);
 
