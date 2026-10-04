@@ -154,6 +154,8 @@ export class GameRoom extends Room<{ state: GameState }> {
   private readonly botsHit = new Set<string>();
   /** Asientos guardados: se les cayó la conexión y todavía pueden volver. */
   private readonly away = new Set<string>();
+  /** La marca de cada asiento que ya está copiada en el estado. */
+  private readonly sentMarks = new Map<string, ShotMark | undefined>();
 
   onCreate(): void {
     this.roomId = generateCode(activeCodes);
