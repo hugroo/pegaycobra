@@ -44,6 +44,17 @@ export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 4;
 export const TURN_SECONDS = 20;
 export const SHOP_SECONDS = 30;
+/**
+ * Lo que el anfitrión puede escribir en la espera: segundos de turno, segundos de tienda y rondas.
+ * [mínimo, máximo], los dos incluidos.
+ */
+export const CLOCK_LIMITS = { turn: [10, 60], shop: [10, 90], rounds: [1, 9] } as const;
+
+/** Un entero dentro del rango, o `fallback`: vacío, texto, con coma o afuera no rompen nada. */
+function inRange(raw: unknown, [min, max]: readonly [number, number], fallback: number): number {
+  return typeof raw === "number" && Number.isInteger(raw) && raw >= min && raw <= max ? raw : fallback;
+}
+
 /** El cliente reproduce el tiro 1.5× más rápido que el tiempo real del original. */
 export const PLAYBACK_SPEED = 1.5;
 /** Tope de la animación, por si un tiro dura muchísimo (p. ej. "timeout"). [ms] */
@@ -210,7 +221,10 @@ export class Game {
   timeLeft = 0;
   /** Ronda en curso (1..rounds). 0 = no empezó. */
   round = 0;
-  readonly rounds = ROUNDS_PER_MATCH;
+  rounds = ROUNDS_PER_MATCH;
+  /** Lo que dura un turno y lo que dura la tienda. Como `rounds`, los escribe el anfitrión en la espera (setClock). [s] */
+  turnSeconds: number;
+  shopSeconds: number;
   board: Scoreboard = {};
   /** Con phase "ended": ganadores por puntos (varios si empatan en todo). */
   winners: string[] = [];
@@ -237,10 +251,14 @@ export class Game {
   /** De acá sale cuánto se corre el viento en cada turno. Se rearma con la semilla de cada ronda. */
   private windRng: () => number = Math.random;
 
+  /** Los relojes con los que nace la sala: son también los que quedan si el anfitrión escribe uno inválido. */
   constructor(
-    private readonly turnSeconds = TURN_SECONDS,
-    private readonly shopSeconds = SHOP_SECONDS,
-  ) {}
+    private readonly defaultTurnSeconds = TURN_SECONDS,
+    private readonly defaultShopSeconds = SHOP_SECONDS,
+  ) {
+    this.turnSeconds = defaultTurnSeconds;
+    this.shopSeconds = defaultShopSeconds;
+  }
 
   get connectedSeats(): Seat[] {
     return this.seats.filter((s) => s.connected);
@@ -300,6 +318,24 @@ export class Game {
     return true;
   }
 
+  /**
+   * El anfitrión escribe el reloj antes de arrancar: { turn, shop, rounds }. Cada número que falte,
+   * no sea entero o caiga fuera de CLOCK_LIMITS vuelve al de siempre. De otro, o con la partida ya
+   * arrancada, se ignora: la revancha juega con los mismos.
+   */
+  setClock(byId: string, raw: unknown): boolean {
+    if (typeof raw !== "object" || raw === null || this.phase !== "lobby" || byId !== this.hostId) return false;
+    const msg = raw as Record<string, unknown>;
+    const turn = inRange(msg.turn, CLOCK_LIMITS.turn, this.defaultTurnSeconds);
+    const shop = inRange(msg.shop, CLOCK_LIMITS.shop, this.defaultShopSeconds);
+    const rounds = inRange(msg.rounds, CLOCK_LIMITS.rounds, ROUNDS_PER_MATCH);
+    if (turn === this.turnSeconds && shop === this.shopSeconds && rounds === this.rounds) return false;
+    this.turnSeconds = turn;
+    this.shopSeconds = shop;
+    this.rounds = rounds;
+    return true;
+  }
+
   canStart(byId: string): boolean {
     return this.phase === "lobby" && byId === this.hostId && this.seats.length >= MIN_PLAYERS;
   }
@@ -320,7 +356,7 @@ export class Game {
 
   /**
    * Revancha en la misma sala: los que quedan siguen en su asiento (mismo id, nombre y color) y la
-   * partida arranca de cero, como un start, en el mismo mapa. Los asientos de los que se fueron se sueltan.
+   * partida arranca de cero, como un start, en el mismo mapa y con el mismo reloj. Los asientos de los que se fueron se sueltan.
    */
   rematch(byId: string, seed: number): boolean {
     if (!this.canRematch(byId)) return false;

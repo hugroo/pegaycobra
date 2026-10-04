@@ -84,6 +84,9 @@ export const GameState = schema(
     /** Ronda en curso y total. */
     round: t.uint8().default(0),
     rounds: t.uint8().default(0),
+    /** Lo que dura un turno y lo que dura la tienda en esta sala. Con `rounds`, los escribe el anfitrión en la espera. [s] */
+    turnSeconds: t.uint8().default(20),
+    shopSeconds: t.uint8().default(30),
     /** El del turno ya usó nafta. */
     moved: t.boolean().default(false),
     /** Viento en el piso (XZ). [unidad de viento] */
@@ -98,7 +101,7 @@ export const GameState = schema(
     winnerId: t.string().default(""),
     /** Con phase "ended": todos los que terminaron primeros. */
     winners: t.array("string"),
-    /** "rounds" (se jugaron las 5) o "forfeit" (se fueron todos menos uno). */
+    /** "rounds" (se jugaron todas) o "forfeit" (se fueron todos menos uno). */
     endReason: t.string().default(""),
   },
   "GameState",

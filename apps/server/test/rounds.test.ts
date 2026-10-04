@@ -119,6 +119,58 @@ describe("rondas", () => {
     expect(g.timeLeft).toBe(20); // el primer turno de la ronda, igual que los demás
   });
 
+  it("reloj escrito por el anfitrión: turno de 12, tienda de 15 y 2 rondas; la partida termina en la segunda", () => {
+    const g = new Game();
+    g.addPlayer("A", "A");
+    g.addPlayer("B", "B");
+    expect(g.setClock("B", { turn: 12, shop: 15, rounds: 2 })).toBe(false); // solo el anfitrión
+    expect(g.setClock("A", { turn: 12, shop: 15, rounds: 2 })).toBe(true);
+    g.start("A", 11);
+    expect(g.setClock("A", { turn: 30, shop: 30, rounds: 5 })).toBe(false); // arrancada, queda fijo
+    expect(g.timeLeft).toBe(12);
+    for (let i = 0; i < 11; i++) expect(g.tickSecond()).toBe(false);
+    expect(g.tickSecond()).toBe(true);
+    expect(g.turnId).toBe("B");
+
+    killAndPass(g, "A");
+    expect(g.phase).toBe("shop");
+    expect(g.timeLeft).toBe(15);
+    for (let i = 0; i < 14; i++) g.tickSecond();
+    expect(g.phase).toBe("shop");
+    g.tickSecond();
+    expect([g.phase, g.round, g.timeLeft]).toEqual(["aiming", 2, 12]);
+
+    killAndPass(g, "A");
+    expect(g.phase).toBe("ended"); // dos rondas y listo: sin tercera ni tienda
+    expect(g.endReason).toBe("rounds");
+    expect(g.setClock("A", { turn: 30, shop: 30, rounds: 5 })).toBe(false); // terminada, tampoco
+    expect(g.rematch("A", 12)).toBe(true);
+    expect([g.rounds, g.timeLeft]).toEqual([2, 12]); // la revancha, con los mismos
+  });
+
+  it("reloj: los bordes entran; vacío, afuera, con coma o texto vuelve al de siempre, campo por campo", () => {
+    const g = new Game();
+    g.addPlayer("A", "A");
+    const clock = () => [g.turnSeconds, g.shopSeconds, g.rounds];
+    g.setClock("A", { turn: 10, shop: 10, rounds: 1 });
+    expect(clock()).toEqual([10, 10, 1]);
+    g.setClock("A", { turn: 60, shop: 90, rounds: 9 });
+    expect(clock()).toEqual([60, 90, 9]);
+    g.setClock("A", { turn: 61, shop: 45, rounds: 10 });
+    expect(clock()).toEqual([20, 45, 5]); // el que está bien se queda
+    g.setClock("A", { turn: 9, shop: 91, rounds: 0 });
+    expect(clock()).toEqual([20, 30, 5]);
+    for (const bad of [null, "12", 12.5, NaN, Infinity, -12, {}, [12]]) {
+      g.setClock("A", { turn: 12, shop: 40, rounds: 2 });
+      g.setClock("A", { turn: bad, shop: bad, rounds: bad });
+      expect(clock(), String(bad)).toEqual([20, 30, 5]);
+    }
+    g.setClock("A", { turn: 12, shop: 40, rounds: 2 });
+    g.setClock("A", {});
+    expect(clock()).toEqual([20, 30, 5]);
+    for (const junk of [null, undefined, "x", 12]) expect(g.setClock("A", junk)).toBe(false);
+  });
+
   it("empieza un jugador distinto cada ronda", () => {
     const g = started();
     const first1 = g.turnId;

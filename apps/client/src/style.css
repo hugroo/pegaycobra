@@ -102,6 +102,10 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .map svg { width: 60px; height: 42px; border-radius: 8px; }
 .map[aria-checked="true"] { border-color: var(--ocre); background: var(--glass-3); color: var(--ocre); }
 .map[aria-checked="true"]:disabled { opacity: 1; cursor: default; }
+/* Reloj: lo escribe el anfitrión; los demás ven el número. */
+.clock { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.clock input { width: 100%; min-width: 0; text-align: center; font-weight: 800; font-variant-numeric: tabular-nums; }
+.clock input:read-only { background: none; cursor: default; }
 .tag { margin-left: auto; font-size: 13px; color: var(--muted); }
 .lbl { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; }
 

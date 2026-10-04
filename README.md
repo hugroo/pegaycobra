@@ -60,6 +60,11 @@ los tanques nacen en la playa, donde un Misil al pie los manda al agua) y *Cerro
 cerros altos por todos lados, donde rinde el Rodillo). Al arrancar queda fijo, y la revancha se
 juega en el mismo. Las armas, el daño, la plata y el viento son iguales en los tres.
 
+También escribe el reloj, en tres campos: los segundos de turno (de 10 a 60), los de tienda (de 10
+a 90) y las rondas (de 1 a 9). Los demás ven el número y no lo editan. Un campo vacío o con un
+número de afuera vale lo de siempre: 20 s, 30 s y 5 rondas. Al arrancar quedan fijos, y la revancha
+usa los mismos.
+
 Controles (la barra de abajo aparece solo en tu turno; un arma sin munición no se muestra):
 
 | Qué | Cómo |
@@ -72,7 +77,7 @@ Controles (la barra de abajo aparece solo en tu turno; un arma sin munición no 
 | Mover la cámara | Arrastrar con el botón derecho (fuera de tu turno, también el izquierdo) |
 | Zoom | Shift + rueda, + / −, o la rueda cuando no es tu turno |
 
-Tenés 20 s por turno; si no tirás, perdés el turno. El HUD flota sobre el cerro. Arriba, siempre:
+Tenés 20 s por turno (o los que escribió el anfitrión); si no tirás, perdés el turno. El HUD flota sobre el cerro. Arriba, siempre:
 de quién es el turno (en ocre cuando es el tuyo), los segundos y el viento; la dirección del viento
 es la flecha celeste en el piso, delante del tanque del turno: apunta hacia donde sopla y mide lo
 que sopla (sigue el relieve, una ladera no la tapa). Abajo, solo en tu turno: arma,
@@ -102,7 +107,7 @@ continua, quieta y más pálida.
 
 ### La partida
 
-- **5 rondas.** Cada ronda tiene terreno nuevo, viento sorteado de nuevo, tanques reubicados y
+- **5 rondas**, salvo que el anfitrión escriba otro número. Cada ronda tiene terreno nuevo, viento sorteado de nuevo, tanques reubicados y
   vida llena. Empieza un jugador distinto cada ronda.
 - **El viento es parte del tiro.** Al empezar cada turno se corre un poco desde el del turno
   anterior (entre 0.25 y 1 de los 5 que puede tener): nunca queda igual y nunca pasa de golpe a un
@@ -113,7 +118,7 @@ continua, quieta y más pálida.
 - **Al terminar la ronda se cobra:** cada tanque que sigue vivo recibe $2.000, y después todos
   reciben 15% de interés sobre la plata que tienen, más $1.500 fijos. Lo que gastaste en la tienda
   ya no está, así que no da interés. No alcanza para comprar todo: hay que elegir.
-- **Tienda de 30 s entre rondas**, visible para todos, con la plata de cada uno: una fila de
+- **Tienda de 30 s entre rondas** (o lo que escribió el anfitrión), visible para todos, con la plata de cada uno: una fila de
   cartas abajo (precio y qué hace cada cosa), sin tapar el mapa. Cierra antes si
   todos tocan *Listo*. No se puede comprar más de lo que alcanza.
 
@@ -222,6 +227,7 @@ de la misma sala podrían caer en servidores distintos.
   | `start` | lobby | que sea el anfitrión y haya 2 o más |
   | `fillBots` | lobby | que sea el anfitrión. Agrega bots hasta llegar a 2 jugadores |
   | `map { map }` | lobby | que sea el anfitrión y `map` sea `valley`, `island` o `hill`. Arrancada la partida se ignora, también en la revancha |
+  | `clock { turn, shop, rounds }` | lobby | que sea el anfitrión. Cada número tiene que ser entero y estar en rango (`turn` 10–60, `shop` 10–90, `rounds` 1–9); el que no, vale 20, 30 o 5. El server corta el turno y la tienda con esos valores. Arrancada la partida se ignora, también en la revancha |
   | `fire { yaw, pitch, power, weapon }` | tu turno | `weapon` es `babyMissile`, `missile`, `roller`, `napalm`, `nuke`, `dirt`, `mirv` o `leapfrog` y tenés munición. Cualquier otro campo (daño, impacto, posición) se descarta sin llegar al sim. Otra arma: el mensaje se ignora entero |
   | `move { moveTo: { x, z } }` | tu turno, antes de tirar | que tengas nafta, no te hayas movido ya en el turno, y el destino esté a ≤ 20 celdas, dentro del mapa y no pegado a otro tanque (`validateMove` del sim) |
   | `buy { item }` | tienda | que el ítem exista y te alcance la plata (`cannotBuy` del sim) |

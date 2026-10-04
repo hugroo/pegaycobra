@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Sala de Colyseus: recibe mensajes, se los pasa a Game y copia el resultado al estado.
 //
-// Mensajes del cliente:  start · rematch · fillBots · map { map } · fire { yaw, pitch, power, weapon }
+// Mensajes del cliente:  start · rematch · fillBots · map { map } · clock { turn, shop, rounds }
+//                        fire { yaw, pitch, power, weapon }
 //                        move { moveTo: { x, z } } · buy { item } · sell { item } · ready · chat { text }
 // Los bots (bot.ts) no tienen conexión: la sala les pasa sus mensajes por los mismos métodos.
 // Mensajes del server:   terrain (binario) · shot · moved · skip · burn · roundEnd · chat
@@ -215,6 +216,13 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.flush();
     });
 
+    // Reloj: { turn, shop, rounds }, solo el anfitrión y solo antes de arrancar. Un número inválido vuelve al de siempre.
+    this.onMessage("clock", (client, message: unknown) => {
+      if (!this.game.setClock(client.sessionId, message)) return; // ignorado
+      this.log(`reloj: turno ${this.game.turnSeconds} s, tienda ${this.game.shopSeconds} s, ${this.game.rounds} rondas`);
+      this.flush();
+    });
+
     // Chat de sala: en cualquier fase. Sale para todos en el orden en que llegó acá; no se guarda.
     this.onMessage("chat", (client, message: unknown) => {
       const seat = this.game.seats.find((s) => s.id === client.sessionId);
@@ -229,7 +237,7 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   /**
    * El reloj de turno y de tienda. Se rearma cada vez que empieza una cuenta (ver sync), así el
-   * primer segundo dura un segundo entero: los 20 s de turno y los 30 de tienda son reales.
+   * primer segundo dura un segundo entero: los segundos de turno y de tienda son reales.
    */
   private startClock(): void {
     this.ticker?.clear();
@@ -483,6 +491,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     s.timeLeft = g.timeLeft;
     s.round = g.round;
     s.rounds = g.rounds;
+    s.turnSeconds = g.turnSeconds;
+    s.shopSeconds = g.shopSeconds;
     s.moved = g.movedThisTurn;
     s.winnerId = g.winnerId ?? "";
     s.endReason = g.endReason ?? "";

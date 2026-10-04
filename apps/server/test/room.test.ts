@@ -1055,6 +1055,65 @@ describe("partida de 5 rondas por red", () => {
     await b.leave();
   });
 
+  it("reloj: el anfitrión escribe 12 s y 2 rondas, el otro lo ve, y el turno corta a los 12; un número inválido deja el de siempre", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto" });
+    let skips = 0;
+    b.onMessage("skip", () => skips++);
+    a.onMessage("skip", () => {});
+    for (const r of [a, b]) for (const type of ["terrain", "shot", "moved", "roundEnd", "burn"]) r.onMessage(type, () => {});
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    const clock = (r: Room<any>) => [r.state.turnSeconds, r.state.shopSeconds, r.state.rounds];
+    expect([clock(a), clock(b)]).toEqual([[20, 30, 5], [20, 30, 5]]); // sin escribir nada, los de siempre
+
+    // Escribe el anfitrión. Lo que manda el otro se ignora.
+    b.send("clock", { turn: 45, shop: 45, rounds: 9 });
+    a.send("clock", { turn: 40, shop: 60, rounds: 3 });
+    await until(() => b.state.turnSeconds === 40);
+    expect([clock(a), clock(b)]).toEqual([[40, 60, 3], [40, 60, 3]]);
+
+    // Afuera, vacío, con coma, texto o basura: vuelve el de siempre y la sala sigue andando.
+    a.send("clock", { turn: 99, shop: null, rounds: 2.5 });
+    await until(() => b.state.turnSeconds === 20);
+    expect(clock(b)).toEqual([20, 30, 5]);
+    a.send("clock", { turn: 9, shop: "60", rounds: 0 });
+    a.send("clock", "cualquiera");
+    a.send("clock", { turn: 12, rounds: 2 });
+    await until(() => b.state.turnSeconds === 12);
+    expect([clock(a), clock(b)]).toEqual([[12, 30, 2], [12, 30, 2]]);
+
+    a.send("start");
+    await until(() => b.state.phase === "aiming");
+    const t0 = Date.now();
+    const first = b.state.turnId;
+    expect(b.state.timeLeft).toBe(12);
+    expect(`${b.state.round}/${b.state.rounds}`).toBe("1/2");
+
+    // Arrancada, queda fijo: ni el anfitrión lo cambia.
+    a.send("clock", { turn: 60, shop: 90, rounds: 9 });
+    await sleep(10_500);
+    expect(skips).toBe(0); // a los 10.5 s el turno sigue: no cortó a los 10 ni antes
+    expect(b.state.turnId).toBe(first);
+    await until(() => skips === 1, 4000);
+    const elapsed = Date.now() - t0;
+    expect(elapsed).toBeGreaterThan(11_500);
+    expect(elapsed).toBeLessThan(13_000);
+    await until(() => b.state.turnId !== first);
+    expect(b.state.timeLeft).toBe(12); // el turno siguiente, con el mismo reloj
+    expect([clock(a), clock(b)]).toEqual([[12, 30, 2], [12, 30, 2]]);
+
+    // La revancha usa los mismos.
+    const game = (matchMaker.getLocalRoomById(a.roomId) as any).game as Game;
+    game.phase = "ended";
+    a.send("clock", { turn: 30, shop: 30, rounds: 4 });
+    a.send("rematch");
+    await until(() => b.state.phase === "aiming" && b.state.round === 1 && b.state.timeLeft === 12);
+    expect([clock(a), clock(b)]).toEqual([[12, 30, 2], [12, 30, 2]]);
+    await a.leave();
+    await b.leave();
+  }, 30_000);
+
   it("un código que no existe falla", async () => {
     await expect(new Client(`ws://localhost:${PORT}`).joinById("ZZZZ", {})).rejects.toBeTruthy();
   });

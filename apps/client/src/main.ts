@@ -57,6 +57,8 @@ const ui = {
   colors: $("colors"),
   mapsHead: $("maps-head"),
   maps: $("maps"),
+  clockHead: $("clock-head"),
+  clockHint: $("clock-hint"),
   hudRound: $("hud-round"),
   turnPill: $("turn-pill"),
   hudTurn: $("hud-turn"),
@@ -299,6 +301,38 @@ function paintMapPicker(shown: string, host: boolean): void {
     btn.disabled = !host;
   }
   ui.mapsHead.textContent = host ? "Mapa" : "Mapa · lo elige el anfitrión";
+}
+
+// Reloj: turno, tienda y rondas. Los escribe el anfitrión en la espera y los demás ven el número.
+// Acá no se valida nada: va lo escrito y el server decide; lo que quedó es siempre lo del estado.
+const CLOCK_FIELDS = { turn: "turnSeconds", shop: "shopSeconds", rounds: "rounds" } as const;
+type ClockKey = keyof typeof CLOCK_FIELDS;
+const clockInputs = [...document.querySelectorAll<HTMLInputElement>("[data-clock]")];
+/** Lo escrito en un campo, como número; vacío o con letras, null (el server pone el de siempre). */
+const typedNumber = (input: HTMLInputElement): number | null => (/^\d+$/.test(input.value.trim()) ? Number(input.value) : null);
+
+for (const input of clockInputs) {
+  input.addEventListener("input", () => {
+    room?.send("clock", Object.fromEntries(clockInputs.map((el) => [el.dataset.clock, typedNumber(el)])));
+  });
+  // Al salir del campo se ve lo que quedó: si escribió 99, vuelve el 20.
+  input.addEventListener("blur", () => {
+    if (room) input.value = String(room.state[CLOCK_FIELDS[input.dataset.clock as ClockKey]]);
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") input.blur();
+  });
+}
+
+/** Muestra el reloj de la sala. El campo en el que el anfitrión está escribiendo no se pisa. */
+function paintClock(s: any, host: boolean): void {
+  for (const input of clockInputs) {
+    input.readOnly = !host;
+    if (host && document.activeElement === input) continue;
+    input.value = String(s[CLOCK_FIELDS[input.dataset.clock as ClockKey]]);
+  }
+  ui.clockHead.textContent = host ? "Reloj" : "Reloj · lo escribe el anfitrión";
+  ui.clockHint.hidden = !host;
 }
 
 /** Con lo que se entra a una sala: nombre, silueta y, si eligió, color. */
@@ -817,6 +851,7 @@ function renderLobby(): void {
   }
   const host = isMe(s.hostId);
   paintMapPicker(s.map, host);
+  paintClock(s, host);
   ui.start.hidden = !host;
   ui.start.disabled = players.length < 2;
   // Los bots completan hasta 2: con 2 o más ya no hay nada que llenar.
@@ -1097,7 +1132,7 @@ function renderEnd(phase: string): void {
   ui.overlaySub.textContent =
     s.endReason === "forfeit"
       ? "Se fueron los demás."
-      : `Después de ${s.rounds} rondas, por puntos (daño + kills).`;
+      : `Después de ${s.rounds === 1 ? "1 ronda" : `${s.rounds} rondas`}, por puntos (daño + kills).`;
   const rows = playersInOrder()
     .slice()
     .sort((a, b) => b.points - a.points || b.kills - a.kills || b.damage - a.damage);
