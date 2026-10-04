@@ -125,22 +125,22 @@ export const FUEL_MIN_GAP = 4;
 export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze({
   missile: {
     id: "missile",
-    name: "Missile",
+    name: "Misil",
     // accessories.xml: <cost>2000</cost> por <bundlesize>5</bundlesize> → 400 c/u; pack de 3.
     price: 1200,
     pack: 3,
-    description: "Explosión de radio 6 (la Baby es 3.5). Se gasta uno por tiro.",
+    description: "Explosión de radio 6 (la Chispa es 3.5). Se gasta uno por tiro.",
   },
   roller: {
     id: "roller",
-    name: "Roller",
+    name: "Rodillo",
     price: WEAPONS.roller.cost,
     pack: WEAPONS.roller.bundleSize,
     description: `Toca el piso y rueda cuesta abajo hasta ${WEAPONS.roller.roll!.maxCells} celdas o hasta un tanque. Cráter chico.`,
   },
   napalm: {
     id: "napalm",
-    name: "Napalm",
+    name: "Quema",
     price: WEAPONS.napalm.cost,
     pack: WEAPONS.napalm.bundleSize,
     description:
@@ -149,12 +149,12 @@ export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze(
   },
   nuke: {
     id: "nuke",
-    name: "Nuke",
+    name: "Bombazo",
     // accessories.xml: <cost>12000</cost> por <bundlesize>2</bundlesize> → 6000 c/u; se vende de a 1.
     price: WEAPONS.nuke.cost / WEAPONS.nuke.bundleSize,
     pack: 1,
     description:
-      `Un Missile enorme: explosión y cráter de radio ${WEAPONS.nuke.explosionRadius} (el Missile es ${WEAPONS.missile.explosionRadius}). ` +
+      `Un Misil enorme: explosión y cráter de radio ${WEAPONS.nuke.explosionRadius} (el Misil es ${WEAPONS.missile.explosionRadius}). ` +
       "El escudo no lo frena ni se gasta.",
   },
   shield: {
@@ -162,7 +162,7 @@ export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze(
     name: "Escudo",
     price: 2000,
     pack: 1,
-    description: "Absorbe el próximo tiro que te alcance (explosión o Roller) y se gasta. Si te sacan el piso, caés igual. Al Nuke no lo frena.",
+    description: "Absorbe el próximo tiro que te alcance (explosión o Rodillo) y se gasta. Si te sacan el piso, caés igual. Al Bombazo no lo frena.",
   },
   parachute: {
     id: "parachute",

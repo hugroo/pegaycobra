@@ -301,10 +301,10 @@ function attach(r: Room<any>): void {
         n >= 3
           ? { x: m.path[n - 3]!, z: m.path[n - 1]!, lands: shotAnim.explodes, slot: shotAnim.slot, at: shotAnim.start + m.durationMs }
           : null;
-      if (m.weapon !== "babyMissile") showBanner(`${shooter?.name ?? "?"} tira un ${WEAPONS[m.weapon]?.name ?? m.weapon}`, 1400);
+      if (m.weapon !== "babyMissile") showBanner(`${shooter?.name ?? "?"} manda ${SHOP_ITEMS[m.weapon]?.name ?? m.weapon}`, 1400);
       if (m.outcome === "offmap" || m.outcome === "timeout") {
         // Todas las pestañas reciben el mismo "shot": todas muestran que se fue.
-        window.setTimeout(() => room === r && showBanner("¡Se fue!", 2500), m.durationMs);
+        window.setTimeout(() => room === r && showBanner("¡Malardo, se fue!", 2500), m.durationMs);
       }
     },
   );
@@ -313,7 +313,7 @@ function attach(r: Room<any>): void {
     if (p) showBanner(`${p.name} usó nafta`, 1400);
   });
   r.onMessage("skip", () => {
-    if (room === r) showBanner("Tiempo: turno perdido", 1500);
+    if (room === r) showBanner("Se colgó: turno perdido", 1500);
   });
   r.onMessage("burn", (m: { id: string; damage: number; killed: boolean }) => {
     if (room !== r) return;
@@ -400,7 +400,7 @@ function renderLobby(): void {
   ui.lobbyWait.textContent = host
     ? players.length < 2
       ? "Esperando a que entre al menos otro jugador…"
-      : `${players.length} jugadores. Podés arrancar.`
+      : `${players.length} jugadores. Dale, arrancá.`
     : "Esperando a que el anfitrión arranque…";
 }
 
@@ -440,7 +440,7 @@ function renderHud(phase: string): void {
     ui.hudTurn.textContent = "Tienda";
   } else {
     const who = turnPlayer ? turnPlayer.name : "…";
-    ui.hudTurn.textContent = phase === "animating" ? `Disparo de ${who}` : mine ? "Tu turno" : `Turno de ${who}`;
+    ui.hudTurn.textContent = phase === "animating" ? `Disparo de ${who}` : mine ? "Te toca" : `Turno de ${who}`;
   }
   const playing = (phase === "aiming" || phase === "animating") && turnPlayer;
   ui.hudTurnDot.hidden = !playing;
@@ -476,7 +476,7 @@ function renderHud(phase: string): void {
       const extra = document.createElement("span");
       extra.className = "extra";
       extra.textContent =
-        `${p.points} pts · M×${p.missiles}${p.rollers > 0 ? ` · R×${p.rollers}` : ""}${p.napalms > 0 ? ` · Napalm×${p.napalms}` : ""}${p.nukes > 0 ? ` · Nuke×${p.nukes}` : ""}` +
+        `${p.points} pts · M×${p.missiles}${p.rollers > 0 ? ` · R×${p.rollers}` : ""}${p.napalms > 0 ? ` · Quema×${p.napalms}` : ""}${p.nukes > 0 ? ` · Bombazo×${p.nukes}` : ""}` +
         `${p.shield > 0 ? " · escudo" : ""}${p.parachute > 0 ? " · ☂" : ""}${p.fuel > 0 ? ` · N×${p.fuel}` : ""}` +
         // Parado en un fuego (inFire, la misma cuenta del server): va a perder vida al empezar su turno.
         `${p.life > 0 && fires.some((f) => inFire(f, p)) ? " · en el fuego" : ""}`;
@@ -628,7 +628,7 @@ function renderEnd(phase: string): void {
   const s = room!.state;
   const winners: string[] = [...(s.winners ?? [])];
   const winner = s.winnerId ? s.players.get(s.winnerId) : null;
-  ui.overlayTitle.textContent = winner ? (isMe(winner.id) ? "¡Ganaste!" : `Ganó ${winner.name}`) : "Empate";
+  ui.overlayTitle.textContent = winner ? (isMe(winner.id) ? "¡Ganaste, buenardo!" : `Ganó ${winner.name}`) : "Empate";
   ui.overlaySub.textContent =
     s.endReason === "forfeit"
       ? "Se fueron los demás."
