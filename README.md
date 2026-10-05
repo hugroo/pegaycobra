@@ -77,7 +77,7 @@ Controles (la barra de abajo aparece solo en tu turno; un arma sin munición no 
 | Girar y elevar el cañón | Arrastrar con el botón izquierdo (horizontal = giro, vertical = elevación), o ← → / ↑ ↓ |
 | Potencia | Rueda del mouse (en tu turno), la barra, o PageUp / PageDown |
 | Elegir arma | Botones *Chispa* / *Misil* / *Rodillo* / *Quema* / *Bombazo* / *Tierra* / *Racimo* / *Rebote*, o las teclas 1 / 2 / 3 / 4 / 5 / 6 / 7 / 8 |
-| Nafta (mover el tanque antes de tirar) | Botón *Nafta* o tecla N, y después un clic en el piso dentro del anillo amarillo: hasta 20 celdas. En el celular el toque marca el destino y el mismo botón, que pasa a decir *Ir ahí*, lo confirma. En tu primer turno de cada ronda tenés una de la casa |
+| Nafta (mover el tanque antes de tirar) | Botón *Nafta* o tecla N, y después un clic en el piso dentro del anillo amarillo: hasta 20 celdas (en el celular, un toque). En tu primer turno de cada ronda tenés una de la casa |
 | Tirar | Espacio o el botón *Tirar* |
 | Mover la cámara | Arrastrar con el botón derecho (fuera de tu turno, también el izquierdo) |
 | Zoom | Shift + rueda, + / −, o la rueda cuando no es tu turno |

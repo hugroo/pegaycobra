@@ -115,7 +115,6 @@ const ui = {
   wLeapfrog: $<HTMLButtonElement>("w-leapfrog"),
   wLeapfrogN: $("w-leapfrog-n"),
   fuelBtn: $<HTMLButtonElement>("btn-fuel"),
-  fuelLabel: $("fuel-label"),
   fuelN: $("fuel-n"),
   aimPad: $("aim-pad"),
   powerCtl: $("power-ctl"),
@@ -143,8 +142,6 @@ type Fireable = "babyMissile" | "missile" | "roller" | "napalm" | "nuke" | "dirt
 let aim = { yaw: 0, pitch: 45, power: 500 };
 let weapon: Fireable = "babyMissile";
 let moveMode = false;
-/** Nafta en pantalla chica: el destino ya marcado, que espera el "Ir ahí". */
-let moveDest: { x: number; z: number } | null = null;
 let moveHover: MoveModel["hover"] = null;
 let terrain: Terrain | null = null;
 /** El terreno de la ronda 1 de la partida en curso, sin tocar: contra él se ve qué es hoyo (validateSpawn). */
@@ -1250,12 +1247,9 @@ function renderHud(phase: string): void {
     : "Mové el tanque antes de tirar: después, clic en el piso";
   const canMove = mine && fuel > 0 && !s.moved;
   if (!canMove) moveMode = false;
-  if (!moveMode) moveDest = null;
   ui.fuelBtn.hidden = fuel <= 0;
   ui.fuelBtn.disabled = !canMove;
   ui.fuelBtn.classList.toggle("on", moveMode);
-  ui.fuelBtn.classList.toggle("go", moveMode && !!moveDest);
-  ui.fuelLabel.textContent = moveMode && moveDest ? "Ir ahí" : "Nafta";
 }
 
 /** Qué hace cada cosa de la tienda, en una línea. La descripción larga del sim queda de tooltip. */
@@ -1555,25 +1549,13 @@ function toggleMoveMode(): void {
   if ((me()?.fuel ?? 0) <= 0 || room?.state.moved) return;
   moveMode = !moveMode;
   moveHover = null;
-  moveDest = null;
   // Se dice qué sigue: el anillo solo no avisa que hay que tocar el piso.
   if (moveMode) showBanner(compact.matches ? "Tocá el piso adonde vas" : "Clic en el piso adonde vas", 2500);
   onState();
 }
 
-/** El botón (o la N) de la Nafta: la elige, la suelta o, con el destino ya marcado, lo confirma. */
-function fuelOrConfirm(): void {
-  if (moveMode && moveDest && myTurn() && room) {
-    room.send("move", { moveTo: moveDest });
-    moveMode = false;
-    moveHover = null;
-    onState();
-    return;
-  }
-  toggleMoveMode();
-}
 ui.fuelBtn.addEventListener("click", () => {
-  fuelOrConfirm();
+  toggleMoveMode();
   ui.fuelBtn.blur(); // las teclas vuelven al cañón
 });
 
@@ -1789,11 +1771,7 @@ const fingers = new Map<number, { x: number; y: number }>();
 let tap: { id: number; moved: number } | null = null;
 const byFinger = (e: PointerEvent) => compact.matches && e.pointerType !== "mouse";
 
-/**
- * Clic (o toque) en el piso con la Nafta elegida: mueve el tanque si el sim lo deja. En pantalla
- * chica no sale con el toque: queda marcado y se confirma con su botón ("Ir ahí"), así un dedo que
- * iba para Tirar no corre el tanque ni al revés.
- */
+/** Clic (o toque) en el piso con la Nafta elegida: mueve el tanque si el sim lo deja. */
 function moveTo(e: PointerEvent): void {
   if (!moveMode || !myTurn() || !room) return;
   const to = pickGround(e);
@@ -1802,14 +1780,6 @@ function moveTo(e: PointerEvent): void {
   const check = validateMove(view, room.sessionId, to);
   if (!check.ok) {
     showBanner(`No: ${check.reason}`, 1500);
-    return;
-  }
-  if (compact.matches) {
-    moveDest = to;
-    onState();
-    // Falta un toque: se dice cuál y el botón queda a la vista aunque la fila de armas esté corrida.
-    showBanner("Marcado. Tocá Ir ahí para correrte", 2500);
-    ui.fuelBtn.scrollIntoView({ block: "nearest", inline: "nearest" });
     return;
   }
   room.send("move", { moveTo: to });
@@ -1956,7 +1926,7 @@ window.addEventListener("keydown", (e) => {
       break;
     case "n":
     case "N":
-      fuelOrConfirm();
+      toggleMoveMode();
       break;
     case "Escape":
       moveMode = false;
@@ -2071,8 +2041,6 @@ function frame(now: number): void {
 
   const myTank = tanks.find((t) => t.isMe);
   const ghost = moveMode ? null : computeGhost(myTank, tanks, wind);
-  // El destino marcado de la Nafta se queda dibujado hasta que se confirma o se marca otro.
-  const marked = moveMode && moveDest ? { x: moveDest.x, y: terrainHeightAt(terrain, moveDest.x, moveDest.z), z: moveDest.z, ok: true } : null;
   const fires = firesOf(s);
   // Tienda: las estacas de la ronda que viene, y la cámara en la mía (cada punto que elijo la lleva ahí).
   const spawns: SpawnModel[] =
@@ -2095,7 +2063,7 @@ function frame(now: number): void {
       moundMode && mySpawn && spawnHover
         ? { center: spawnHover, range: WEAPONS.dirt.mound!.radius, hover: spawnHover }
         : moveMode && myTank
-          ? { center: { x: myTank.x, z: myTank.z }, range: FUEL_MOVE_RANGE, hover: marked ?? moveHover }
+          ? { center: { x: myTank.x, z: myTank.z }, range: FUEL_MOVE_RANGE, hover: moveHover }
           : null,
     spawns,
     spawnHover: mySpawn ? spawnHover : null,
