@@ -88,6 +88,7 @@ const ui = {
   shopItems: $("shop-items"),
   ready: $<HTMLButtonElement>("btn-ready"),
   overlay: $("overlay"),
+  endCode: $("end-code"),
   overlayTitle: $("overlay-title"),
   overlaySub: $("overlay-sub"),
   scoresBody: $("scores-body"),
@@ -719,6 +720,7 @@ function attach(r: Room<any>): void {
   moveMode = false;
   ownTank = false;
   ui.lobbyCode.textContent = r.roomId;
+  ui.endCode.textContent = r.roomId;
   ui.hudCode.textContent = r.roomId;
   saveSeat(r);
   r.onReconnect(() => saveSeat(r)); // el token cambia cada vez que se reconecta
@@ -990,6 +992,7 @@ function setChatOpen(open: boolean): void {
 
 function resetChat(): void {
   setChatOpen(false);
+  ui.chat.classList.remove("end");
   ui.chatLog.replaceChildren();
   ui.chatInput.value = "";
   liftChat(0);
@@ -1354,6 +1357,7 @@ function shopSlot(id: ShopItemId): ShopSlot {
 }
 
 function renderEnd(phase: string): void {
+  ui.chat.classList.toggle("end", phase === "ended");
   if (phase !== "ended") {
     ui.overlay.hidden = true;
     return;

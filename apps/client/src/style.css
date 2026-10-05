@@ -323,11 +323,19 @@ kbd {
 .item:disabled .price { color: var(--muted); }
 
 /* Fin de partida */
-.overlay { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; background: rgba(12, 10, 7, 0.55); }
+.overlay {
+  position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: 16px; background: rgba(12, 10, 7, 0.55);
+}
+/* El código de la sala va arriba de la tarjeta, grande: la esquina del HUD queda tapada. */
+.end-code {
+  flex: none; display: flex; align-items: baseline; gap: 12px; padding: 6px 18px; font-weight: 700; color: var(--muted);
+  background: var(--glass); border: 1px solid var(--line); border-radius: var(--radius); backdrop-filter: blur(8px);
+}
+.end-code .code { font-size: 40px; letter-spacing: 8px; margin-right: -8px; line-height: 1; user-select: all; -webkit-user-select: all; }
 /* Con la cuenta de cada uno la tabla es más alta. Si no entra, se desliza la tabla y no la tarjeta:
    el código, Otra vez y Salir quedan siempre a la vista. */
-.overlay { grid-template-rows: minmax(0, 1fr); }
-.end-card { width: min(580px, 100%); max-height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.end-card { flex: 0 1 auto; width: min(580px, 100%); min-height: 0; display: flex; flex-direction: column; }
 .end-card > * { flex: none; }
 .end-card > .scores-wrap { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
 .end-actions { display: grid; gap: 14px; }
@@ -363,6 +371,14 @@ kbd {
 .chat.open .chat-log:empty { display: none; }
 /* En la espera no flota: va al pie de la tarjeta, abajo de Salir (main.ts lo muda ahí). */
 #screen-lobby .chat { position: static; width: auto; padding-top: 14px; border-top: 1px solid var(--line); }
+/* Final en ventana no tan ancha: el chat caería sobre la tarjeta. Va en un renglón propio abajo de ella
+   (la línea y, al lado, lo último que llegó), así Otra vez y Salir quedan a la vista. */
+@media (min-width: 761px) and (max-width: 1320px) {
+  .overlay { padding-bottom: 64px; }
+  .chat.end:not(.open) { width: auto; right: 12px; grid-template-columns: 340px minmax(0, 1fr); align-items: end; }
+  .chat.end:not(.open) .chat-form { grid-area: 1 / 1; }
+  .chat.end:not(.open) .chat-log { grid-area: 1 / 2; max-height: 2.6em; }
+}
 
 @media (max-width: 900px) {
   .keys { display: none; }
@@ -433,6 +449,10 @@ kbd {
   .chat-toggle { display: block; pointer-events: auto; min-height: 40px; padding: 8px 14px; background: var(--glass); backdrop-filter: blur(8px); }
   .chat-log { max-height: 2.6em; }
   .chat:not(.open) .chat-log li.old { display: none; }
+  /* En el final lo que llega se lee al lado del botón, no encima: arriba están Otra vez y Salir. */
+  .chat.end:not(.open) { grid-template-columns: auto minmax(0, 1fr); align-items: end; }
+  .chat.end:not(.open) .chat-toggle { grid-area: 1 / 1; }
+  .chat.end:not(.open) .chat-log { grid-area: 1 / 2; }
   .chat.open { top: 66px; bottom: auto; width: auto; right: 12px; grid-template-columns: minmax(0, 1fr) auto; justify-items: stretch; }
   .chat.open .chat-form { display: block; grid-area: 1 / 1; }
   .chat.open .chat-toggle { grid-area: 1 / 2; }
@@ -524,7 +544,8 @@ kbd {
   /* Fin de partida parado: con cuatro, Otra vez y Salir tienen que entrar sin deslizar. Menos aire,
      los dos botones en un renglón y, abajo, el lugar del botón de Chat. Si aun así la tabla no entra,
      main.ts deja la cuenta completa solo al que ganó (renderEnd). */
-  .overlay { padding: 8px 8px 60px; }
+  .overlay { padding: 8px 8px 60px; gap: 6px; }
+  .end-code .code { font-size: 32px; letter-spacing: 6px; margin-right: -6px; }
   .end-card { padding: 16px; gap: 10px; }
   .end-card h2 { font-size: 22px; }
   .end-card .sub { font-size: 14px; }
