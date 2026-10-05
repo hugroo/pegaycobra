@@ -17,6 +17,7 @@ import {
   matchWinners,
   MONEY_START,
   moveTank,
+  nextRound3D,
   parseMap,
   resolveTurn,
   ROUND_MAX_TURNS,
@@ -38,6 +39,7 @@ import {
   type Scoreboard,
   type ShopItemId,
   type Shot3DResult,
+  type Terrain,
   type TurnResult3D,
   type WeaponId,
 } from "@pegaycobra/sim";
@@ -255,7 +257,7 @@ export class Game {
   endReason: "rounds" | "forfeit" | null = null;
   /** Resumen de la última ronda terminada (lo que cobró cada uno). */
   lastRound: RoundSummary | null = null;
-  /** Sube cada vez que empieza una ronda (el server manda el terreno nuevo). */
+  /** Sube cada vez que empieza una ronda (el server manda el terreno completo). */
   roundSerial = 0;
   /** Jugadores que tocaron "listo" en la tienda. */
   readonly ready = new Set<string>();
@@ -282,6 +284,8 @@ export class Game {
   /** Los que recibieron esa Nafta desde la última vez que la sala lo leyó (takeRefuel). */
   private refueled: string[] = [];
   private baseSeed = 0;
+  /** El terreno como nació en la ronda 1 de la partida en curso: contra él se ve qué es hoyo al reubicar los tanques. */
+  private pristine: Terrain | null = null;
   /** De acá sale cuánto se corre el viento en cada turno. Se rearma con la semilla de cada ronda. */
   private windRng: () => number = Math.random;
 
@@ -398,7 +402,8 @@ export class Game {
 
   /**
    * Revancha en la misma sala: los que quedan siguen en su asiento (mismo id, nombre y color) y la
-   * partida arranca de cero, como un start, en el mismo mapa y con el mismo reloj. Los asientos de los que se fueron se sueltan.
+   * partida arranca de cero, como un start, en el mismo mapa y con el mismo reloj, sobre un terreno
+   * nuevo: es otra partida, no otra ronda. Los asientos de los que se fueron se sueltan.
    */
   rematch(byId: string, seed: number): boolean {
     if (!this.canRematch(byId)) return false;
@@ -422,8 +427,15 @@ export class Game {
     this.round++;
     this.roundSerial++;
     const gone = new Set(this.seats.filter((s) => !s.connected).map((s) => s.id));
-    this.match = startRound3D(this.seedFor(this.round), players, gone, this.map);
-    this.windRng = createRng(this.seedFor(this.round) ^ 0x7f4a7c15);
+    const seed = this.seedFor(this.round);
+    // La ronda 1 genera el terreno de la partida. Las demás se juegan sobre ese mismo piso, como quedó.
+    if (this.round === 1 || !this.match || !this.pristine) {
+      this.match = startRound3D(seed, players, gone, this.map);
+      this.pristine = this.match.terrain;
+    } else {
+      this.match = nextRound3D(seed, { ...this.match, players }, this.pristine, gone, this.map);
+    }
+    this.windRng = createRng(seed ^ 0x7f4a7c15);
     const { terrain, tanks } = this.match;
     // Cada cañón arranca mirando al centro del mapa, a 45°.
     const cx = (terrain.width - 1) / 2;
@@ -434,7 +446,7 @@ export class Game {
     }
     this.turnsTaken.clear();
     this.earned.clear();
-    this.marks.clear(); // terreno y posiciones nuevos: las marcas de la ronda anterior no dicen nada
+    this.marks.clear(); // posiciones nuevas: las marcas de la ronda anterior no dicen nada
     this.ready.clear();
     this.movedThisTurn = false;
     this.steppedThisTurn = false;

@@ -1,17 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyCraterTerrain,
   buyItem,
   cannotBuy,
   cannotSell,
   createFlatTerrain,
+  createRng,
   endRoundPayouts,
   FUEL_MOVE_RANGE,
   INFINITE_AMMO,
   INTEREST_RATE,
+  isDug,
+  MAP_IDS,
   matchWinners,
   MONEY_PER_ROUND,
   MONEY_START,
   moveTank,
+  nextRound3D,
+  placeTanks3D,
   resolveTurn,
   ROUNDS_PER_MATCH,
   roundOver,
@@ -26,11 +32,15 @@ import {
   startRound3D,
   SURVIVOR_BONUS,
   TANK_MAX_LIFE,
+  TANK_MIN_SEPARATION_3D,
   tanks3DAt,
   terrainHeightAt,
   validateMove,
+  WATER_LEVEL,
+  WEAPONS,
   type MatchState3D,
   type Player,
+  type Terrain,
 } from "../src";
 import { dial } from "./aim";
 
@@ -70,6 +80,117 @@ describe("rondas", () => {
     expect(s.tanks.find((t) => t.id === "B")!.life).toBe(0);
     expect(roundOver(s)).toBe(false);
   });
+
+  it("la ronda siguiente se juega sobre el mismo piso: viento sorteado, vida llena, plata e inventario tal cual, sin fuego", () => {
+    const first = startRound3D(7, [buyItem(fresh("A"), "missile"), fresh("B"), fresh("C")]);
+    // Así termina la ronda 1: un hoyo de Bombazo en el medio, poca vida y un fuego prendido.
+    const played: MatchState3D = {
+      ...first,
+      terrain: applyCraterTerrain(first.terrain, 128, terrainHeightAt(first.terrain, 128, 128), 128, WEAPONS.nuke.craterRadius),
+      tanks: first.tanks.map((t) => ({ ...t, life: 12 })),
+      fires: [{ x: 100, z: 100, radius: 9, damagePerTurn: 20, ownerId: "A", weaponId: "napalm" }],
+    };
+    const second = nextRound3D(8, played, first.terrain, new Set(["C"]));
+    expect(second.terrain).toBe(played.terrain); // el mismo heightmap, con el hoyo
+    expect(isDug(second.terrain, first.terrain, 128, 128)).toBe(true);
+    expect(second.players).toEqual(played.players);
+    expect(second.fires).toBeUndefined();
+    expect(second.tanks.map((t) => t.life)).toEqual([TANK_MAX_LIFE, TANK_MAX_LIFE, 0]);
+    for (const t of second.tanks) expect(t.y).toBe(terrainHeightAt(played.terrain, t.x, t.z));
+    // El viento es el sorteo de siempre para esa semilla, no el que quedó.
+    expect(second.wind).toEqual(startRound3D(8, played.players).wind);
+    expect(second.wind).not.toEqual(first.wind);
+  });
+});
+
+describe("ronda siguiente: nadie nace en un hoyo", () => {
+  const GROUND = 10;
+  const separated = (spots: readonly { x: number; z: number }[]) => {
+    for (let i = 0; i < spots.length; i++) {
+      for (let j = i + 1; j < spots.length; j++) {
+        expect(Math.hypot(spots[i]!.x - spots[j]!.x, spots[i]!.z - spots[j]!.z)).toBeGreaterThanOrEqual(TANK_MIN_SEPARATION_3D);
+      }
+    }
+  };
+  /** Piso plano a 10 con una corona (de `inner` a `outer` celdas del centro) a la altura `h`. */
+  function crown(h: number, inner: number, outer: number): Terrain {
+    const t = createFlatTerrain(257, 257, GROUND);
+    for (let z = 0; z < t.depth; z++) {
+      for (let x = 0; x < t.width; x++) {
+        const d = Math.hypot(x - 128, z - 128);
+        if (d >= inner && d <= outer) t.heights[x + z * t.width] = h;
+      }
+    }
+    return t;
+  }
+
+  it("si todo el anillo del sorteo quedó cavado, cada tanque se corre al piso sin tocar más cercano y siguen separados", () => {
+    // El sorteo cae entre 78 y 102 celdas del centro: una corona de 70 a 115 lo tapa entero. Bajó 3: sigue
+    // seca y con altura de arranque, así que lo único que los saca de ahí es que es un hoyo.
+    const pristine = createFlatTerrain(257, 257, GROUND);
+    const dug = crown(GROUND - 3, 70, 115);
+    for (let seed = 1; seed <= 40; seed++) {
+      for (const n of [2, 3, 4]) {
+        // Sin el terreno original, el mismo sorteo los deja adentro de la corona.
+        for (const s of placeTanks3D(dug, n, createRng(seed * 7 + n))) expect(isDug(dug, pristine, s.x, s.z)).toBe(true);
+
+        const spots = placeTanks3D(dug, n, createRng(seed * 7 + n), undefined, pristine);
+        for (const s of spots) {
+          expect(isDug(dug, pristine, s.x, s.z)).toBe(false);
+          expect(terrainHeightAt(dug, s.x, s.z)).toBe(GROUND);
+          // El borde de adentro o el de afuera, el que quede a mano: no cruza el mapa.
+          const d = Math.hypot(s.x - 128, s.z - 128);
+          expect(d).toBeGreaterThan(60);
+          expect(d).toBeLessThan(125);
+        }
+        separated(spots);
+      }
+    }
+  });
+
+  it("una loma no es hoyo: se nace arriba como en cualquier piso", () => {
+    const pristine = createFlatTerrain(257, 257, GROUND);
+    const raised = crown(GROUND + 6, 70, 115);
+    for (const n of [2, 3, 4]) {
+      // El mismo sorteo, con y sin el terreno original: nadie se corre.
+      expect(placeTanks3D(raised, n, createRng(n), undefined, pristine)).toEqual(placeTanks3D(raised, n, createRng(n)));
+    }
+  });
+
+  it("si no queda piso sin cavar, nacen igual en firme y separados", () => {
+    const pristine = createFlatTerrain(257, 257, GROUND);
+    const dug = createFlatTerrain(257, 257, GROUND - 3);
+    for (const n of [2, 3, 4]) {
+      const spots = placeTanks3D(dug, n, createRng(n), undefined, pristine);
+      for (const s of spots) expect(terrainHeightAt(dug, s.x, s.z)).toBeGreaterThan(WATER_LEVEL);
+      separated(spots);
+    }
+  });
+
+  it("en los mapas del juego, con un Bombazo donde iba a nacer cada uno, nadie nace en el hoyo ni en el agua que dejó", () => {
+    const R = WEAPONS.nuke.craterRadius;
+    for (const map of MAP_IDS) {
+      for (let seed = 1; seed <= 12; seed++) {
+        for (const n of [2, 3, 4]) {
+          const players = Array.from({ length: n }, (_, i) => fresh(`P${i}`));
+          const first = startRound3D(seed * 31 + n, players, new Set(), map);
+          // Dónde nacerían en la ronda 2 con el piso sano: ahí, y donde nacieron en la 1, cae un Bombazo.
+          const untouched = nextRound3D(seed * 37 + n, first, first.terrain, new Set(), map);
+          let terrain = first.terrain;
+          for (const t of [...first.tanks, ...untouched.tanks]) terrain = applyCraterTerrain(terrain, t.x, t.y, t.z, R);
+          for (const t of untouched.tanks) expect(isDug(terrain, first.terrain, t.x, t.z)).toBe(true);
+
+          const second = nextRound3D(seed * 37 + n, { ...first, terrain }, first.terrain, new Set(), map);
+          expect(second.terrain).toBe(terrain);
+          for (const t of second.tanks) {
+            expect(isDug(terrain, first.terrain, t.x, t.z)).toBe(false);
+            expect(t.y).toBeGreaterThan(WATER_LEVEL);
+          }
+          separated(second.tanks);
+        }
+      }
+    }
+  }, 30_000);
 });
 
 describe("plata de fin de ronda", () => {

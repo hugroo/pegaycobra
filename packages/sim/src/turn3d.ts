@@ -137,8 +137,17 @@ export const TANK_MIN_SEPARATION_3D = 60;
  * (nearestStart): nadie nace en el lago.
  * Con el anillo a 0.36 del ancho (START_RING), la cuerda entre vecinos es ≥ 130 wu con 4 jugadores.
  * Cada mapa trae su anillo (maps.ts): en uno con agua alrededor tiene que caer sobre la tierra.
+ * Con `pristine` (el terreno como nació la partida) el piso ya está jugado: tampoco nace nadie en un
+ * hoyo (isDug). El candidato cavado se descarta, y si el punto del anillo quedó en uno, se corre igual
+ * que con el agua. Sin `pristine` el sorteo es el de siempre, número por número.
  */
-export function placeTanks3D(terrain: Terrain, count: number, rng: () => number, ring = START_RING): { x: number; z: number }[] {
+export function placeTanks3D(
+  terrain: Terrain,
+  count: number,
+  rng: () => number,
+  ring = START_RING,
+  pristine?: Terrain,
+): { x: number; z: number }[] {
   const cx = (terrain.width - 1) / 2;
   const cz = (terrain.depth - 1) / 2;
   const radius = Math.min(cx, cz) * ring;
@@ -155,6 +164,7 @@ export function placeTanks3D(terrain: Terrain, count: number, rng: () => number,
       const cand = { x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r };
       const h = terrainHeightAt(terrain, cand.x, cand.z);
       if (h < TANK_START_HEIGHT_MIN || h > TANK_START_HEIGHT_MAX) continue;
+      if (pristine && isDug(terrain, pristine, cand.x, cand.z)) continue;
       if (placed.some((p) => Math.hypot(p.x - cand.x, p.z - cand.z) < TANK_MIN_SEPARATION_3D)) continue;
       pick = cand;
       found = true;
@@ -162,39 +172,51 @@ export function placeTanks3D(terrain: Terrain, count: number, rng: () => number,
     }
     const ring = pick;
     const tooClose = placed.some((p) => Math.hypot(p.x - ring.x, p.z - ring.z) < TANK_MIN_SEPARATION_3D);
-    if (!found && (tooClose || isWater(terrain, ring.x, ring.z))) pick = nearestStart(terrain, ring, placed) ?? ring;
+    const sunk = isWater(terrain, ring.x, ring.z) || (pristine !== undefined && isDug(terrain, pristine, ring.x, ring.z));
+    if (!found && (tooClose || sunk)) pick = nearestStart(terrain, ring, placed, pristine) ?? ring;
     placed.push(pick);
   }
   return placed;
 }
 
 /**
+ * ¿El piso en (x, z) es un hoyo? Está más bajo que en `pristine`, el terreno como nació la partida:
+ * lo bajó un cráter, o el aplanado de una caída. Lo que subió (una loma) no es hoyo, aunque después
+ * le hayan pegado, mientras no baje del piso original.
+ */
+export function isDug(terrain: Terrain, pristine: Terrain, x: number, z: number): boolean {
+  return terrainHeightAt(terrain, x, z) < terrainHeightAt(pristine, x, z);
+}
+
+/**
  * La celda de piso firme más cercana a `from` que queda a TANK_MIN_SEPARATION_3D o más de los ya
  * ubicados. Se prefiere suelo con altura de arranque ([5.5, 70]); si no hay, cualquiera que no sea
- * agua. Las dos filas del borde no cuentan. null si el mapa no tiene dónde.
+ * agua. Con `pristine`, lo cavado (isDug) queda último: solo si no hay otro piso firme. Las dos
+ * filas del borde no cuentan. null si el mapa no tiene dónde.
  */
 function nearestStart(
   terrain: Terrain,
   from: { x: number; z: number },
   placed: readonly { x: number; z: number }[],
+  pristine?: Terrain,
 ): { x: number; z: number } | null {
-  let good: { x: number; z: number } | null = null;
-  let dry: { x: number; z: number } | null = null;
-  let goodD = Infinity;
-  let dryD = Infinity;
+  // De mejor a peor: altura de arranque, firme, firme pero en un hoyo.
+  const best: ({ x: number; z: number } | null)[] = [null, null, null];
+  const bestD = [Infinity, Infinity, Infinity];
   for (let z = 2; z < terrain.depth - 2; z++) {
     for (let x = 2; x < terrain.width - 2; x++) {
-      const h = terrain.heights[x + z * terrain.width]!;
+      const i = x + z * terrain.width;
+      const h = terrain.heights[i]!;
       if (!(h > WATER_LEVEL)) continue;
-      const start = h >= TANK_START_HEIGHT_MIN && h <= TANK_START_HEIGHT_MAX;
+      const rank = pristine && h < pristine.heights[i]! ? 2 : h >= TANK_START_HEIGHT_MIN && h <= TANK_START_HEIGHT_MAX ? 0 : 1;
       const d = Math.hypot(x - from.x, z - from.z);
-      if (d >= (start ? goodD : dryD)) continue;
+      if (d >= bestD[rank]!) continue;
       if (placed.some((p) => Math.hypot(p.x - x, p.z - z) < TANK_MIN_SEPARATION_3D)) continue;
-      if (start) [good, goodD] = [{ x, z }, d];
-      else [dry, dryD] = [{ x, z }, d];
+      best[rank] = { x, z };
+      bestD[rank] = d;
     }
   }
-  return good ?? dry;
+  return best[0] ?? best[1] ?? best[2] ?? null;
 }
 
 export function tanks3DAt(

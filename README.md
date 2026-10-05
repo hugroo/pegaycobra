@@ -122,8 +122,13 @@ continua, quieta y más pálida.
 
 ### La partida
 
-- **5 rondas**, salvo que el anfitrión escriba otro número. Cada ronda tiene terreno nuevo, viento sorteado de nuevo, tanques reubicados y
+- **5 rondas**, salvo que el anfitrión escriba otro número. Cada ronda tiene viento sorteado de nuevo, tanques reubicados y
   vida llena. Empieza un jugador distinto cada ronda.
+- **El terreno queda.** De la ronda 2 en adelante se juega sobre el mismo piso, como lo dejó la
+  anterior: los hoyos, las lomas y el agua que abrió algún cráter siguen ahí. El fuego se apaga y
+  deja el piso quemado. Los tanques no nacen en un hoyo ni en el agua: si el sorteo cae en uno, se
+  corren al piso firme más cercano, con la separación de siempre. La revancha es otra partida y
+  arranca en un terreno nuevo.
 - **El viento es parte del tiro.** Al empezar cada turno se corre un poco desde el del turno
   anterior (entre 0.25 y 1 de los 5 que puede tener): nunca queda igual y nunca pasa de golpe a un
   huracán. El cartel y la flecha cambian al empezar el turno, no con un tiro en el aire.
@@ -380,7 +385,7 @@ pnpm typecheck
 | `bounce.ts` | **3D.** `simulateBounceShot3D()`: el tiro del Rebote, que toca el piso, pica una vez y sigue hasta el segundo golpe (`bounce` en el resultado: dónde picó y en qué tick) |
 | `napalm.ts` | **3D.** `fireFromShot()`: el fuego que deja un tiro de Quema (o null). `inFire()`: si un punto del piso está adentro del disco. Lo usan el server, la fantasma del cliente y el HUD |
 | `turn3d.ts` | **3D.** `rollWind3D()` (viento con el que arranca la ronda), `driftWind3D()` (el de cada turno: el anterior, corrido a lo sumo `WIND_DRIFT_MAX`), `placeTanks3D()`, `resolveTurn3D()`. `resolveTurn()` lo usa cuando el estado tiene `terrain`. Con paracaídas, la caída no daña. Con escudo, el próximo tiro que te alcanza no daña (`blocked`), salvo el Bombazo (`piercesShield`). Una Quema no toca el terreno y agrega un fuego a `state.fires`. Una Tierra sube el terreno y, con él, al tanque que quedó debajo; no saca vida ni gasta escudos. Un Racimo abierto se resuelve cabeza por cabeza, y el escudo absorbe una sola. Un Rebote explota una vez, donde termina el segundo tramo. `burnTurn3D()`: lo que pierde un tanque al empezar su turno parado en un fuego |
-| `campaign.ts` | **Partida.** `startRound3D()` (ronda nueva), `endRoundPayouts()` (premio por sobrevivir + interés), `SHOP_ITEMS`, `buyItem()` / `cannotBuy()`, `sellItem()` / `cannotSell()`, `validateMove()` / `moveTank()` (nafta), `scoreTurn()`, `standings()`, `matchWinners()` |
+| `campaign.ts` | **Partida.** `startRound3D()` (ronda 1: terreno nuevo) y `nextRound3D()` (las demás: el mismo piso, y nadie nace en un hoyo), `endRoundPayouts()` (premio por sobrevivir + interés), `SHOP_ITEMS`, `buyItem()` / `cannotBuy()`, `sellItem()` / `cannotSell()`, `validateMove()` / `moveTank()` (nafta), `scoreTurn()`, `standings()`, `matchWinners()` |
 
 Todo son funciones puras: reciben el estado y devuelven uno nuevo. En 3D el heightmap es un
 `Float32Array` de width × depth con índice `x + z * width`; la altura es y. En perfil, el
@@ -493,6 +498,9 @@ tanques son primitivas generadas.
   - **Ubicación de tanques propia** (`placeTanks3D`): sobre un anillo alrededor del centro,
     repartidos en ángulos iguales, nunca a menos de 60 celdas entre sí.
     `LandscapeDefnTankStartHeight::placeTank()` tira al azar y no garantiza distancia.
+  - **Un terreno por partida, no por ronda** (`nextRound3D`): el original genera un paisaje en cada
+    ronda; acá la ronda 2 se juega sobre el heightmap como quedó. Hoyo es lo que está más bajo que
+    en el terreno de la ronda 1 (`isDug`), y ahí no nace nadie.
   - **Sin paredes:** si x o z salen del mapa, el tiro se pierde ("¡Se fue!").
   - **Quemado de cráter** solo visual: el cliente oscurece las celdas que bajó un cráter (en el
     original lo hace `DeformTextures` con una textura de quemado; acá no hay texturas).

@@ -433,7 +433,8 @@ export class GameRoom extends Room<{ state: GameState }> {
 
   /**
    * Después de cada cambio: si el fuego quemó a alguien, lo avisa; si una vuelta sin daño dejó Nafta, también; si terminó una ronda, manda el
-   * resumen; si empezó una, manda el terreno nuevo completo; después sincroniza el estado.
+   * resumen; si empezó una, manda el terreno completo (en la ronda 1, recién generado; después, el
+   * mismo piso como quedó: al cliente le sirve de aviso de ronda nueva); después sincroniza el estado.
    */
   private flush(): void {
     const g = this.game;

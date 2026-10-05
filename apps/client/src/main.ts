@@ -568,20 +568,26 @@ interface TerrainMessage {
   data: Uint8Array;
 }
 
-/** Aplica un mensaje "terrain": completo (ronda nueva) o solo el rectángulo del cráter o de la loma. */
+/**
+ * Aplica un mensaje "terrain": completo (ronda nueva) o solo el rectángulo del cráter o de la loma.
+ * De la ronda 2 en adelante el completo trae el piso que ya estaba acá, con sus hoyos; si trae otro,
+ * es el de una partida nueva (el arranque o la revancha).
+ */
 function onTerrain(m: TerrainMessage): void {
   if (!terrain || terrain.width !== m.width || terrain.depth !== m.depth) {
     terrain = { width: m.width, depth: m.depth, heights: new Float32Array(m.width * m.depth) };
   }
   const src = new Float32Array(m.data.slice().buffer); // copia alineada
+  const full = m.w === m.width && m.d === m.depth;
+  const heights = terrain.heights;
+  const newGround = full && src.some((h, i) => h !== heights[i]);
   for (let z = 0; z < m.d; z++) {
-    terrain.heights.set(src.subarray(z * m.w, (z + 1) * m.w), (m.z0 + z) * m.width + m.x0);
+    heights.set(src.subarray(z * m.w, (z + 1) * m.w), (m.z0 + z) * m.width + m.x0);
   }
   terrainVersion++;
-  const full = m.w === m.width && m.d === m.depth;
   if (full) lastImpact = null; // ronda nueva
   world ??= new World(ui.viewport);
-  world.setTerrain(terrain, full ? undefined : { x0: m.x0, z0: m.z0, w: m.w, d: m.d }, full);
+  world.setTerrain(terrain, full ? undefined : { x0: m.x0, z0: m.z0, w: m.w, d: m.d }, newGround);
 }
 
 function showBanner(text: string, ms: number): void {

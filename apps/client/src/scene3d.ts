@@ -41,6 +41,8 @@ const SPLASH_MS = 1000;
 const SPLASH_SMALL_MS = 600;
 /** Llamas que se dibujan sobre cada fuego de Napalm. */
 const FLAMES_PER_FIRE = 11;
+/** Lo quemado que deja un fuego de Napalm al apagarse, en el centro del disco. [0..1, como el de un cráter] */
+const ASH = 0.6;
 /** La fantasma está viva: sus rayas corren hacia donde caería el tiro. La marca de un tiro viejo no se mueve. */
 const GHOST_DASH = 1.6;
 const GHOST_GAP = 1.2;
@@ -303,6 +305,9 @@ export class World {
   private heat = new Float32Array(0);
   /** Los fuegos ya pintados; si cambia, se repinta la mancha y se rearman las llamas. */
   private fireKey = "";
+  /** Sube cuando llega un terreno que es otro (partida nueva), y el valor que tenía cuando se pintó `heat`. */
+  private groundRev = 0;
+  private heatRev = 0;
   private readonly flames = new THREE.Group();
   private readonly flameGeo = new THREE.ConeGeometry(0.55, 1, 6).translate(0, 0.5, 0); // base en y = 0
   private readonly flameMat = new THREE.MeshBasicMaterial({ color: "#ffb347", transparent: true, opacity: 0.85 });
@@ -569,9 +574,10 @@ export class World {
 
   /**
    * Crea o actualiza el mesh. `rect` limita qué vértices se recalculan (parche de cráter o de loma).
-   * `newRound`: el terreno es de una ronda nueva, se borran las marcas de quemado.
+   * `newGround`: el terreno es otro (partida nueva), se borran las marcas de quemado. Una ronda nueva
+   * de la misma partida trae el mismo piso: lo quemado se queda, como los hoyos.
    */
-  setTerrain(t: Terrain, rect?: { x0: number; z0: number; w: number; d: number }, newRound = false): void {
+  setTerrain(t: Terrain, rect?: { x0: number; z0: number; w: number; d: number }, newGround = false): void {
     const fresh = !this.terrainMesh || !this.terrain || this.terrain.width !== t.width || this.terrain.depth !== t.depth;
     this.terrain = t;
     this.terrainRev++;
@@ -579,7 +585,10 @@ export class World {
       this.buildTerrain(t);
       return;
     }
-    if (newRound) this.scorch.fill(0);
+    if (newGround) {
+      this.scorch.fill(0);
+      this.groundRev++;
+    }
     const geo = this.terrainMesh!.geometry as THREE.BufferGeometry;
     const pos = geo.getAttribute("position") as THREE.BufferAttribute;
     const col = geo.getAttribute("color") as THREE.BufferAttribute;
@@ -591,9 +600,9 @@ export class World {
         const before = pos.getY(i);
         const now = t.heights[i]!;
         // Quemado: lo que bajó un cráter queda oscuro (en el original, DeformTextures + scorch).
-        if (!newRound && now < before - 0.05) this.scorch[i] = Math.min(1, (this.scorch[i] ?? 0) + Math.min(1, (before - now) / 3));
+        if (!newGround && now < before - 0.05) this.scorch[i] = Math.min(1, (this.scorch[i] ?? 0) + Math.min(1, (before - now) / 3));
         // Lo que subió es tierra nueva (una loma): tapa lo quemado.
-        else if (!newRound && now > before + 0.05) this.scorch[i] = 0;
+        else if (!newGround && now > before + 0.05) this.scorch[i] = 0;
         pos.setY(i, now);
       }
     }
@@ -707,11 +716,16 @@ export class World {
           this.flames.add(flame);
         }
       }
+      // El fuego que se apagó con la ronda deja el piso quemado, si el piso sigue siendo el mismo: en
+      // una partida nueva no hay nada que tiznar.
+      const ash = this.heatRev === this.groundRev;
+      this.heatRev = this.groundRev;
       // Se repintan solo las celdas cuyo fuego cambió (las que se prendieron o, en ronda nueva, se apagaron).
       const col = this.terrainMesh.geometry.getAttribute("color") as THREE.BufferAttribute;
       const c = new THREE.Color();
       for (let i = 0; i < this.heat.length; i++) {
         if (this.heat[i] === before[i]) continue;
+        if (ash && this.heat[i] === 0) this.scorch[i] = Math.max(this.scorch[i] ?? 0, ASH * before[i]!);
         terrainColor(t, i % t.width, Math.floor(i / t.width), this.scorch[i] ?? 0, this.heat[i]!, c);
         col.setXYZ(i, c.r, c.g, c.b);
       }

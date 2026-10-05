@@ -4,6 +4,7 @@ import {
   FREE_STEP_RANGE,
   FUEL_MOVE_RANGE,
   INTEREST_RATE,
+  isDug,
   launchPower,
   MONEY_PER_ROUND,
   MONEY_START,
@@ -13,8 +14,11 @@ import {
   simulateWeaponShot3D,
   startingInventory,
   SURVIVOR_BONUS,
+  TANK_MIN_SEPARATION_3D,
+  TANK_START_HEIGHT_MIN,
   terrainHeightAt,
   validateMove,
+  WATER_LEVEL,
   WEAPONS,
   type WeaponId,
 } from "@pegaycobra/sim";
@@ -77,7 +81,7 @@ describe("rondas", () => {
     expect(g.lastRound!.survivors.sort()).toEqual(["A", "B"]); // los dos cobran por sobrevivir
   });
 
-  it("la ronda siguiente tiene viento sorteado de nuevo, terreno nuevo y vida llena", () => {
+  it("la ronda siguiente tiene viento sorteado de nuevo y vida llena, sobre el mismo terreno", () => {
     const g = started(5);
     const wind1 = g.match!.wind;
     const terrain1 = g.match!.terrain;
@@ -88,7 +92,7 @@ describe("rondas", () => {
       g.setReady("B");
       expect(g.round).toBe(r);
       expect(g.phase).toBe("aiming");
-      expect(g.match!.terrain).not.toBe(terrain1);
+      expect(g.match!.terrain).toBe(terrain1); // nadie tiró: el piso es el de la ronda 1
       expect(g.match!.tanks.every((t) => t.life === 100)).toBe(true);
       winds.push(`${g.match!.wind.x},${g.match!.wind.z}`);
     }
@@ -188,6 +192,109 @@ describe("rondas", () => {
     g.setReady("A");
     g.setReady("B");
     expect(g.turnId).not.toBe(first1);
+  });
+});
+
+describe("el terreno queda de una ronda a la otra", () => {
+  // Con esta semilla, A nacería en la ronda 2 sobre un cerro de 40 de alto: el hoyo de un Bombazo ahí
+  // no llega al agua y el fondo tiene altura de arranque. Lo único que lo saca es que es un hoyo.
+  const SEED = 34;
+  const toShop = (g: Game) => killAndPass(g, "B");
+  const toNextRound = (g: Game) => {
+    g.setReady("A");
+    g.setReady("B");
+  };
+  const tank = (g: Game, id: string) => g.match!.tanks.find((t) => t.id === id)!;
+
+  /** Ronda 1: A se para a 40 celdas de `spot`, sin viento, y le tira un Bombazo. Queda en el turno de B. */
+  function nukeAt(g: Game, spot: { x: number; z: number }) {
+    const terrain = g.match!.terrain;
+    const d = Math.hypot(128 - spot.x, 128 - spot.z);
+    const from = { x: spot.x + ((128 - spot.x) / d) * 40, z: spot.z + ((128 - spot.z) / d) * 40 };
+    g.match = {
+      ...g.match!,
+      wind: { x: 0, z: 0 },
+      tanks: g.match!.tanks.map((t) => (t.id === "A" ? { ...t, ...from, y: terrainHeightAt(terrain, from.x, from.z) } : t)),
+      players: g.match!.players.map((p) => (p.id === "A" ? { ...p, inventory: { ...p.inventory, nuke: 1 } } : p)),
+    };
+    const a = tank(g, "A");
+    const yaw = (Math.atan2(spot.z - a.z, spot.x - a.x) * 180) / Math.PI;
+    // La potencia la busca el sim, como en los demás tests: la que cae más cerca del punto.
+    let best = { power: 0, miss: Infinity };
+    for (let power = 100; power <= 1000; power += 5) {
+      const r = simulateWeaponShot3D(terrain, WEAPONS.nuke, { originX: a.x, originY: a.y, originZ: a.z, yaw, pitch: 70, power, wind: { x: 0, z: 0 }, shooterId: "A" }, g.match!.tanks);
+      const miss = Math.hypot(r.x - spot.x, r.z - spot.z);
+      if (r.outcome === "ground" && miss < best.miss) best = { power, miss };
+    }
+    expect(best.miss).toBeLessThan(3);
+    expect(g.turnId).toBe("A");
+    expect(g.fire("A", { yaw, pitch: 70, power: best.power, weapon: "nuke" })).not.toBeNull();
+    g.finishShot();
+  }
+
+  it("un Bombazo en la ronda 1 deja el hoyo, y en la ronda 2 ese hoyo sigue y nadie nace adentro", () => {
+    // Dónde nacería A en la ronda 2 si nadie tocara el piso: la misma partida, sin el tiro.
+    const untouched = started(SEED);
+    toShop(untouched);
+    toNextRound(untouched);
+    const spot = tank(untouched, "A");
+
+    const g = started(SEED);
+    const pristine = g.match!.terrain;
+    nukeAt(g, spot);
+    const holed = g.match!.terrain;
+    const heights = holed.heights.slice();
+    const floor = terrainHeightAt(holed, spot.x, spot.z);
+    expect(floor).toBeLessThan(terrainHeightAt(pristine, spot.x, spot.z) - 10); // el hoyo
+    expect(floor).toBeGreaterThanOrEqual(TANK_START_HEIGHT_MIN);
+    expect(isDug(holed, pristine, spot.x, spot.z)).toBe(true);
+
+    toShop(g);
+    expect(g.phase).toBe("shop");
+    const players = g.match!.players;
+    toNextRound(g);
+    expect([g.round, g.phase]).toEqual([2, "aiming"]);
+
+    // El mismo heightmap: el hoyo sigue donde estaba y nada más cambió.
+    expect(g.match!.terrain).toBe(holed);
+    expect(g.match!.terrain.heights).toEqual(heights);
+    // La vida vuelve; la plata y el inventario, como salieron de la tienda.
+    expect(g.match!.tanks.every((t) => t.life === 100)).toBe(true);
+    expect(g.match!.players).toEqual(players);
+    // Nadie nace adentro: ni A, que iba ahí, ni B. Firme, apoyados y con la separación de siempre.
+    for (const t of g.match!.tanks) {
+      expect(isDug(holed, pristine, t.x, t.z)).toBe(false);
+      expect(t.y).toBe(terrainHeightAt(holed, t.x, t.z));
+      expect(t.y).toBeGreaterThan(WATER_LEVEL);
+    }
+    expect(Math.hypot(tank(g, "A").x - spot.x, tank(g, "A").z - spot.z)).toBeGreaterThan(WEAPONS.nuke.craterRadius);
+    expect(Math.hypot(tank(g, "A").x - tank(g, "B").x, tank(g, "A").z - tank(g, "B").z)).toBeGreaterThanOrEqual(TANK_MIN_SEPARATION_3D);
+  });
+
+  it("la revancha sí genera terreno nuevo, y sus rondas se quedan con ese", () => {
+    const g = new Game(TURN_SECONDS, SHOP_SECONDS);
+    g.addPlayer("A", "A");
+    g.addPlayer("B", "B");
+    g.setClock("A", { turn: TURN_SECONDS, shop: SHOP_SECONDS, rounds: 2 });
+    g.start("A", SEED);
+    nukeAt(g, tank(g, "B")); // el hoyo, donde sea: acá le cae a B
+    const holed = g.match!.terrain;
+    if (g.phase === "aiming") toShop(g);
+    toNextRound(g);
+    expect(g.match!.terrain).toBe(holed);
+    toShop(g);
+    expect(g.phase).toBe("ended");
+
+    expect(g.rematch("A", SEED + 1)).toBe(true);
+    const fresh = g.match!.terrain;
+    expect(fresh.heights).not.toEqual(holed.heights);
+    expect(fresh.heights).toEqual(started(SEED + 1).match!.terrain.heights); // el de una partida recién arrancada
+    // Los hoyos de la partida anterior no cuentan: nacen donde nacería cualquiera en ese cerro.
+    expect(g.match!.tanks.map(({ x, z }) => ({ x, z }))).toEqual(started(SEED + 1).match!.tanks.map(({ x, z }) => ({ x, z })));
+    toShop(g);
+    toNextRound(g);
+    expect(g.round).toBe(2);
+    expect(g.match!.terrain).toBe(fresh);
   });
 });
 

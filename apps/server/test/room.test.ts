@@ -109,10 +109,13 @@ describe("partida de 5 rondas por red", () => {
     const winds: string[] = [];
     let missileCountSeenByB: number[] = [];
     let missilesFired = 0;
+    /** El piso como lo dejó la ronda anterior, armado con los parches que recibió Beto. */
+    let left: Float32Array | null = null;
 
     for (let round = 1; round <= 5; round++) {
       await until(() => b.state.round === round && b.state.phase === "aiming" && tb.fulls === round);
       expect(ta.terrain!.heights).toEqual(tb.terrain!.heights); // el mismo cerro en las dos
+      if (left) expect(tb.terrain!.heights).toEqual(left); // y de la ronda 2 en adelante, el de antes, con sus hoyos
       winds.push(`${b.state.windX.toFixed(3)},${b.state.windZ.toFixed(3)}`);
 
       let turns = 0;
@@ -135,6 +138,7 @@ describe("partida de 5 rondas por red", () => {
       }
 
       await until(() => roundEnds.length === round);
+      left = tb.terrain!.heights.slice();
       if (round < 5) {
         await until(() => b.state.phase === "shop");
         expect(b.state.timeLeft).toBeGreaterThan(0);
@@ -221,6 +225,7 @@ describe("partida de 5 rondas por red", () => {
     expect(b.state.winnerId).toBe("");
     expect([...b.state.winners]).toEqual([]);
     expect(ta.terrain!.heights).toEqual(tb.terrain!.heights);
+    expect(tb.terrain!.heights).not.toEqual(left); // otra partida: cerro nuevo, sin los hoyos de la anterior
 
     await a.leave();
     await b.leave();
