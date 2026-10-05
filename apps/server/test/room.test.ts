@@ -14,6 +14,7 @@ import {
   SURVIVOR_BONUS,
   TANK_MIN_SEPARATION_3D,
   terrainHeightAt,
+  validateMound,
   validateSpawn,
   WATER_LEVEL,
   WEAPONS,
@@ -22,7 +23,7 @@ import {
 } from "@pegaycobra/sim";
 import type { Game } from "../src/game";
 import { createServer, ROOM_NAME } from "../src/server";
-import { GameRoom, type RoundEndBroadcast } from "../src/room";
+import { GameRoom, type MoundBroadcast, type RoundEndBroadcast } from "../src/room";
 import { applyTerrainMessage, type TerrainMessage } from "../src/terrain-net";
 
 const PORT = 25670 + Math.floor(Math.random() * 1000);
@@ -1265,6 +1266,104 @@ describe("partida de 5 rondas por red", () => {
       expect(spawnOf(r, b.sessionId)).toEqual([-1, -1, false]);
     }
     expect(tb.terrain!.heights).toEqual(ta.terrain!.heights);
+    await a.leave();
+    await b.leave();
+  });
+
+  it("loma en la tienda: Ana la deja, Beto ve el piso más alto antes de que empiece la ronda 2, y en la ronda 2 esa loma sigue", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto" });
+    const ta = trackTerrain(a);
+    const tb = trackTerrain(b);
+    const moundsA: MoundBroadcast[] = [];
+    const moundsB: MoundBroadcast[] = [];
+    a.onMessage("mound", (m: MoundBroadcast) => moundsA.push(m));
+    b.onMessage("mound", (m: MoundBroadcast) => moundsB.push(m));
+    for (const r of [a, b]) for (const type of ["shot", "skip", "moved", "roundEnd", "burn", "refuel"]) r.onMessage(type, () => {});
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    a.send("start");
+    await until(() => a.state.phase === "aiming" && b.state.phase === "aiming" && ta.fulls === 1 && tb.fulls === 1);
+    const seenBy = (r: Room<any>, id: string) => r.state.players.get(id);
+    // Jugando no hay loma a mano: lo que se mande ahora se ignora.
+    a.send("mound", { at: { x: 128, z: 128 } });
+
+    // A la tienda sin depender de la puntería: Beto muere a mano y Ana tira lejos de todo.
+    const game = (matchMaker.getLocalRoomById(a.roomId) as any).game as Game;
+    game.match = { ...game.match!, tanks: game.match!.tanks.map((t) => (t.id === b.sessionId ? { ...t, life: 0 } : t)) };
+    expect(a.state.turnId).toBe(a.sessionId);
+    a.send("fire", { yaw: seenBy(a, a.sessionId).yaw + 180, pitch: 60, power: 250 });
+    await until(() => a.state.phase === "shop" && b.state.phase === "shop");
+    expect(moundsA.length + moundsB.length).toBe(0);
+
+    // El piso con el que abre la tienda, igual en las dos pestañas. Ana no tiene Tierra: la paga ahí.
+    const before = tb.terrain!.heights.slice();
+    expect(before).toEqual(game.match!.terrain.heights);
+    expect(ta.terrain!.heights).toEqual(before);
+    const patches = [ta.patches, tb.patches];
+    const cash = seenBy(b, a.sessionId).money;
+    expect(seenBy(b, a.sessionId).dirts).toBe(0);
+    expect(cash).toBeGreaterThanOrEqual(SHOP_ITEMS.dirt.price);
+    for (const r of [a, b]) for (const id of [a.sessionId, b.sessionId]) expect(seenBy(r, id).mound).toBe(false);
+
+    // Ana busca dónde, con la misma cuenta del server: firme y lejos de los tanques que quedaron.
+    const tanks = [...b.state.players.values()].map((p: any) => ({ x: p.x as number, z: p.z as number }));
+    let at: { x: number; z: number } | null = null;
+    for (let z = 40.5; z < 217 && !at; z += 9) {
+      for (let x = 40.5; x < 217 && !at; x += 9) {
+        if (terrainHeightAt(tb.terrain!, x, z) > 8 && validateMound(tb.terrain!, tanks, { x, z }).ok) at = { x, z };
+      }
+    }
+    expect(at).not.toBeNull();
+    const floor = terrainHeightAt(tb.terrain!, at!.x, at!.z);
+    a.send("mound", { at });
+
+    // Beto ve subir el piso ya, con la tienda abierta: un parche, el mismo que Ana, y el aviso con el punto.
+    await until(() => ta.patches === patches[0]! + 1 && tb.patches === patches[1]! + 1 && moundsA.length === 1 && moundsB.length === 1);
+    expect([b.state.phase, b.state.round]).toEqual(["shop", 1]);
+    expect([ta.fulls, tb.fulls]).toEqual([1, 1]);
+    expect(terrainHeightAt(tb.terrain!, at!.x, at!.z)).toBeGreaterThan(floor + WEAPONS.dirt.mound!.radius - 1);
+    expect(tb.terrain!.heights.every((h, i) => h >= before[i]!)).toBe(true);
+    expect(tb.terrain!.heights).toEqual(ta.terrain!.heights);
+    expect(tb.terrain!.heights).toEqual(game.match!.terrain.heights);
+    expect(moundsB[0]).toEqual(moundsA[0]);
+    expect(moundsB[0]).toMatchObject({ id: a.sessionId, x: at!.x, z: at!.z });
+    expect(moundsB[0]!.y).toBeCloseTo(floor, 1);
+    // La compró y la usó en el mismo gesto: pagó el precio de la carta y no le quedó ninguna.
+    await until(() => seenBy(b, a.sessionId).mound === true && seenBy(a, a.sessionId).mound === true);
+    for (const r of [a, b]) {
+      expect(seenBy(r, a.sessionId).money).toBe(cash - SHOP_ITEMS.dirt.price);
+      expect(seenBy(r, a.sessionId).dirts).toBe(0);
+      expect(seenBy(r, b.sessionId).mound).toBe(false);
+    }
+
+    // Una por tienda: la segunda de Ana se ignora. Y una de Beto en el borde, también.
+    a.send("mound", { at: { x: at!.x + 30, z: at!.z } });
+    b.send("mound", { at: { x: 1, z: 128 } });
+    b.send("mound", "cualquiera");
+    await sleep(150);
+    expect([ta.patches, tb.patches]).toEqual([patches[0]! + 1, patches[1]! + 1]);
+    expect(moundsB).toHaveLength(1);
+    expect(seenBy(b, a.sessionId).money).toBe(cash - SHOP_ITEMS.dirt.price);
+    const mounded = tb.terrain!.heights.slice();
+
+    // La ronda 2 abre sobre ese mismo piso: la loma sigue ahí, en las dos pestañas.
+    a.send("ready");
+    b.send("ready");
+    await until(() => a.state.round === 2 && b.state.round === 2 && b.state.phase === "aiming" && ta.fulls === 2 && tb.fulls === 2);
+    for (const t of [ta, tb]) {
+      expect(t.terrain!.heights).toEqual(mounded);
+      expect(terrainHeightAt(t.terrain!, at!.x, at!.z)).toBeGreaterThan(floor + WEAPONS.dirt.mound!.radius - 1);
+    }
+    expect(game.match!.terrain.heights).toEqual(mounded);
+    for (const r of [a, b]) {
+      for (const id of [a.sessionId, b.sessionId]) {
+        const p = seenBy(r, id);
+        expect(p.mound).toBe(false);
+        expect(p.life).toBe(100);
+        expect(p.y).toBeCloseTo(terrainHeightAt(tb.terrain!, p.x, p.z), 3); // apoyados en el piso como quedó
+      }
+    }
     await a.leave();
     await b.leave();
   });

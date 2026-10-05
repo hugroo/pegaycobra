@@ -138,6 +138,15 @@ continua, quieta y más pálida.
   verde si vale y rojo si no, y al tocar un punto que no vale sale el motivo ("No: ahí hay agua").
   Las estacas van en el estado: todas las pestañas ven las mismas, en la vista 3D y en el minimapa.
   La ronda 1 y la revancha se sortean: no hay tienda antes, y el cerro es nuevo.
+- **Dejás una loma.** En la tienda, además de elegir dónde nacés, podés dejar una loma en el piso:
+  el botón *Loma* y después un clic en el cerro (un toque, en el teléfono). Sube ahí mismo, con
+  su polvo, y la ven todas las pestañas antes de que empiece la ronda; es terreno, así que la ronda
+  que viene se juega con ella (y las que siguen). Gasta una Tierra: la tuya si tenés una, o la
+  pagás en ese mismo gesto, al precio de la carta ($1.150), si te alcanza. Una por tienda cada
+  uno. Va en piso firme: no en el agua ni sobre un tanque de los que quedaron en el cerro (con el
+  disco a menos de 13 celdas de alguno, no). Un hoyo vale, y lo tapa. Bajo el cursor va el pie de
+  la loma, verde si ahí vale y rojo si no. El que nace donde hay una loma nace arriba. La revancha
+  la borra, porque el cerro es nuevo. La plata sigue comprando solo balas: la loma es una Tierra.
 - **El viento es parte del tiro.** Al empezar cada turno se corre un poco desde el del turno
   anterior (entre 0.25 y 1 de los 5 que puede tener): nunca queda igual y nunca pasa de golpe a un
   huracán. El cartel y la flecha cambian al empezar el turno, no con un tiro en el aire.
@@ -215,7 +224,8 @@ continua, quieta y más pálida.
   **La loma.** Es terreno de verdad: tapa tiros rasantes, el Rodillo la baja rodando y los cráteres
   la abren. Tierra sobre tierra sigue subiendo. Ningún tanque queda enterrado: el que estaba abajo
   (el tuyo también) sube con el piso y conserva la vida. No apaga un fuego: el disco sigue quemando
-  arriba de la loma. Dura lo que queda de la ronda, como todo el terreno.
+  arriba de la loma. Queda de una ronda a la otra, como todo el terreno, y en la tienda se puede
+  dejar una a mano (más arriba).
   **El racimo.** Se abre en el primer paso en que el tiro deja de subir. Si antes choca con un
   cerro o con un tanque, o sale rasante y nunca sube, no se abre: explota ahí como una cabeza sola.
   El dibujo es siempre el mismo, tire como tire: cuatro cabezas a 7 celdas de la del medio (menos si
@@ -276,6 +286,7 @@ de la misma sala podrían caer en servidores distintos.
   | `buy { item }` | tienda | que el ítem exista y te alcance la plata (`cannotBuy` del sim) |
   | `sell { item }` | tienda | que tengas ese ítem y no sea el Escudo (`cannotSell` del sim). Devuelve la mitad |
   | `spawn { at: { x, z } }` | tienda | que el punto esté dentro del mapa (sin las dos filas del borde), en piso firme, que no sea agua ni hoyo, y a 60 celdas o más de donde nace cada uno de los demás (`validateSpawn` del sim). Si no, se ignora y queda el nacimiento que tenías |
+  | `mound { at: { x, z } }` | tienda | que no hayas dejado ya una en esta tienda, que tengas una Tierra o te alcance para comprarla (`cannotBuy` del sim), y que el punto esté dentro del mapa (sin las dos filas del borde), en piso firme, que no sea agua, y con el disco a 13 celdas o más de cada tanque (`validateMound` del sim). Si no, se ignora y no gasta nada |
   | `ready` | tienda | — |
   | `chat { text }` | siempre | que sea texto. Lo deja en una línea, sin caracteres de control, de hasta 120 caracteres; si no queda nada, se ignora |
 
@@ -294,13 +305,19 @@ de la misma sala podrían caer en servidores distintos.
   `burnTurn3D` del sim para ese tanque; si se quemó, manda `burn { id, damage, killed }`.
 - El nacimiento de la ronda que viene va en el estado, por jugador (`spawnX`, `spawnZ` y
   `spawnPicked`; -1 fuera de la tienda). Al abrir la tienda el server ya hizo el sorteo de esa
-  ronda (`nextRoundSpots` del sim: el piso no cambia mientras se compra) y lo publica; cada `spawn`
+  ronda (`nextRoundSpots` del sim) y lo publica; cada `spawn`
   aceptado pisa el de ese jugador. Al arrancar la ronda, cada tanque nace donde quedó el suyo. El
   cliente valida con la misma función antes de mandar; para saber qué es hoyo guarda el terreno de
   la ronda 1, y al que vuelve después de recargar la página el server se lo manda de nuevo
   (`pristine`). El nacimiento del que se fue no se muestra ni le saca lugar a nadie.
+- La loma de la tienda (`Game.leaveMound`) sube el heightmap de la partida en el momento, con la
+  misma `applyMoundTerrain` de una Tierra que cae: el server manda a todos el rectángulo que cambió
+  (`terrain`) y un `mound { id, x, y, z }` para el polvo y el cartel, y descuenta la Tierra (o la
+  plata, si la compró ahí). Quién ya dejó la suya va en el estado (`mound`, por jugador). No mueve
+  el sorteo ni los nacimientos elegidos: cada tanque nace apoyado en el piso como quedó. Como la
+  ronda que viene se juega sobre ese mismo heightmap (`nextRound3D`), la loma sigue ahí.
 - En la tienda el bot también elige dónde nacer: la celda de piso firme más alta que cumple la
-  separación, y nada más (no mira a quién le tira desde ahí).
+  separación, y nada más (no mira a quién le tira desde ahí). No deja loma.
 - El bot compra en la tienda una sola cosa por ronda, si le alcanza: el escudo si le pegaron en la
   ronda anterior y no tiene uno; si no, sortea entre Misil, Rodillo, Rebote y nafta. Tira lo que
   tenga (Misil, si no Rebote, si no Rodillo, si no la Chispa) apuntando igual que siempre. La nafta
@@ -403,7 +420,7 @@ pnpm typecheck
 | `mirv.ts` | **3D.** `simulateSplitShot3D()`: el tiro del Racimo, que vuela hasta la cima y ahí se abre en cabezas (`split` en el resultado). `splitDirection()`: para qué lado sale cada una. `shotImpacts()`: los golpes de un tiro en el orden en que caen (uno, o uno por cabeza) |
 | `bounce.ts` | **3D.** `simulateBounceShot3D()`: el tiro del Rebote, que toca el piso, pica una vez y sigue hasta el segundo golpe (`bounce` en el resultado: dónde picó y en qué tick) |
 | `napalm.ts` | **3D.** `fireFromShot()`: el fuego que deja un tiro de Quema (o null). `inFire()`: si un punto del piso está adentro del disco. Lo usan el server, la fantasma del cliente y el HUD |
-| `turn3d.ts` | **3D.** `rollWind3D()` (viento con el que arranca la ronda), `driftWind3D()` (el de cada turno: el anterior, corrido a lo sumo `WIND_DRIFT_MAX`), `placeTanks3D()`, `validateSpawn()` (el nacimiento elegido en la tienda), `resolveTurn3D()`. `resolveTurn()` lo usa cuando el estado tiene `terrain`. Con paracaídas, la caída no daña. Con escudo, el próximo tiro que te alcanza no daña (`blocked`), salvo el Bombazo (`piercesShield`). Una Quema no toca el terreno y agrega un fuego a `state.fires`. Una Tierra sube el terreno y, con él, al tanque que quedó debajo; no saca vida ni gasta escudos. Un Racimo abierto se resuelve cabeza por cabeza, y el escudo absorbe una sola. Un Rebote explota una vez, donde termina el segundo tramo. `burnTurn3D()`: lo que pierde un tanque al empezar su turno parado en un fuego |
+| `turn3d.ts` | **3D.** `rollWind3D()` (viento con el que arranca la ronda), `driftWind3D()` (el de cada turno: el anterior, corrido a lo sumo `WIND_DRIFT_MAX`), `placeTanks3D()`, `validateSpawn()` (el nacimiento elegido en la tienda), `validateMound()` / `leaveMound()` (la loma que se deja en la tienda), `resolveTurn3D()`. `resolveTurn()` lo usa cuando el estado tiene `terrain`. Con paracaídas, la caída no daña. Con escudo, el próximo tiro que te alcanza no daña (`blocked`), salvo el Bombazo (`piercesShield`). Una Quema no toca el terreno y agrega un fuego a `state.fires`. Una Tierra sube el terreno y, con él, al tanque que quedó debajo; no saca vida ni gasta escudos. Un Racimo abierto se resuelve cabeza por cabeza, y el escudo absorbe una sola. Un Rebote explota una vez, donde termina el segundo tramo. `burnTurn3D()`: lo que pierde un tanque al empezar su turno parado en un fuego |
 | `campaign.ts` | **Partida.** `startRound3D()` (ronda 1: terreno nuevo) y `nextRound3D()` (las demás: el mismo piso, y nadie nace en un hoyo; con `spots`, cada uno donde eligió), `nextRoundSpots()` (el sorteo de la ronda que viene, para mostrarlo en la tienda), `endRoundPayouts()` (premio por sobrevivir + interés), `SHOP_ITEMS`, `buyItem()` / `cannotBuy()`, `sellItem()` / `cannotSell()`, `validateMove()` / `moveTank()` (nafta), `scoreTurn()`, `standings()`, `matchWinners()` |
 
 Todo son funciones puras: reciben el estado y devuelven uno nuevo. En 3D el heightmap es un
@@ -523,6 +540,10 @@ tanques son primitivas generadas.
   - **El nacimiento se elige** (`validateSpawn`): en el original nadie elige dónde nace. Acá, de la
     ronda 2 en adelante, cada uno puede cambiar en la tienda el punto que le dio el sorteo por otro
     de piso firme, sin tope de altura, a 60 celdas o más de los demás.
+  - **La loma se deja a mano** (`validateMound`, `leaveMound`): en el original la Dirt Ball solo se
+    tira. Acá, en la tienda, cada uno puede poner una en el piso sin tirarla, una por tienda, y
+    queda para la ronda que viene. Es la misma loma y cuesta la misma Tierra; lo único distinto es
+    que no va sobre un tanque (la que se tira lo sube; esta se rechaza).
   - **Sin paredes:** si x o z salen del mapa, el tiro se pierde ("¡Se fue!").
   - **Quemado de cráter** solo visual: el cliente oscurece las celdas que bajó un cráter (en el
     original lo hace `DeformTextures` con una textura de quemado; acá no hay texturas).

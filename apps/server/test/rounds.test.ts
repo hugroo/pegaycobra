@@ -7,8 +7,10 @@ import {
   INTEREST_RATE,
   isDug,
   launchPower,
+  leaveMound,
   MONEY_PER_ROUND,
   MONEY_START,
+  MOUND_TANK_GAP,
   ROUND_MAX_TURNS,
   SCORE_PER_KILL,
   SHOP_ITEMS,
@@ -18,6 +20,7 @@ import {
   TANK_MIN_SEPARATION_3D,
   TANK_START_HEIGHT_MIN,
   terrainHeightAt,
+  validateMound,
   validateMove,
   validateSpawn,
   WATER_LEVEL,
@@ -545,6 +548,233 @@ describe("nacimiento elegido en la tienda", () => {
     expect(g.round).toBe(2);
     expect(tank(g, "C")).toMatchObject({ ...c, life: 0 });
     expect(tank(g, "A")).toMatchObject({ ...c, life: 100 });
+  });
+});
+
+describe("loma dejada en la tienda", () => {
+  const SEED = 34;
+  const PRICE = SHOP_ITEMS.dirt.price;
+  /** Lo que sube el centro: el radio entero del disco, trunc(radius) + 1. */
+  const R = Math.trunc(WEAPONS.dirt.mound!.radius) + 1;
+  const tank = (g: Game, id: string) => g.match!.tanks.find((t) => t.id === id)!;
+  const give = (g: Game, id: string, patch: { money?: number; dirt?: number }) => {
+    g.match = {
+      ...g.match!,
+      players: g.match!.players.map((p) => (p.id === id ? { ...p, money: patch.money ?? p.money, inventory: { ...p.inventory, dirt: patch.dirt ?? p.inventory.dirt ?? 0 } } : p)),
+    };
+  };
+
+  /** Una partida en la tienda de la ronda 1: B murió, A sobrevivió y nadie tocó el piso. */
+  function inShop(opts: { map?: string; rounds?: number } = {}) {
+    const g = new Game(TURN_SECONDS, SHOP_SECONDS);
+    g.addPlayer("A", "A");
+    g.addPlayer("B", "B");
+    if (opts.map) g.setMap("A", opts.map);
+    if (opts.rounds) g.setClock("A", { turn: TURN_SECONDS, shop: SHOP_SECONDS, rounds: opts.rounds });
+    g.start("A", SEED);
+    killAndPass(g, "B");
+    expect(g.phase).toBe("shop");
+    return g;
+  }
+  const toNextRound = (g: Game) => {
+    g.setReady("A");
+    g.setReady("B");
+  };
+  /** Un punto donde vale dejar una loma: firme, con el piso a `floor` o más, lejos de los tanques y de `avoid`. */
+  function freeSpot(g: Game, floor = 8, avoid: { x: number; z: number }[] = []): { x: number; z: number } {
+    const { terrain, tanks } = g.match!;
+    for (let z = 40.5; z < terrain.depth - 40; z += 9) {
+      for (let x = 40.5; x < terrain.width - 40; x += 9) {
+        if (terrainHeightAt(terrain, x, z) < floor || avoid.some((p) => Math.hypot(p.x - x, p.z - z) < 40)) continue;
+        if (validateMound(terrain, tanks, { x, z }).ok) return { x, z };
+      }
+    }
+    throw new Error("no hay dónde");
+  }
+
+  it("A deja la loma con la Tierra que tenía: el piso sube ya, no paga, y la ronda 2 se juega con esa loma", () => {
+    const untouched = inShop();
+    toNextRound(untouched);
+
+    const g = inShop();
+    give(g, "A", { dirt: 1 });
+    const before = g.match!.terrain;
+    const pristine = g.pristine!.heights.slice();
+    const spawns = [...g.spawns];
+    const cash = money(g, "A");
+    const at = freeSpot(g);
+    const floor = terrainHeightAt(before, at.x, at.z);
+
+    expect(g.leaveMound("A", { at })).toEqual({ ...at, y: floor });
+    // Ya, con la tienda abierta: el heightmap de la partida es otro, y lo único que cambió es el disco de la loma.
+    expect(g.phase).toBe("shop");
+    const after = g.match!.terrain;
+    expect(after.heights).toEqual(leaveMound(before, g.match!.tanks, at).heights);
+    const rect = changedRect(before, after)!;
+    const [cx, cz] = [Math.trunc(at.x), Math.trunc(at.z)];
+    expect(rect.x0).toBeGreaterThanOrEqual(cx - R + 1);
+    expect(rect.z0).toBeGreaterThanOrEqual(cz - R + 1);
+    expect(rect.x0 + rect.w).toBeLessThanOrEqual(cx + R);
+    expect(rect.z0 + rect.d).toBeLessThanOrEqual(cz + R);
+    expect(after.heights.every((h, i) => h >= before.heights[i]!)).toBe(true);
+    expect(terrainHeightAt(after, at.x, at.z)).toBeGreaterThan(floor + R - 2);
+    // Salió del inventario: no paga. El terreno de la ronda 1 y los nacimientos no se tocan.
+    expect(inv(g, "A").dirt).toBe(0);
+    expect(money(g, "A")).toBe(cash);
+    expect(g.pristine!.heights).toEqual(pristine);
+    expect([...g.spawns]).toEqual(spawns);
+    expect(tank(g, "A").y).toBe(terrainHeightAt(after, tank(g, "A").x, tank(g, "A").z)); // el que quedó en pie no quedó enterrado
+
+    toNextRound(g);
+    expect([g.round, g.phase]).toEqual([2, "aiming"]);
+    // La ronda 2 se juega sobre ese mismo heightmap: la loma sigue ahí, y lo demás es la ronda de siempre.
+    expect(g.match!.terrain).toBe(after);
+    expect(terrainHeightAt(g.match!.terrain, at.x, at.z)).toBeGreaterThan(floor + R - 2);
+    expect(g.match!.wind).toEqual(untouched.match!.wind);
+    expect(g.match!.tanks.map(({ x, z }) => ({ x, z }))).toEqual(untouched.match!.tanks.map(({ x, z }) => ({ x, z })));
+    for (const t of g.match!.tanks) expect(t.y).toBe(terrainHeightAt(after, t.x, t.z));
+    expect(inv(g, "A").dirt).toBe(0);
+    // Y sigue en la ronda 3: es terreno, como un hoyo.
+    killAndPass(g, "B");
+    toNextRound(g);
+    expect(g.round).toBe(3);
+    expect(g.match!.terrain).toBe(after);
+  });
+
+  it("sin Tierra la compra y la usa en el mismo gesto: paga el precio de la carta y no le queda ninguna; si no le alcanza, nada", () => {
+    const g = inShop();
+    const at = freeSpot(g);
+    expect(inv(g, "A").dirt ?? 0).toBe(0);
+    const cash = money(g, "A");
+    expect(cash).toBeGreaterThanOrEqual(PRICE);
+    const before = g.match!.terrain;
+    expect(g.leaveMound("A", { at })).not.toBeNull();
+    expect(money(g, "A")).toBe(cash - PRICE);
+    expect(inv(g, "A").dirt).toBe(0);
+    expect(g.match!.terrain).not.toBe(before);
+
+    // A B le falta un peso: no hay loma, no paga y puede probar de nuevo cuando le alcance.
+    give(g, "B", { money: PRICE - 1 });
+    const mounded = g.match!.terrain;
+    const other = freeSpot(g, 8, [at]);
+    expect(g.leaveMound("B", { at: other })).toBeNull();
+    expect(g.match!.terrain).toBe(mounded);
+    expect(money(g, "B")).toBe(PRICE - 1);
+    give(g, "B", { money: PRICE });
+    expect(g.leaveMound("B", { at: other })).not.toBeNull();
+    expect(money(g, "B")).toBe(0);
+    expect(inv(g, "B").dirt).toBe(0);
+    // Las dos quedaron: la de B no pisó la de A.
+    expect(terrainHeightAt(g.match!.terrain, at.x, at.z)).toBe(terrainHeightAt(mounded, at.x, at.z));
+    expect(terrainHeightAt(g.match!.terrain, other.x, other.z)).toBeGreaterThan(terrainHeightAt(mounded, other.x, other.z));
+  });
+
+  it("una por tienda cada uno: la segunda se ignora aunque tenga Tierra y plata, y en la tienda siguiente vuelve", () => {
+    const g = inShop();
+    give(g, "A", { dirt: 3 });
+    const at = freeSpot(g);
+    expect(g.mounded.size).toBe(0);
+    expect(g.leaveMound("A", { at })).not.toBeNull();
+    expect([...g.mounded]).toEqual(["A"]);
+    const once = g.match!.terrain;
+    const cash = money(g, "A");
+    const other = freeSpot(g, 8, [at]);
+    expect(g.leaveMound("A", { at: other })).toBeNull();
+    expect(g.leaveMound("A", { at })).toBeNull();
+    expect(g.match!.terrain).toBe(once);
+    expect(inv(g, "A").dirt).toBe(2);
+    expect(money(g, "A")).toBe(cash);
+    // El listo no la cierra para el otro: B deja la suya hasta que la tienda cierre.
+    g.setReady("A");
+    expect(g.leaveMound("B", { at: other })).not.toBeNull();
+
+    toNextRound(g);
+    expect(g.round).toBe(2);
+    expect(g.mounded.size).toBe(0);
+    killAndPass(g, "B");
+    expect(g.phase).toBe("shop");
+    const third = freeSpot(g, 8, [at, other]);
+    expect(g.leaveMound("A", { at: third })).not.toBeNull();
+    expect(inv(g, "A").dirt).toBe(1);
+  });
+
+  it("el server rechaza el agua, el borde, la basura y un punto sobre un tanque: no sube nada y no gasta", () => {
+    const g = inShop({ map: "island" });
+    give(g, "A", { dirt: 1 });
+    const before = g.match!.terrain;
+    const cash = money(g, "A");
+    const water = { x: 6, z: 128 };
+    expect(terrainHeightAt(before, water.x, water.z)).toBeLessThanOrEqual(WATER_LEVEL);
+    expect(g.leaveMound("A", { at: water })).toBeNull();
+    expect(g.leaveMound("A", { at: { x: 1, z: 128 } })).toBeNull();
+    expect(g.leaveMound("A", { at: { x: 128, z: 400 } })).toBeNull();
+    for (const bad of [null, {}, { at: null }, { at: { x: "128", z: 128 } }, { at: { x: NaN, z: 128 } }, { moveTo: { x: 128, z: 128 } }, "128,128"]) {
+      expect(g.leaveMound("A", bad), JSON.stringify(bad)).toBeNull();
+    }
+    // Sobre un tanque, esté vivo (A, que sobrevivió) o no (B): ni encima ni con el disco tocándolo.
+    for (const id of ["A", "B"]) {
+      const t = tank(g, id);
+      expect(g.leaveMound("A", { at: { x: t.x, z: t.z } }), id).toBeNull();
+      expect(g.leaveMound("A", { at: { x: Math.trunc(t.x) + MOUND_TANK_GAP - 2, z: Math.trunc(t.z) } }), id).toBeNull();
+    }
+    expect(g.leaveMound("nadie", { at: freeSpot(g) })).toBeNull();
+    expect(g.match!.terrain).toBe(before);
+    expect(inv(g, "A").dirt).toBe(1);
+    expect(money(g, "A")).toBe(cash);
+    expect(g.mounded.size).toBe(0);
+    // Nada de eso le gastó la de esta tienda: un punto que vale, entra.
+    expect(g.leaveMound("A", { at: freeSpot(g) })).not.toBeNull();
+    expect(inv(g, "A").dirt).toBe(0);
+  });
+
+  it("el que elige nacer sobre la loma nace apoyado arriba, más alto que el piso de antes", () => {
+    const g = inShop();
+    give(g, "A", { dirt: 1 });
+    // Un punto donde A puede nacer y además dejar la loma.
+    let at: { x: number; z: number } | null = null;
+    for (let z = 40.5; z < 217 && !at; z += 9) {
+      for (let x = 40.5; x < 217 && !at; x += 9) {
+        const here = { x, z };
+        if (validateMound(g.match!.terrain, g.match!.tanks, here).ok && validateSpawn(g.match!.terrain, g.pristine!, here, g.spawnRivals("A")).ok) at = here;
+      }
+    }
+    expect(at).not.toBeNull();
+    const floor = terrainHeightAt(g.match!.terrain, at!.x, at!.z);
+    expect(g.chooseSpawn("A", { at })).toBe(true);
+    expect(g.leaveMound("A", { at })).not.toBeNull();
+    expect(g.spawns.get("A")).toEqual({ ...at!, picked: true }); // la loma no le corre la estaca
+    // Y al revés también vale: con la loma ya puesta, ese punto sigue siendo piso firme y no es hoyo.
+    expect(g.chooseSpawn("A", { at })).toBe(true);
+    toNextRound(g);
+    const a = tank(g, "A");
+    expect(a).toMatchObject({ ...at!, life: 100 });
+    expect(a.y).toBe(terrainHeightAt(g.match!.terrain, at!.x, at!.z));
+    expect(a.y).toBeGreaterThan(floor + R - 2);
+  });
+
+  it("solo en la tienda: jugando o con la partida terminada se ignora, y la revancha arranca en un cerro nuevo, sin la loma", () => {
+    const first = started(SEED);
+    give(first, "A", { dirt: 1 });
+    const ground = first.match!.terrain;
+    expect(first.leaveMound("A", { at: { x: 128, z: 128 } })).toBeNull(); // la ronda 1 no tiene tienda antes
+    expect(first.match!.terrain).toBe(ground);
+    expect(inv(first, "A").dirt).toBe(1);
+
+    const g = inShop({ rounds: 2 });
+    const at = freeSpot(g);
+    expect(g.leaveMound("A", { at })).not.toBeNull();
+    const mounded = g.match!.terrain;
+    toNextRound(g);
+    expect(g.leaveMound("B", { at: freeSpot(g, 8, [at]) })).toBeNull(); // jugando, tampoco
+    killAndPass(g, "B");
+    expect(g.phase).toBe("ended"); // la última ronda no tiene tienda
+    expect(g.leaveMound("B", { at: freeSpot(g, 8, [at]) })).toBeNull();
+    expect(g.match!.terrain).toBe(mounded);
+
+    expect(g.rematch("A", SEED + 1)).toBe(true);
+    expect(g.mounded.size).toBe(0);
+    expect(g.match!.terrain.heights).toEqual(started(SEED + 1).match!.terrain.heights); // el de una partida recién arrancada
+    expect(g.pristine).toBe(g.match!.terrain);
   });
 });
 

@@ -1,17 +1,25 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyCraterTerrain,
   applyMoundTerrain,
   buyItem,
   craterDepthAt,
   createFlatTerrain,
+  generateTerrain,
   isPlayable,
+  leaveMound,
+  MAPS,
   MONEY_START,
+  MOUND_TANK_GAP,
   resolveTurn,
   SHOP_ITEMS,
   startingInventory,
   TANK_MAX_LIFE,
+  TANK_SIZE,
   tanks3DAt,
   terrainHeightAt,
+  validateMound,
+  WATER_LEVEL,
   WEAPONS,
   type MatchState3D,
   type Player,
@@ -214,6 +222,76 @@ describe("loma 3D: sube un disco", () => {
     applyMoundTerrain(t, 32, GROUND, 32, 6);
     expect(t.heights.every((v) => v === GROUND)).toBe(true);
     expect(() => applyMoundTerrain(t, Number.NaN, GROUND, 32, 6)).toThrow(RangeError);
+  });
+});
+
+describe("loma dejada en la tienda", () => {
+  const island = () => generateTerrain(34, MAPS.island.terrain);
+  const TANKS = [{ x: 128, z: 128 }];
+
+  it("es la loma de una Tierra que cae ahí: mismo disco, apoyada en el piso, y la entrada no se toca", () => {
+    const t = createFlatTerrain(257, 257, GROUND);
+    const at = { x: 60.4, z: 70.8 };
+    expect(validateMound(t, TANKS, at)).toEqual({ ok: true, x: at.x, y: GROUND, z: at.z });
+    const up = leaveMound(t, TANKS, at);
+    expect(up.heights).toEqual(applyMoundTerrain(t, at.x, GROUND, at.z, RADIUS).heights);
+    expect(terrainHeightAt(up, 60, 70)).toBeCloseTo(GROUND + TOP, 4);
+    expect(up.heights.every((h, i) => h >= t.heights[i]!)).toBe(true);
+    expect(t.heights.every((h) => h === GROUND)).toBe(true);
+  });
+
+  it("no va en el agua, ni en el borde, ni afuera; en un hoyo sí, y lo tapa", () => {
+    const t = island();
+    const water = { x: 6, z: 128 };
+    expect(terrainHeightAt(t, water.x, water.z)).toBeLessThanOrEqual(WATER_LEVEL);
+    expect(validateMound(t, [], water)).toEqual({ ok: false, reason: "ahí hay agua" });
+    expect(() => leaveMound(t, [], water)).toThrow("ahí hay agua");
+    const flat = createFlatTerrain(257, 257, GROUND);
+    for (const out of [{ x: 1, z: 128 }, { x: 128, z: 255 }, { x: -5, z: 128 }, { x: 128, z: 400 }]) {
+      expect(validateMound(flat, [], out), JSON.stringify(out)).toEqual({ ok: false, reason: "fuera del mapa" });
+    }
+    expect(validateMound(flat, [], { x: Number.NaN, z: 128 }).ok).toBe(false);
+    expect(validateMound(flat, [], { x: 2, z: 254 }).ok).toBe(true);
+
+    const holed = applyCraterTerrain(flat, 80, GROUND, 80, WEAPONS.missile.craterRadius);
+    const bottom = terrainHeightAt(holed, 80, 80);
+    expect(bottom).toBeLessThan(GROUND);
+    expect(validateMound(holed, [], { x: 80, z: 80 })).toMatchObject({ ok: true, y: bottom });
+    expect(terrainHeightAt(leaveMound(holed, [], { x: 80, z: 80 }), 80, 80)).toBeGreaterThan(GROUND);
+  });
+
+  it(`no va sobre un tanque, vivo o no: con el disco a menos de ${MOUND_TANK_GAP} celdas se rechaza, y donde vale el piso del tanque no sube`, () => {
+    const t = createFlatTerrain(257, 257, GROUND);
+    expect(MOUND_TANK_GAP).toBe(TOP + TANK_SIZE);
+    // Un tanque que no está parado justo en una celda, y todos los puntos de alrededor, también con decimales.
+    const tank = { x: 128.6, z: 127.3 };
+    let ok = 0;
+    let no = 0;
+    let buried = 0;
+    for (let z = 108.5; z < 148; z += 0.75) {
+      for (let x = 108.25; x < 148; x += 0.75) {
+        const check = validateMound(t, [tank], { x, z });
+        const raised = terrainHeightAt(applyMoundTerrain(t, x, GROUND, z, RADIUS), tank.x, tank.z) > GROUND;
+        // El disco se centra en la celda del punto: desde ahí se mide.
+        expect(check.ok, `${x}, ${z}`).toBe(Math.hypot(Math.trunc(x) - tank.x, Math.trunc(z) - tank.z) >= MOUND_TANK_GAP);
+        if (check.ok) {
+          expect(raised, `${x}, ${z}`).toBe(false);
+          expect(terrainHeightAt(leaveMound(t, [tank], { x, z }), tank.x, tank.z)).toBe(GROUND);
+          ok++;
+        } else {
+          expect(check).toEqual({ ok: false, reason: "ahí hay un tanque" });
+          expect(() => leaveMound(t, [tank], { x, z })).toThrow("ahí hay un tanque");
+          no++;
+          if (raised) buried++;
+        }
+      }
+    }
+    expect(ok).toBeGreaterThan(500);
+    // La regla no está de más: casi todo lo que rechaza le habría subido el piso al tanque.
+    expect(buried).toBeGreaterThan(no * 0.7);
+    // Cuenta cualquiera de los tanques, no solo el primero.
+    expect(validateMound(t, [...TANKS, { x: 40, z: 40 }], { x: 45, z: 40 }).ok).toBe(false);
+    expect(validateMound(t, [...TANKS, { x: 40, z: 40 }], { x: 60, z: 40 }).ok).toBe(true);
   });
 });
 

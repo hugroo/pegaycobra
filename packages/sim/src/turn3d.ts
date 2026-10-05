@@ -11,8 +11,8 @@
 // El Leap Frog pica y sigue (bounce.ts): el golpe es uno solo, donde termina el segundo tramo.
 // Orígenes: Explosion.cpp, TargetDamageCalc.cpp, TargetDamage.cpp, TargetFalling.cpp, Wind.cpp.
 
-import { TANK_RADIUS, WATER_LEVEL, WIND_MAX } from "./constants";
-import { craterDepthAt } from "./crater";
+import { TANK_RADIUS, TANK_SIZE, WATER_LEVEL, WIND_MAX } from "./constants";
+import { craterDepthAt, craterIntRadius } from "./crater";
 import { applyDamage, explosionDamage, fallDamage, isAlive, type Tank } from "./damage";
 import { canFire, clampMoney, consumeAmmo, moneyForDamage } from "./economy";
 import { START_RING } from "./maps";
@@ -243,6 +243,45 @@ export function validateSpawn(
     return { ok: false, reason: `a menos de ${TANK_MIN_SEPARATION_3D} de otro` };
   }
   return { ok: true, x: to.x, y: terrainHeightAt(terrain, to.x, to.z), z: to.z };
+}
+
+/**
+ * Lo más cerca de un tanque que se puede dejar una loma en la tienda, medido desde la celda donde se
+ * centra el disco: el radio entero de applyMoundTerrain y dos celdas más, así el piso donde está
+ * apoyado el tanque no sube. [wu]
+ */
+export const MOUND_TANK_GAP = craterIntRadius(WEAPONS.dirt.mound!.radius) + TANK_SIZE;
+
+export type MoundCheck = { ok: true; x: number; y: number; z: number } | { ok: false; reason: string };
+
+/**
+ * Valida la loma que se deja en la tienda (regla propia): una Tierra puesta a mano en el piso, sin
+ * tirarla. Lo usan el server (autoridad) y el cliente (para pintar el destino y no mandar lo que el
+ * server va a rechazar):
+ *   dentro del mapa sin las dos filas del borde (como validateSpawn), piso firme, que no sea agua, y
+ *   con el disco a MOUND_TANK_GAP o más de cada tanque de `tanks`, vivo o no: acá nadie sube con la
+ *   loma, así que no se deja encima de ninguno. El disco se centra en la celda del punto (el trunc
+ *   de applyMoundTerrain), y desde ahí se mide.
+ * Un hoyo vale: la loma lo tapa. `y` es el piso de antes, donde va apoyado el centro de la loma.
+ */
+export function validateMound(terrain: Terrain, tanks: readonly { x: number; z: number }[], to: { x: number; z: number }): MoundCheck {
+  if (!Number.isFinite(to.x) || !Number.isFinite(to.z)) return { ok: false, reason: "destino inválido" };
+  if (to.x < 2 || to.z < 2 || to.x > terrain.width - 3 || to.z > terrain.depth - 3) return { ok: false, reason: "fuera del mapa" };
+  if (isWater(terrain, to.x, to.z)) return { ok: false, reason: "ahí hay agua" };
+  const cx = Math.trunc(to.x);
+  const cz = Math.trunc(to.z);
+  if (tanks.some((t) => Math.hypot(t.x - cx, t.z - cz) < MOUND_TANK_GAP)) return { ok: false, reason: "ahí hay un tanque" };
+  return { ok: true, x: to.x, y: terrainHeightAt(terrain, to.x, to.z), z: to.z };
+}
+
+/**
+ * La loma de la tienda: la misma de una Tierra que cae en `to` (applyMoundTerrain, con el radio del
+ * arma y el centro apoyado en el piso). Tira error si el punto no vale (validateMound).
+ */
+export function leaveMound(terrain: Terrain, tanks: readonly { x: number; z: number }[], to: { x: number; z: number }): Terrain {
+  const check = validateMound(terrain, tanks, to);
+  if (!check.ok) throw new Error(check.reason);
+  return applyMoundTerrain(terrain, check.x, check.y, check.z, WEAPONS.dirt.mound!.radius);
 }
 
 export function tanks3DAt(

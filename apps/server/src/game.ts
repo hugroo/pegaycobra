@@ -9,11 +9,13 @@ import {
   cannotBuy,
   cannotSell,
   clampMoney,
+  consumeAmmo,
   createRng,
   DEFAULT_MAP,
   driftWind3D,
   emptyScoreboard,
   endRoundPayouts,
+  leaveMound,
   matchWinners,
   MONEY_START,
   moveTank,
@@ -30,6 +32,7 @@ import {
   startingInventory,
   startRound3D,
   STEP_SECONDS,
+  validateMound,
   validateMove,
   validateSpawn,
   type BurnEvent,
@@ -146,7 +149,7 @@ export function parseMoveMessage(raw: unknown): { x: number; z: number } | null 
   return { x, z };
 }
 
-/** { at: { x, z } } → el punto, o null. Si trae otra cosa, se ignora. */
+/** { at: { x, z } } → el punto, o null. Si trae otra cosa, se ignora. Es el de "spawn" y el de "mound". */
 export function parseSpawnMessage(raw: unknown): { x: number; z: number } | null {
   if (typeof raw !== "object" || raw === null) return null;
   const at = (raw as Record<string, unknown>).at;
@@ -287,6 +290,8 @@ export class Game {
    * quedan a TANK_MIN_SEPARATION_3D o más entre sí. Fuera de la tienda está vacío.
    */
   readonly spawns = new Map<string, Spawn>();
+  /** En la tienda: los que ya dejaron su loma (leaveMound). Una por tienda cada uno; se vacía al abrir y al cerrar. */
+  readonly mounded = new Set<string>();
   /** El del turno ya usó nafta en este turno. */
   movedThisTurn = false;
   /** El del turno ya dio el paso gratis en este turno. */
@@ -465,6 +470,7 @@ export class Game {
       this.match = nextRound3D(seed, { ...this.match, players }, this.pristine, gone, this.map, all);
     }
     this.spawns.clear();
+    this.mounded.clear();
     this.windRng = createRng(seed ^ 0x7f4a7c15);
     const { terrain, tanks } = this.match;
     // Cada cañón arranca mirando al centro del mapa, a 45°.
@@ -613,6 +619,31 @@ export class Game {
     if (!to || !validateSpawn(this.match.terrain, this.pristine, to, this.spawnRivals(byId)).ok) return false;
     this.spawns.set(byId, { x: to.x, z: to.z, picked: true });
     return true;
+  }
+
+  /**
+   * Tienda: deja una loma en el piso, una por tienda cada uno. Gasta una Tierra: la del inventario
+   * si tiene, y si no la compra ahí mismo, al precio de la carta (cannotBuy). El punto lo valida el
+   * sim (validateMound): firme, sin agua y sin un tanque encima. La loma sube ya, sobre el heightmap
+   * de la partida, así que la ronda que viene se juega con ella (y cada uno nace apoyado en el piso
+   * como quedó). Devuelve el punto, con el piso de antes en `y`. null = ignorado: no gasta nada.
+   */
+  leaveMound(byId: string, raw: unknown): { x: number; y: number; z: number } | null {
+    if (this.phase !== "shop" || !this.match || this.mounded.has(byId)) return null;
+    const to = parseSpawnMessage(raw);
+    let player = this.playerOf(byId);
+    if (!to || !player) return null;
+    const { terrain, tanks } = this.match;
+    const check = validateMound(terrain, tanks, to);
+    if (!check.ok) return null;
+    if ((player.inventory.dirt ?? 0) <= 0) {
+      if (cannotBuy(player, "dirt")) return null;
+      player = buyItem(player, "dirt");
+    }
+    const spent = { ...player, inventory: consumeAmmo(player.inventory, "dirt") };
+    this.match = { ...this.match, terrain: leaveMound(terrain, tanks, to), players: this.match.players.map((p) => (p.id === byId ? spent : p)) };
+    this.mounded.add(byId);
+    return { x: check.x, y: check.y, z: check.z };
   }
 
   setReady(byId: string): void {
@@ -798,8 +829,10 @@ export class Game {
     this.phase = "shop";
     this.timeLeft = this.shopSeconds;
     this.ready.clear();
-    // El sorteo de la ronda que viene se hace ya (el piso no cambia en la tienda): es el nacimiento
-    // del que no elige, y lo ven todos para saber de dónde tienen que quedar lejos.
+    this.mounded.clear();
+    // El sorteo de la ronda que viene se hace ya: es el nacimiento del que no elige, y lo ven todos
+    // para saber de dónde tienen que quedar lejos. Una loma que se deje después (leaveMound) no lo
+    // mueve: sube el piso, y el que nace ahí nace arriba.
     const spots = this.pristine ? nextRoundSpots(this.seedFor(this.round + 1), m.terrain, players.length, this.pristine, this.map) : [];
     this.spawns.clear();
     spots.forEach((spot, i) => this.spawns.set(players[i]!.id, { x: spot.x, z: spot.z, picked: false }));
@@ -812,6 +845,7 @@ export class Game {
     this.timeLeft = 0;
     this.pending = null;
     this.spawns.clear();
+    this.mounded.clear();
     this.winners =
       reason === "forfeit"
         ? this.connectedSeats.map((s) => s.id)

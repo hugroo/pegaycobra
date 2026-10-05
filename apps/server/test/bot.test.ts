@@ -387,8 +387,10 @@ describe("sala con bot", () => {
     quiet(a);
     const botShots: any[] = [];
     let botMoves = 0;
+    let mounds = 0;
     a.onMessage("shot", (m) => m.shooterId !== a.sessionId && botShots.push(m));
     a.onMessage("moved", (m) => m.id !== a.sessionId && botMoves++);
+    a.onMessage("mound", () => mounds++);
     await until(() => a.state.players?.size === 1);
     a.send("fillBots");
     await until(() => a.state.players.size === 2);
@@ -407,8 +409,12 @@ describe("sala con bot", () => {
     expect(a.state.phase).toBe("shop");
     expect(botShots.every((s) => s.weapon === "babyMissile")).toBe(true);
 
+    const game = (matchMaker.getLocalRoomById(a.roomId) as any).game as Game;
     const money = bot.money;
+    expect(money).toBeGreaterThanOrEqual(SHOP_ITEMS.dirt.price);
     await until(() => bot.ready);
+    // Plata para una Tierra tenía, pero del piso elige dónde nace y nada más: no deja loma.
+    expect([mounds, bot.mound, game.mounded.size]).toEqual([0, false, 0]);
     const has = (): Record<string, number> => ({
       missile: bot.missiles,
       roller: bot.rollers,
@@ -424,7 +430,6 @@ describe("sala con bot", () => {
     expect(bot.napalms + bot.nukes + bot.dirts + bot.mirvs + bot.parachute).toBe(0);
 
     // Antes del listo eligió dónde nacer: el firme más alto que le deja Ana. Ana lo ve marcado, y ella sigue con el del sorteo.
-    const game = (matchMaker.getLocalRoomById(a.roomId) as any).game as Game;
     const born = botSpawnPick(game.match!.terrain, game.pristine!, game.spawnRivals(bot.id))!;
     expect([bot.spawnX, bot.spawnZ, bot.spawnPicked]).toEqual([born.x, born.z, true]);
     const ana = a.state.players.get(a.sessionId);

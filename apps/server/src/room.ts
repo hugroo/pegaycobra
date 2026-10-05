@@ -3,9 +3,10 @@
 //
 // Mensajes del cliente:  start · rematch · fillBots · lobbyStep { step } · map { map } · clock { turn, shop, rounds }
 //                        fire { yaw, pitch, power, weapon }
-//                        move { moveTo: { x, z } } · step { moveTo: { x, z } } · buy { item } · sell { item } · spawn { at: { x, z } } · ready · chat { text }
+//                        move { moveTo: { x, z } } · step { moveTo: { x, z } } · buy { item } · sell { item } · spawn { at: { x, z } }
+//                        mound { at: { x, z } } · ready · chat { text }
 // Los bots (bot.ts) no tienen conexión: la sala les pasa sus mensajes por los mismos métodos.
-// Mensajes del server:   terrain (binario) · pristine (binario, solo al que vuelve) · shot · moved · skip · burn · refuel · roundEnd · chat
+// Mensajes del server:   terrain (binario) · pristine (binario, solo al que vuelve) · shot · moved · mound · skip · burn · refuel · roundEnd · chat
 
 //
 // Si a uno se le cae la conexión sin avisar (refrescó la página), el asiento se le guarda
@@ -93,6 +94,17 @@ export interface BurnBroadcast {
   /** [hp] */
   damage: number;
   killed: boolean;
+}
+
+/**
+ * Mensaje "mound": uno dejó una loma en la tienda. El piso nuevo ya salió en un "terrain"; esto es
+ * para el polvo y el cartel. `y` es el piso de antes, donde se apoya el centro de la loma. [wu]
+ */
+export interface MoundBroadcast {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
 }
 
 /** Mensaje "roundEnd": lo que cobró cada uno al terminar la ronda. */
@@ -207,6 +219,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
     // Nacimiento de la ronda que viene: { at: { x, z } }, solo en la tienda. La marca va en el estado.
     this.onMessage("spawn", (client, message: unknown) => this.onSpawn(client.sessionId, message));
+    // Loma en el piso: { at: { x, z } }, solo en la tienda y una por tienda. El bot no la deja (botAct).
+    this.onMessage("mound", (client, message: unknown) => this.onMound(client.sessionId, message));
     this.onMessage("ready", (client) => this.onReady(client.sessionId));
     // Silueta: { hull: "box" | "flat" | "tower" }, solo en la espera.
     this.onMessage("hull", (client, message: unknown) => {
@@ -345,6 +359,20 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.flush();
   }
 
+  /** La loma de la tienda sube ya: el parche del piso sale para todos en el momento, no al abrir la ronda. */
+  private onMound(id: string, message: unknown): void {
+    const before = this.game.match?.terrain;
+    const at = this.game.leaveMound(id, message);
+    const after = this.game.match?.terrain;
+    if (!at || !before || !after) return; // ignorado
+    const rect = changedRect(before, after);
+    if (rect) this.broadcast("terrain", terrainRect(after, rect.x0, rect.z0, rect.w, rect.d));
+    const msg: MoundBroadcast = { id, x: round2(at.x), y: round2(at.y), z: round2(at.z) };
+    this.broadcast("mound", msg);
+    this.log(`${this.nameOf(id)} deja una loma en (${at.x.toFixed(1)}, ${at.z.toFixed(1)})`);
+    this.flush();
+  }
+
   private onReady(id: string): void {
     this.game.setReady(id);
     this.flush();
@@ -381,6 +409,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         const player = g.playerOf(id);
         const item = player && botShopPick(player, this.botRng, this.botsHit.has(id));
         if (item) this.onBuy(id, { item });
+        // Del piso, el bot elige dónde nace y nada más: no deja loma (onMound), tenga Tierra o no.
         const at = g.match && g.pristine && botSpawnPick(g.match.terrain, g.pristine, g.spawnRivals(id));
         if (at) this.onSpawn(id, { at });
         this.onReady(id);
@@ -577,6 +606,7 @@ export class GameRoom extends Room<{ state: GameState }> {
       p.spawnX = spawn?.x ?? -1;
       p.spawnZ = spawn?.z ?? -1;
       p.spawnPicked = spawn?.picked ?? false;
+      p.mound = g.mounded.has(seat.id);
       const aim = g.aims.get(seat.id);
       if (aim) {
         p.yaw = aim.yaw;
