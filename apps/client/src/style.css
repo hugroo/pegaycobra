@@ -282,7 +282,7 @@ kbd {
 .weapon small, .fuel small { color: var(--muted); font-weight: 700; margin-left: 2px; }
 .weapon.on, .fuel.on { background: rgba(226, 164, 59, 0.18); border-color: var(--ocre); color: var(--ocre); }
 .weapon.on small, .fuel.on small, .weapon.on kbd, .fuel.on kbd { color: inherit; border-color: currentColor; }
-/* El paso con el destino ya marcado: el botón pasa a ser "Ir ahí" y se pinta como lo que hay que apretar. */
+/* La Nafta con el destino ya marcado (pantalla chica): el botón pasa a ser "Ir ahí" y se pinta como lo que hay que apretar. */
 .fuel.go { background: var(--ocre); border-color: transparent; color: var(--ocre-ink); }
 .angles { display: flex; gap: 14px; }
 .ctl { display: flex; gap: 8px; align-items: center; }

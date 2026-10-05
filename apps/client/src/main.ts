@@ -11,7 +11,6 @@ import {
   sellUnits,
   sellValue,
   fireFromShot,
-  FREE_STEP_RANGE,
   FUEL_MOVE_RANGE,
   inFire,
   onShore,
@@ -115,9 +114,8 @@ const ui = {
   wMirvN: $("w-mirv-n"),
   wLeapfrog: $<HTMLButtonElement>("w-leapfrog"),
   wLeapfrogN: $("w-leapfrog-n"),
-  stepBtn: $<HTMLButtonElement>("btn-step"),
-  stepLabel: $("step-label"),
   fuelBtn: $<HTMLButtonElement>("btn-fuel"),
+  fuelLabel: $("fuel-label"),
   fuelN: $("fuel-n"),
   aimPad: $("aim-pad"),
   powerCtl: $("power-ctl"),
@@ -145,10 +143,8 @@ type Fireable = "babyMissile" | "missile" | "roller" | "napalm" | "nuke" | "dirt
 let aim = { yaw: 0, pitch: 45, power: 500 };
 let weapon: Fireable = "babyMissile";
 let moveMode = false;
-/** Con qué se está por mover: una carga de nafta o el paso gratis del primer turno de la ronda. */
-let moveKind: "fuel" | "step" = "fuel";
-/** Paso gratis en pantalla chica: el destino ya marcado, que espera el "Ir ahí". */
-let stepDest: { x: number; z: number } | null = null;
+/** Nafta en pantalla chica: el destino ya marcado, que espera el "Ir ahí". */
+let moveDest: { x: number; z: number } | null = null;
 let moveHover: MoveModel["hover"] = null;
 let terrain: Terrain | null = null;
 /** El terreno de la ronda 1 de la partida en curso, sin tocar: contra él se ve qué es hoyo (validateSpawn). */
@@ -617,10 +613,10 @@ function showBanner(text: string, ms: number): void {
 
 // La línea del mapa: una sola vez por sala, en el primer turno de la partida. Sale del mapa del
 // estado, así que todas las pestañas leen la misma. Va en su propio renglón, arriba del cartel de
-// siempre: dura sus 4 s o hasta el primer tiro, y un aviso que caiga en el medio (el paso) no la pisa.
+// siempre: dura sus 4 s o hasta el primer tiro, y un aviso que caiga en el medio (la Nafta) no la pisa.
 const MAP_TIP: Record<MapId, string> = {
   island: "Ojo con la orilla.",
-  hill: "Si no llegás, usá el paso.",
+  hill: "Si no llegás, usá la Nafta.",
   valley: "El Misil es el que llega.",
 };
 const TIP_KEY = "pyc:tip";
@@ -880,11 +876,11 @@ function attach(r: Room<any>): void {
       }
     },
   );
-  r.onMessage("moved", (m: { id: string; free?: boolean }) => {
+  r.onMessage("moved", (m: { id: string }) => {
     const p = r.state.players.get(m.id);
     if (!p || room !== r) return;
-    // El paso se avisa un segundo y en su renglón. Al que lo dio se le dice a él: es su confirmación.
-    if (m.free) showBanner(isMe(m.id) ? "Te corriste" : `Se corrió ${p.name}`, 1000);
+    // Al que se movió se le dice a él: es su confirmación.
+    if (isMe(m.id)) showBanner("Te corriste", 1000);
     else showBanner(`Usó nafta ${p.name}`, 1400);
   });
   r.onMessage("skip", () => {
@@ -1246,19 +1242,20 @@ function renderHud(phase: string): void {
     btn.setAttribute("aria-checked", String(weapon === id));
   }
   const fuel = mp?.fuel ?? 0;
-  ui.fuelN.textContent = `×${fuel}`;
+  // La de la casa se nombra: es la única que no se guarda. Con una comprada encima, va la cuenta y cuál es.
+  const house = !!mp?.house && fuel > 0;
+  ui.fuelN.textContent = !house ? `×${fuel}` : fuel > 1 ? `×${fuel}, 1 de la casa` : "de la casa";
+  ui.fuelBtn.title = house
+    ? "Nafta de la casa: vale en tu primer turno de la ronda y, si tirás sin usarla, se pierde. Después, clic en el piso"
+    : "Mové el tanque antes de tirar: después, clic en el piso";
   const canMove = mine && fuel > 0 && !s.moved;
-  const canStep = mine && !!s.step;
-  if (!(moveKind === "step" ? canStep : canMove)) moveMode = false;
+  if (!canMove) moveMode = false;
+  if (!moveMode) moveDest = null;
   ui.fuelBtn.hidden = fuel <= 0;
   ui.fuelBtn.disabled = !canMove;
-  ui.fuelBtn.classList.toggle("on", moveMode && moveKind === "fuel");
-  // El paso gratis solo ocupa lugar mientras está: en el primer turno de la ronda, hasta que se da.
-  const stepping = moveMode && moveKind === "step";
-  ui.stepBtn.hidden = !canStep;
-  ui.stepBtn.classList.toggle("on", stepping);
-  ui.stepBtn.classList.toggle("go", stepping && !!stepDest);
-  ui.stepLabel.textContent = stepping && stepDest ? "Ir ahí" : "Paso";
+  ui.fuelBtn.classList.toggle("on", moveMode);
+  ui.fuelBtn.classList.toggle("go", moveMode && !!moveDest);
+  ui.fuelLabel.textContent = moveMode && moveDest ? "Ir ahí" : "Nafta";
 }
 
 /** Qué hace cada cosa de la tienda, en una línea. La descripción larga del sim queda de tooltip. */
@@ -1553,33 +1550,31 @@ ui.wDirt.addEventListener("click", () => selectWeapon("dirt"));
 ui.wMirv.addEventListener("click", () => selectWeapon("mirv"));
 ui.wLeapfrog.addEventListener("click", () => selectWeapon("leapfrog"));
 
-function toggleMoveMode(kind: "fuel" | "step" = "fuel"): void {
+function toggleMoveMode(): void {
   if (!myTurn()) return;
-  if (kind === "fuel" ? (me()?.fuel ?? 0) <= 0 || room?.state.moved : !room?.state.step) return;
-  moveMode = !(moveMode && moveKind === kind);
-  moveKind = kind;
+  if ((me()?.fuel ?? 0) <= 0 || room?.state.moved) return;
+  moveMode = !moveMode;
   moveHover = null;
-  stepDest = null;
-  // El paso dice qué sigue: el anillo solo no avisa que hay que tocar el piso.
-  if (moveMode && kind === "step") showBanner(compact.matches ? "Tocá el piso adonde vas" : "Clic en el piso adonde vas", 2500);
+  moveDest = null;
+  // Se dice qué sigue: el anillo solo no avisa que hay que tocar el piso.
+  if (moveMode) showBanner(compact.matches ? "Tocá el piso adonde vas" : "Clic en el piso adonde vas", 2500);
   onState();
 }
-ui.fuelBtn.addEventListener("click", () => toggleMoveMode());
 
-/** El botón (o la P) del paso gratis: lo elige, lo suelta o, con el destino ya marcado, lo confirma. */
-function stepOrConfirm(): void {
-  if (moveMode && moveKind === "step" && stepDest && myTurn() && room) {
-    room.send("step", { moveTo: stepDest });
+/** El botón (o la N) de la Nafta: la elige, la suelta o, con el destino ya marcado, lo confirma. */
+function fuelOrConfirm(): void {
+  if (moveMode && moveDest && myTurn() && room) {
+    room.send("move", { moveTo: moveDest });
     moveMode = false;
     moveHover = null;
     onState();
     return;
   }
-  toggleMoveMode("step");
+  toggleMoveMode();
 }
-ui.stepBtn.addEventListener("click", () => {
-  stepOrConfirm();
-  ui.stepBtn.blur(); // las teclas vuelven al cañón
+ui.fuelBtn.addEventListener("click", () => {
+  fuelOrConfirm();
+  ui.fuelBtn.blur(); // las teclas vuelven al cañón
 });
 
 function fire(): void {
@@ -1771,7 +1766,7 @@ function spawnAt(e: PointerEvent): void {
   room.send("spawn", { at: to });
 }
 
-/** Clic o toque en el piso: en la tienda es el nacimiento (o la loma, si está elegida); en tu turno, el destino de la nafta o del paso. */
+/** Clic o toque en el piso: en la tienda es el nacimiento (o la loma, si está elegida); en tu turno, el destino de la nafta. */
 function tapGround(e: PointerEvent): void {
   if (room?.state.phase !== "shop") moveTo(e);
   else if (moundMode) moundAt(e);
@@ -1795,30 +1790,29 @@ let tap: { id: number; moved: number } | null = null;
 const byFinger = (e: PointerEvent) => compact.matches && e.pointerType !== "mouse";
 
 /**
- * Clic (o toque) en el piso con la nafta o el paso elegidos: mueve el tanque si el sim lo deja. En
- * pantalla chica el paso no sale con el toque: queda marcado y se confirma con su botón ("Ir ahí"),
- * así un dedo que iba para Tirar no corre el tanque ni al revés.
+ * Clic (o toque) en el piso con la Nafta elegida: mueve el tanque si el sim lo deja. En pantalla
+ * chica no sale con el toque: queda marcado y se confirma con su botón ("Ir ahí"), así un dedo que
+ * iba para Tirar no corre el tanque ni al revés.
  */
 function moveTo(e: PointerEvent): void {
   if (!moveMode || !myTurn() || !room) return;
   const to = pickGround(e);
   const view = simView();
   if (!to || !view) return;
-  const free = moveKind === "step";
-  const check = validateMove(view, room.sessionId, to, free);
+  const check = validateMove(view, room.sessionId, to);
   if (!check.ok) {
     showBanner(`No: ${check.reason}`, 1500);
     return;
   }
-  if (free && compact.matches) {
-    stepDest = to;
+  if (compact.matches) {
+    moveDest = to;
     onState();
     // Falta un toque: se dice cuál y el botón queda a la vista aunque la fila de armas esté corrida.
     showBanner("Marcado. Tocá Ir ahí para correrte", 2500);
-    ui.stepBtn.scrollIntoView({ block: "nearest", inline: "nearest" });
+    ui.fuelBtn.scrollIntoView({ block: "nearest", inline: "nearest" });
     return;
   }
-  room.send(free ? "step" : "move", { moveTo: to });
+  room.send("move", { moveTo: to });
   moveMode = false;
   moveHover = null;
 }
@@ -1876,7 +1870,7 @@ ui.viewport.addEventListener("pointermove", (e) => {
     const to = pickGround(e);
     const view = simView();
     if (to && view) {
-      const ok = validateMove(view, room.sessionId, to, moveKind === "step").ok;
+      const ok = validateMove(view, room.sessionId, to).ok;
       moveHover = { x: to.x, y: terrainHeightAt(view.terrain, to.x, to.z), z: to.z, ok };
     } else moveHover = null;
   }
@@ -1962,11 +1956,7 @@ window.addEventListener("keydown", (e) => {
       break;
     case "n":
     case "N":
-      toggleMoveMode();
-      break;
-    case "p":
-    case "P":
-      stepOrConfirm();
+      fuelOrConfirm();
       break;
     case "Escape":
       moveMode = false;
@@ -2081,9 +2071,8 @@ function frame(now: number): void {
 
   const myTank = tanks.find((t) => t.isMe);
   const ghost = moveMode ? null : computeGhost(myTank, tanks, wind);
-  const stepping = moveMode && moveKind === "step";
-  // El destino marcado del paso se queda dibujado hasta que se confirma o se marca otro.
-  const marked = stepping && stepDest ? { x: stepDest.x, y: terrainHeightAt(terrain, stepDest.x, stepDest.z), z: stepDest.z, ok: true } : null;
+  // El destino marcado de la Nafta se queda dibujado hasta que se confirma o se marca otro.
+  const marked = moveMode && moveDest ? { x: moveDest.x, y: terrainHeightAt(terrain, moveDest.x, moveDest.z), z: moveDest.z, ok: true } : null;
   const fires = firesOf(s);
   // Tienda: las estacas de la ronda que viene, y la cámara en la mía (cada punto que elijo la lleva ahí).
   const spawns: SpawnModel[] =
@@ -2106,7 +2095,7 @@ function frame(now: number): void {
       moundMode && mySpawn && spawnHover
         ? { center: spawnHover, range: WEAPONS.dirt.mound!.radius, hover: spawnHover }
         : moveMode && myTank
-          ? { center: { x: myTank.x, z: myTank.z }, range: stepping ? FREE_STEP_RANGE : FUEL_MOVE_RANGE, hover: marked ?? moveHover }
+          ? { center: { x: myTank.x, z: myTank.z }, range: FUEL_MOVE_RANGE, hover: marked ?? moveHover }
           : null,
     spawns,
     spawnHover: mySpawn ? spawnHover : null,

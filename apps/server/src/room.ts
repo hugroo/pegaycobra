@@ -3,7 +3,7 @@
 //
 // Mensajes del cliente:  start · rematch · fillBots · lobbyStep { step } · map { map } · clock { turn, shop, rounds }
 //                        fire { yaw, pitch, power, weapon }
-//                        move { moveTo: { x, z } } · step { moveTo: { x, z } } · buy { item } · sell { item } · spawn { at: { x, z } }
+//                        move { moveTo: { x, z } } · buy { item } · sell { item } · spawn { at: { x, z } }
 //                        mound { at: { x, z } } · ready · chat { text }
 // Los bots (bot.ts) no tienen conexión: la sala les pasa sus mensajes por los mismos métodos.
 // Mensajes del server:   terrain (binario) · pristine (binario, solo al que vuelve) · shot · moved · mound · skip · burn · refuel · roundEnd · chat
@@ -209,7 +209,6 @@ export class GameRoom extends Room<{ state: GameState }> {
     });
 
     this.onMessage("move", (client, message: unknown) => void this.onMove(client.sessionId, message));
-    this.onMessage("step", (client, message: unknown) => void this.onMove(client.sessionId, message, true));
     this.onMessage("fire", (client, message: unknown) => this.onFire(client.sessionId, message));
     this.onMessage("buy", (client, message: unknown) => this.onBuy(client.sessionId, message));
     this.onMessage("sell", (client, message: unknown) => {
@@ -283,12 +282,13 @@ export class GameRoom extends Room<{ state: GameState }> {
     }, 1000);
   }
 
-  /** Nafta, o (`free`) el paso gratis del primer turno de la ronda. false = ignorado. */
-  private onMove(id: string, message: unknown, free = false): boolean {
-    const to = free ? this.game.step(id, message) : this.game.move(id, message);
+  /** Nafta: la de la casa en el primer turno de la ronda, o una suya. false = ignorado. */
+  private onMove(id: string, message: unknown): boolean {
+    const house = this.game.houseLeft;
+    const to = this.game.move(id, message);
     if (!to) return false;
-    this.broadcast("moved", { id, ...to, free });
-    this.log(`${this.nameOf(id)} ${free ? "da el paso gratis" : "usa nafta"} -> (${to.x.toFixed(1)}, ${to.z.toFixed(1)})`);
+    this.broadcast("moved", { id, ...to });
+    this.log(`${this.nameOf(id)} usa nafta${house ? " de la casa" : ""} -> (${to.x.toFixed(1)}, ${to.z.toFixed(1)})`);
     this.flush();
     return true;
   }
@@ -396,11 +396,11 @@ export class GameRoom extends Room<{ state: GameState }> {
   private botAct(): void {
     const g = this.game;
     if (g.phase === "aiming" && g.turnId !== null && this.bots.has(g.turnId) && g.match) {
-      // Con un cerro de por medio, primero sube: con el paso gratis si lo tiene, si no con nafta. El
-      // flush de onMove lo agenda de nuevo y ahí tira.
-      const free = g.stepLeft;
-      const to = free || !g.movedThisTurn ? botMovePick(g.match, g.turnId, free) : null;
-      if (to && this.onMove(g.turnId, { moveTo: to }, free)) return;
+      // Con un cerro de por medio, primero sube, una vez por turno: en su primer turno de la ronda
+      // con la Nafta de la casa (no la guarda), y después con la suya. El flush de onMove lo agenda
+      // de nuevo y ahí tira.
+      const to = g.movesThisTurn === 0 ? botMovePick(g.match, g.turnId) : null;
+      if (to && this.onMove(g.turnId, { moveTo: to })) return;
       const shot = pickBotShot(g.match, g.turnId, this.botRng);
       if (shot) this.onFire(g.turnId, { yaw: shot.yaw, pitch: shot.pitch, power: shot.power, weapon: shot.weapon });
     } else if (g.phase === "shop") {
@@ -575,7 +575,6 @@ export class GameRoom extends Room<{ state: GameState }> {
     s.turnSeconds = g.turnSeconds;
     s.shopSeconds = g.shopSeconds;
     s.moved = g.movedThisTurn;
-    s.step = g.stepLeft;
     s.winnerId = g.winnerId ?? "";
     s.endReason = g.endReason ?? "";
     if (s.winners.length !== g.winners.length || g.winners.some((w, i) => s.winners[i] !== w)) {
@@ -638,6 +637,7 @@ export class GameRoom extends Room<{ state: GameState }> {
         p.shield = player.inventory.shield ?? 0;
         p.parachute = player.inventory.parachute ?? 0;
         p.fuel = player.inventory.fuel ?? 0;
+        p.house = g.hasHouseFuel(seat.id);
       }
       const score = g.board[seat.id];
       if (score) {

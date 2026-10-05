@@ -441,7 +441,7 @@ describe("sala con bot", () => {
     a.send("ready");
     await until(() => a.state.round === 2 && a.state.phase !== "shop");
     // La ronda 2 abre con cada uno donde estaba su marca, y las marcas se van. (Si al bot le tocó
-    // primero y ya dio el paso, se corrió de ahí: el aviso "moved" llega antes que el estado.)
+    // primero y ya usó la Nafta de la casa, se corrió de ahí: el aviso "moved" llega antes que el estado.)
     if (botMoves === 0) expect([bot.x, bot.z]).toEqual([born.x, born.z]);
     expect([ana.x, ana.z]).toEqual([drawn.x, drawn.z]);
     expect([bot.spawnX, ana.spawnX]).toEqual([-1, -1]);
@@ -459,7 +459,7 @@ describe("sala con bot", () => {
     await a.leave();
   }, 60_000);
 
-  it("con un cerro de por medio, el bot sube con el paso gratis (la nafta la guarda) y después tira en el mismo turno", async () => {
+  it("con un cerro de por medio, el bot sube con la Nafta de la casa (la comprada la guarda) y después tira en el mismo turno", async () => {
     const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
     quiet(a);
     const events: any[] = [];
@@ -474,7 +474,7 @@ describe("sala con bot", () => {
     expect(a.state.turnId).toBe(a.sessionId);
 
     // Mientras le toca a Ana, se le arma al bot el caso: piso plano, un cerro de pared a pared
-    // entre los dos, una loma al lado del bot y una carga de nafta.
+    // entre los dos, una loma al lado del bot y, además de la Nafta de la casa, una comprada.
     const game = (matchMaker.getLocalRoomById(a.roomId) as any).game as Game;
     const terrain = createFlatTerrain(257, 257, 10);
     for (let z = 0; z < 257; z++) for (let x = 180; x <= 192; x++) terrain.heights[x + z * 257] = 45;
@@ -484,7 +484,7 @@ describe("sala con bot", () => {
       ...m,
       terrain,
       tanks: m.tanks.map((t) => ({ ...t, x: t.id === bot.id ? 60 : 200, y: 10, z: 128 })),
-      players: m.players.map((p) => (p.id === bot.id ? { ...p, inventory: { ...p.inventory, fuel: 1 } } : p)),
+      players: m.players.map((p) => (p.id === bot.id ? { ...p, inventory: { ...p.inventory, fuel: 2 } } : p)),
     };
 
     a.send("fire", { yaw: 0, pitch: 60, power: 250 }); // lejos del bot
@@ -495,7 +495,6 @@ describe("sala con bot", () => {
     expect(moved).toBeLessThan(shot);
     expect(events[moved].id).toBe(bot.id);
     expect(events[moved].y).toBe(20);
-    expect(events[moved].free).toBe(true);
     expect(events.filter((e) => e.type === "moved")).toHaveLength(1);
     await until(() => bot.fuel === 1 && bot.y === 20);
     await a.leave();

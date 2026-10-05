@@ -38,6 +38,8 @@ export const PlayerState = schema(
     shield: t.uint8().default(0),
     parachute: t.uint8().default(0),
     fuel: t.uint16().default(0),
+    /** Una de esas cargas es la Nafta de la casa: vale en su primer turno de la ronda y, si tira sin usarla, la pierde. */
+    house: t.boolean().default(false),
     /** Puntaje: daño a otros + kills. */
     points: t.int32().default(0),
     kills: t.int16().default(0),
@@ -98,10 +100,8 @@ export const GameState = schema(
     /** Lo que dura un turno y lo que dura la tienda en esta sala. Con `rounds`, los escribe el anfitrión en la espera. [s] */
     turnSeconds: t.uint8().default(20),
     shopSeconds: t.uint8().default(30),
-    /** El del turno ya usó nafta. */
+    /** El del turno ya usó en este turno una Nafta suya: no puede moverse otra vez. La de la casa no cuenta. */
     moved: t.boolean().default(false),
-    /** El del turno todavía tiene el paso gratis (su primer turno de la ronda, sin haberlo dado). */
-    step: t.boolean().default(false),
     /** Viento en el piso (XZ). [unidad de viento] */
     windX: t.float32().default(0),
     windZ: t.float32().default(0),

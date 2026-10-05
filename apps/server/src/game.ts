@@ -223,6 +223,10 @@ export function shotMark(shot: Shot3DResult): ShotMark {
 /** La vida de todos los tanques, sumada. [hp] */
 const totalLife = (m: MatchState3D): number => m.tanks.reduce((sum, t) => sum + Math.max(0, t.life), 0);
 
+/** Los mismos jugadores, con `delta` cargas de Nafta más (o menos) los de `ids`. */
+const withFuel = (players: readonly Player[], ids: ReadonlySet<string>, delta: number): Player[] =>
+  players.map((p) => (ids.has(p.id) ? { ...p, inventory: { ...p.inventory, fuel: (p.inventory.fuel ?? 0) + delta } } : p));
+
 export interface Aim {
   yaw: number;
   pitch: number;
@@ -292,10 +296,10 @@ export class Game {
   readonly spawns = new Map<string, Spawn>();
   /** En la tienda: los que ya dejaron su loma (leaveMound). Una por tienda cada uno; se vacía al abrir y al cerrar. */
   readonly mounded = new Set<string>();
-  /** El del turno ya usó nafta en este turno. */
+  /** El del turno ya usó en este turno una Nafta suya (comprada o de una vuelta sin daño). La de la casa no cuenta. */
   movedThisTurn = false;
-  /** El del turno ya dio el paso gratis en este turno. */
-  private steppedThisTurn = false;
+  /** Veces que se movió el del turno en este turno: con la de la casa, con una suya, o con las dos. */
+  movesThisTurn = 0;
   /** Último yaw/pitch que usó cada jugador (solo para dibujar el cañón). */
   readonly aims = new Map<string, Aim>();
   /** Marca del último tiro de cada tanque en la ronda: aparece cuando cae y dura hasta que ese jugador tira de nuevo. */
@@ -314,6 +318,12 @@ export class Game {
   private readonly giftFuel = new Set<string>();
   /** Los que recibieron esa Nafta desde la última vez que la sala lo leyó (takeRefuel). */
   private refueled: string[] = [];
+  /**
+   * Los que tienen sin gastar la Nafta de la casa: una por ronda cada tanque, para su primer turno.
+   * Va en el inventario, como una carga más, y se gasta antes que las suyas. El que tira (o pierde el
+   * turno) sin usarla la pierde, y la del que no llegó a jugar se va al cerrar la ronda: no llega a la tienda.
+   */
+  private readonly houseFuel = new Set<string>();
   private baseSeed = 0;
   /** El terreno como nació en la ronda 1 de la partida en curso: contra él se ve qué es hoyo al reubicar los tanques. */
   pristine: Terrain | null = null;
@@ -485,11 +495,15 @@ export class Game {
     this.marks.clear(); // posiciones nuevas: las marcas de la ronda anterior no dicen nada
     this.ready.clear();
     this.movedThisTurn = false;
-    this.steppedThisTurn = false;
+    this.movesThisTurn = 0;
     this.lapPlayed.clear();
     this.lapLife = totalLife(this.match);
     this.giftFuel.clear();
     this.refueled = [];
+    // La Nafta de la casa: una para cada tanque que arranca vivo, encima de las que haya comprado.
+    this.houseFuel.clear();
+    for (const t of tanks) if (t.life > 0) this.houseFuel.add(t.id);
+    this.match = { ...this.match, players: withFuel(this.match.players, this.houseFuel, 1) };
     // Empieza un jugador distinto cada ronda.
     const n = this.seats.length;
     const alive = new Set(tanks.filter((t) => t.life > 0).map((t) => t.id));
@@ -505,35 +519,38 @@ export class Game {
     this.timeLeft = this.turnSeconds;
   }
 
-  /** Nafta: mueve el tanque del turno antes de tirar. null = ignorado. */
+  /**
+   * Nafta: mueve el tanque del turno antes de tirar. Una vez por turno; en el primer turno de la
+   * ronda, la de la casa sale primero y no cuenta, así que después se puede gastar una suya. null = ignorado.
+   */
   move(byId: string, raw: unknown): { x: number; y: number; z: number } | null {
     if (this.phase !== "aiming" || byId !== this.turnId || !this.match || this.movedThisTurn) return null;
     const to = parseMoveMessage(raw);
     if (!to || !validateMove(this.match, byId, to).ok) return null;
     this.match = moveTank(this.match, byId, to);
-    this.giftFuel.delete(byId); // la regalada se gasta primero
-    this.movedThisTurn = true;
+    if (!this.houseFuel.delete(byId)) {
+      this.giftFuel.delete(byId); // la regalada se gasta antes que la comprada
+      this.movedThisTurn = true;
+    }
+    this.movesThisTurn++;
     const t = this.match.tanks.find((tk) => tk.id === byId)!;
     return { x: t.x, y: t.y, z: t.z };
   }
 
-  /**
-   * El del turno todavía tiene el paso gratis: es su primer turno de la ronda y no lo dio. No se
-   * guarda: si tira (o se le va el reloj) sin usarlo, lo pierde.
-   */
-  get stepLeft(): boolean {
-    return this.phase === "aiming" && this.turnId !== null && !this.steppedThisTurn && (this.turnsTaken.get(this.turnId) ?? 0) === 0;
+  /** `id` tiene sin gastar la Nafta de la casa de esta ronda. */
+  hasHouseFuel(id: string): boolean {
+    return this.houseFuel.has(id);
   }
 
-  /** Paso gratis: como move, pero sin nafta y hasta FREE_STEP_RANGE. null = ignorado. */
-  step(byId: string, raw: unknown): { x: number; y: number; z: number } | null {
-    if (byId !== this.turnId || !this.match || !this.stepLeft) return null;
-    const to = parseMoveMessage(raw);
-    if (!to || !validateMove(this.match, byId, to, true).ok) return null;
-    this.match = moveTank(this.match, byId, to, true);
-    this.steppedThisTurn = true;
-    const t = this.match.tanks.find((tk) => tk.id === byId)!;
-    return { x: t.x, y: t.y, z: t.z };
+  /** El del turno tiene sin gastar la Nafta de la casa: es su primer turno de la ronda y no se movió. */
+  get houseLeft(): boolean {
+    return this.phase === "aiming" && this.turnId !== null && this.houseFuel.has(this.turnId);
+  }
+
+  /** Saca la Nafta de la casa que `ids` no gastaron. Al que ya no la tiene no le toca nada. */
+  private dropHouseFuel(ids: readonly string[]): void {
+    const left = new Set(ids.filter((id) => this.houseFuel.delete(id)));
+    if (left.size > 0 && this.match) this.match = { ...this.match, players: withFuel(this.match.players, left, -1) };
   }
 
   /** null = mensaje ignorado (no es su turno, fase incorrecta, mensaje inválido o sin munición). */
@@ -541,6 +558,9 @@ export class Game {
     if (this.phase !== "aiming" || byId !== this.turnId || !this.match) return null;
     const msg = parseFireMessage(raw);
     if (!msg) return null;
+    // Tira sin haberla usado: la Nafta de la casa se pierde con el tiro. Si el tiro no vale, sigue ahí.
+    const before = { match: this.match, house: this.houseFuel.has(byId) };
+    this.dropHouseFuel([byId]);
     let result: TurnResult3D;
     try {
       // Solo estos cuatro datos llegan al sim; el sim valida arma y munición.
@@ -550,6 +570,8 @@ export class Game {
         { recordPath: true },
       );
     } catch {
+      this.match = before.match;
+      if (before.house) this.houseFuel.add(byId);
       return null;
     }
     this.pending = { result, shooterId: byId };
@@ -702,8 +724,10 @@ export class Game {
 
   private afterTurn(): void {
     this.movedThisTurn = false;
-    this.steppedThisTurn = false;
+    this.movesThisTurn = 0;
     if (!this.match) return;
+    // Se le fue el reloj (o se fue él) con la Nafta de la casa sin usar: no se guarda.
+    if (this.turnId) this.dropHouseFuel([this.turnId]);
     // El fuego de más abajo ya es de la vuelta que sigue: la que termina se cierra antes.
     const quietLap = this.closeLap();
     // Si al que le toca lo mata el fuego al empezar, el turno sigue de largo al próximo.
@@ -778,7 +802,7 @@ export class Game {
     if (got.size === 0) return;
     this.match = {
       ...this.match!,
-      players: this.match!.players.map((p) => (got.has(p.id) ? { ...p, inventory: { ...p.inventory, fuel: (p.inventory.fuel ?? 0) + 1 } } : p)),
+      players: withFuel(this.match!.players, got, 1),
     };
     for (const id of got) this.giftFuel.add(id);
     this.refueled.push(...got);
@@ -812,10 +836,12 @@ export class Game {
 
   /** Fin de ronda: cobran los que siguen vivos, todos cobran interés; tienda o fin de partida. */
   private endRound(): void {
+    // La Nafta regalada que nadie usó se queda en la ronda, y la de la casa del que no llegó a jugar
+    // también: a la tienda llega solo la comprada.
+    this.dropHouseFuel([...this.houseFuel]);
     const m = this.match!;
     const survivors = new Set(m.tanks.filter((t) => t.life > 0).map((t) => t.id));
-    // La Nafta regalada que nadie usó se queda en la ronda: a la tienda llega solo la comprada.
-    const kept = m.players.map((p) => (this.giftFuel.has(p.id) ? { ...p, inventory: { ...p.inventory, fuel: (p.inventory.fuel ?? 0) - 1 } } : p));
+    const kept = withFuel(m.players, this.giftFuel, -1);
     this.giftFuel.clear();
     this.refueled = [];
     const { players, payouts } = endRoundPayouts(kept, survivors);

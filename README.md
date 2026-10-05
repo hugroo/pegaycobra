@@ -77,8 +77,7 @@ Controles (la barra de abajo aparece solo en tu turno; un arma sin munición no 
 | Girar y elevar el cañón | Arrastrar con el botón izquierdo (horizontal = giro, vertical = elevación), o ← → / ↑ ↓ |
 | Potencia | Rueda del mouse (en tu turno), la barra, o PageUp / PageDown |
 | Elegir arma | Botones *Chispa* / *Misil* / *Rodillo* / *Quema* / *Bombazo* / *Tierra* / *Racimo* / *Rebote*, o las teclas 1 / 2 / 3 / 4 / 5 / 6 / 7 / 8 |
-| Paso gratis (en tu primer turno de cada ronda, antes de tirar) | Botón *Paso* o tecla P, y después un clic en el piso dentro del anillo amarillo: hasta 15 celdas. En el celular el toque marca el destino y el mismo botón, que pasa a decir *Ir ahí*, lo confirma |
-| Nafta (mover el tanque antes de tirar) | Botón *Nafta* o tecla N, y después un clic en el piso dentro del anillo amarillo |
+| Nafta (mover el tanque antes de tirar) | Botón *Nafta* o tecla N, y después un clic en el piso dentro del anillo amarillo: hasta 20 celdas. En el celular el toque marca el destino y el mismo botón, que pasa a decir *Ir ahí*, lo confirma. En tu primer turno de cada ronda tenés una de la casa |
 | Tirar | Espacio o el botón *Tirar* |
 | Mover la cámara | Arrastrar con el botón derecho (fuera de tu turno, también el izquierdo) |
 | Zoom | Shift + rueda, + / −, o la rueda cuando no es tu turno |
@@ -183,14 +182,14 @@ continua, quieta y más pálida.
   | Rebote ×2 | $1.600 | Sale como un Misil, pega en el piso y sigue, una sola vez, con la mitad de la velocidad. Donde pica no explota ni abre cráter: explota en el segundo golpe, como un Misil (radio 6). Si el primer golpe es contra un tanque, explota ahí y no sigue. No rueda y no se abre |
   | Escudo | $2.000 | Absorbe el próximo tiro cuya explosión te alcance (Chispa, Misil o Rodillo; el Bombazo no; del Racimo, una cabeza) y se gasta. Uno por vez; si nadie te pega, lo seguís teniendo la ronda siguiente |
   | Paracaídas | $1.250 | La ronda siguiente, la caída al cráter no te hace daño. El agua sí: si el hoyo llega al lago, te morís igual. Uno por ronda |
-  | Nafta | $3.000 | Antes de tirar, mové el tanque hasta 20 celdas. Una vez por turno |
+  | Nafta | $3.000 | Antes de tirar, mové el tanque hasta 20 celdas. Una vez por turno; en tu primer turno de la ronda se suma a la de la casa y podés gastar las dos |
 
   La Chispa es infinita y no está en la tienda.
 
   **Vender.** Debajo de cada carta que tenés hay un renglón *Vendé*: te devuelven la mitad del
   precio, al toque. Se vende de a un pack; si ya tiraste alguno, se vende lo que queda (de 3 Misiles
   con uno tirado, vuelven $400 por los dos). El Escudo queda puesto desde que lo comprás y no se
-  vende; la Nafta y el Paracaídas sin usar, sí. Solo en la tienda.
+  vende; la Nafta comprada y el Paracaídas sin usar, sí (la Nafta de la casa no llega a la tienda). Solo en la tienda.
 
   **Qué tapa el escudo y qué no.** Tapa el tiro entero: la explosión no te saca vida y, si el
   cráter de ese mismo tiro te deja sin piso, caés pero esa caída tampoco duele. No tapa la caída
@@ -281,8 +280,7 @@ de la misma sala podrían caer en servidores distintos.
   | `map { map }` | lobby | que sea el anfitrión y `map` sea `valley`, `island` o `hill`. Arrancada la partida se ignora, también en la revancha |
   | `clock { turn, shop, rounds }` | lobby | que sea el anfitrión. Cada número tiene que ser entero y estar en rango (`turn` 10–60, `shop` 10–90, `rounds` 1–9); el que no, vale 20, 30 o 5. El server corta el turno y la tienda con esos valores. Arrancada la partida se ignora, también en la revancha |
   | `fire { yaw, pitch, power, weapon }` | tu turno | `weapon` es `babyMissile`, `missile`, `roller`, `napalm`, `nuke`, `dirt`, `mirv` o `leapfrog` y tenés munición. Cualquier otro campo (daño, impacto, posición) se descarta sin llegar al sim. Otra arma: el mensaje se ignora entero |
-  | `move { moveTo: { x, z } }` | tu turno, antes de tirar | que tengas nafta, no te hayas movido ya en el turno, y el destino esté a ≤ 20 celdas, dentro del mapa y no pegado a otro tanque (`validateMove` del sim) |
-  | `step { moveTo: { x, z } }` | tu primer turno de la ronda, antes de tirar | que no lo hayas dado ya y que el destino esté a ≤ 15 celdas, en piso firme (al agua no se entra), dentro del mapa y no pegado a otro tanque (`validateMove` del sim, con `free`). No gasta nafta ni plata. Si tirás o se te va el reloj sin usarlo, se pierde: desde tu segundo turno de la ronda se ignora |
+  | `move { moveTo: { x, z } }` | tu turno, antes de tirar | que tengas nafta, no hayas usado ya una tuya en el turno, y el destino esté a ≤ 20 celdas, en piso firme (al agua no se entra), dentro del mapa y no pegado a otro tanque (`validateMove` del sim). En tu primer turno de la ronda gasta primero la Nafta de la casa, que no cuenta para el una-por-turno |
   | `buy { item }` | tienda | que el ítem exista y te alcance la plata (`cannotBuy` del sim) |
   | `sell { item }` | tienda | que tengas ese ítem y no sea el Escudo (`cannotSell` del sim). Devuelve la mitad |
   | `spawn { at: { x, z } }` | tienda | que el punto esté dentro del mapa (sin las dos filas del borde), en piso firme, que no sea agua ni hoyo, y a 60 celdas o más de donde nace cada uno de los demás (`validateSpawn` del sim). Si no, se ignora y queda el nacimiento que tenías |
@@ -322,12 +320,12 @@ de la misma sala podrían caer en servidores distintos.
   ronda anterior y no tiene uno; si no, sortea entre Misil, Rodillo, Rebote y nafta. Tira lo que
   tenga (Misil, si no Rebote, si no Rodillo, si no la Chispa) apuntando igual que siempre. La nafta
   la usa antes de tirar si el rival está cerro de por medio y hay piso más alto a menos de 20
-  celdas: sube al punto más alto. En su primer turno de la ronda hace lo mismo con el paso gratis
-  (a menos de 15 celdas) y la nafta la guarda. No compra Quema, Bombazo, Tierra, Racimo ni paracaídas.
+  celdas: sube al punto más alto, una vez por turno. En su primer turno de la ronda sube con la
+  Nafta de la casa y la comprada la guarda. No compra Quema, Bombazo, Tierra, Racimo ni paracaídas.
   Si el rival está en la orilla y alguna de sus 24 punterías lo deja en el agua, tira esa; si
   ninguna lo ahoga, la que cae más cerca, como siempre. Solo con Chispa, Misil o Rebote: con el
   Rodillo no mira el agua.
-- Otros mensajes del server: `moved` (alguien usó nafta o, con `free`, dio el paso gratis), `refuel { ids }` (una vuelta sin daño les dejó una Nafta a esos), `skip` (turno perdido por tiempo),
+- Otros mensajes del server: `moved` (alguien usó nafta, la de la casa o una suya), `refuel { ids }` (una vuelta sin daño les dejó una Nafta a esos), `skip` (turno perdido por tiempo),
   `burn` (a alguien le empezó el turno en el fuego) y `roundEnd` (lo que cobró cada uno al terminar
   la ronda, y lo que juntó pegando, separado: `damage`, `kill` y `water`, el kill de agua. Con
   `survivor` e `interest` suman todo lo que ganó en la ronda; `fixed` es la parte de `interest` que es el fijo).
@@ -602,8 +600,11 @@ tanques son primitivas generadas.
     por debajo de la esfera y no toca las demás: en una ladera, la celda que subió queda varios
     metros arriba de la de al lado, que no se tocó. Acá la celda que sube no pasa de la esfera
     (`applyMoundTerrain`). En piso llano las dos reglas dan la misma loma.
-  - **El paso gratis**: antes de su primer tiro de cada ronda, cada tanque puede correrse una vez
-    hasta 15 celdas (`FREE_STEP_RANGE`), sin nafta. No se compra ni se guarda. El original no lo tiene.
+  - **La Nafta de la casa**: al empezar cada ronda cada tanque tiene una Nafta, para su primer
+    turno. Es una carga como la comprada (20 celdas, piso firme) y se gasta antes que las suyas, sin
+    contar para el una-por-turno: con una comprada, en ese turno se puede mover dos veces. El que
+    tira o pierde el turno sin usarla, la pierde; no se vende y no llega a la tienda. El original no
+    lo tiene.
   - **La Nafta de la vuelta sin daño**: cuando todos los vivos jugaron su turno y nadie perdió vida,
     cada tanque vivo recibe una Nafta, la haya comprado o no, y se usa como la de la tienda. No se
     apila (el que todavía la tiene no recibe otra) y la que no se usó no pasa a la tienda. El

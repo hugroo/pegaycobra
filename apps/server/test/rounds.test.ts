@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   applyCraterTerrain,
   createFlatTerrain,
-  FREE_STEP_RANGE,
   FUEL_MOVE_RANGE,
   INTEREST_RATE,
   isDug,
@@ -263,9 +262,9 @@ describe("el terreno queda de una ronda a la otra", () => {
     // El mismo heightmap: el hoyo sigue donde estaba y nada más cambió.
     expect(g.match!.terrain).toBe(holed);
     expect(g.match!.terrain.heights).toEqual(heights);
-    // La vida vuelve; la plata y el inventario, como salieron de la tienda.
+    // La vida vuelve; la plata y el inventario, como salieron de la tienda, más la Nafta de la casa.
     expect(g.match!.tanks.every((t) => t.life === 100)).toBe(true);
-    expect(g.match!.players).toEqual(players);
+    expect(g.match!.players).toEqual(players.map((p) => ({ ...p, inventory: { ...p.inventory, fuel: (p.inventory.fuel ?? 0) + 1 } })));
     // Nadie nace adentro: ni A, que iba ahí, ni B. Firme, apoyados y con la separación de siempre.
     for (const t of g.match!.tanks) {
       expect(isDug(holed, pristine, t.x, t.z)).toBe(false);
@@ -1201,19 +1200,22 @@ describe("nafta", () => {
   function fueled() {
     const g = started();
     const id = g.turnId!;
-    g.match = { ...g.match!, players: g.match!.players.map((p) => (p.id === id ? { ...p, inventory: { ...p.inventory, fuel: 2 } } : p)) };
+    // Es su primer turno de la ronda: la de la casa y dos compradas.
+    g.match = { ...g.match!, players: g.match!.players.map((p) => (p.id === id ? { ...p, inventory: { ...p.inventory, fuel: 3 } } : p)) };
     const t = g.match!.tanks.find((tk) => tk.id === id)!;
     return { g, id, t };
   }
 
-  it("mueve el tanque antes de tirar, una vez por turno, y gasta una carga", () => {
+  it("mueve el tanque antes de tirar y gasta una carga; de las suyas, una por turno", () => {
     const { g, id, t } = fueled();
     const to = { x: t.x + 10, z: t.z };
     const moved = g.move(id, { moveTo: to });
     expect(moved).not.toBeNull();
     expect(g.match!.tanks.find((tk) => tk.id === id)!.x).toBeCloseTo(t.x + 10, 5);
+    expect(inv(g, id).fuel).toBe(2); // salió la de la casa, que no cuenta
+    expect(g.move(id, { moveTo: { x: t.x + 12, z: t.z } })).not.toBeNull();
     expect(inv(g, id).fuel).toBe(1);
-    expect(g.move(id, { moveTo: { x: t.x + 12, z: t.z } })).toBeNull(); // segunda vez en el turno
+    expect(g.move(id, { moveTo: { x: t.x + 10, z: t.z } })).toBeNull(); // segunda de las suyas en el turno
     expect(g.phase).toBe("aiming"); // sigue pudiendo tirar
     expect(g.fire(id, { yaw: 0, pitch: 60, power: 300 })).not.toBeNull();
   });
@@ -1229,7 +1231,10 @@ describe("nafta", () => {
   });
 });
 
-describe("paso gratis", () => {
+describe("Nafta de la casa", () => {
+  const give = (g: Game, id: string, items: object) => {
+    g.match = { ...g.match!, players: g.match!.players.map((p) => (p.id === id ? { ...p, inventory: { ...p.inventory, ...items } } : p)) };
+  };
   /** Piso plano a 10, A en (100, 128) y B en (200, 128), y un charco pegado a A, del lado de las x: de 108 a 112. */
   function flat() {
     const g = started();
@@ -1239,63 +1244,117 @@ describe("paso gratis", () => {
     return g;
   }
   const at = (g: Game, id: string) => g.match!.tanks.find((t) => t.id === id)!;
+  const fuel = (g: Game) => ["A", "B"].map((id) => inv(g, id).fuel ?? 0);
   const SHOT = { yaw: 90, pitch: 60, power: 200 }; // corto y para el costado: no le pega a nadie
+  /** Le saca un punto de vida a mano: la vuelta deja de ser quieta y no cae la Nafta de arriba, que acá no se mira. */
+  const scratch = (g: Game, id: string) => {
+    g.match = { ...g.match!, tanks: g.match!.tanks.map((t) => (t.id === id ? { ...t, life: t.life - 1 } : t)) };
+  };
 
-  it("no pasa de 15, no entra al agua, no gasta nada, y en el segundo turno de la ronda ya no está", () => {
+  it("en el primer turno hay una Nafta de la casa, en el segundo no, y no se puede vender", () => {
     const g = flat();
-    expect(FREE_STEP_RANGE).toBe(15);
     expect(g.turnId).toBe("A");
-    expect(g.stepLeft).toBe(true);
-    const before = { money: money(g, "A"), inventory: inv(g, "A") };
+    expect(fuel(g)).toEqual([1, 1]); // una cada uno, sin haber comprado nada
+    expect(g.houseLeft).toBe(true);
+    const wallet = money(g, "A");
+    expect(g.sell("A", { item: "fuel" })).toBe(false); // en la ronda no hay tienda
+    expect(fuel(g)).toEqual([1, 1]);
 
-    expect(g.step("B", { moveTo: { x: 190, z: 128 } })).toBeNull(); // no es su turno
-    expect(g.step("A", { moveTo: { x: 100, z: 128 + FREE_STEP_RANGE + 0.5 } })).toBeNull(); // más de 15
-    expect(g.step("A", { moveTo: { x: 110, z: 128 } })).toBeNull(); // agua, a 10
-    expect(g.step("A", { moveTo: { x: 100 }, x: 100, z: 120 })).toBeNull(); // mensaje roto
+    // Las reglas de la comprada: su turno, hasta 20, piso firme.
+    expect(g.move("B", { moveTo: { x: 190, z: 128 } })).toBeNull(); // no es su turno
+    expect(g.move("A", { moveTo: { x: 100, z: 128 + FUEL_MOVE_RANGE + 0.5 } })).toBeNull(); // más de 20
+    expect(g.move("A", { moveTo: { x: 110, z: 128 } })).toBeNull(); // agua, a 10
+    expect(g.move("A", { moveTo: { x: 100 }, x: 100, z: 120 })).toBeNull(); // mensaje roto
+    expect(g.fire("A", { ...SHOT, weapon: "nuke" })).toBeNull(); // un tiro que no vale tampoco se la lleva
     expect(at(g, "A")).toMatchObject({ x: 100, z: 128 });
-    expect(g.stepLeft).toBe(true); // un destino rechazado no gasta el paso
+    expect(g.houseLeft).toBe(true); // nada de eso la gasta
+    expect(fuel(g)).toEqual([1, 1]);
 
-    expect(g.step("A", { moveTo: { x: 100, z: 128 - FREE_STEP_RANGE } })).toEqual({ x: 100, y: 10, z: 113 }); // 15 justos
-    expect(at(g, "A")).toMatchObject({ x: 100, y: 10, z: 113 });
-    expect({ money: money(g, "A"), inventory: inv(g, "A") }).toEqual(before); // ni plata ni nafta
-    expect(g.stepLeft).toBe(false);
-    expect(g.step("A", { moveTo: { x: 100, z: 120 } })).toBeNull(); // una sola vez
-    expect(g.move("A", { moveTo: { x: 100, z: 120 } })).toBeNull(); // y no regala nafta
+    expect(g.move("A", { moveTo: { x: 100, z: 128 - FUEL_MOVE_RANGE } })).toEqual({ x: 100, y: 10, z: 108 }); // 20 justos
+    expect(at(g, "A")).toMatchObject({ x: 100, y: 10, z: 108 });
+    expect(fuel(g)).toEqual([0, 1]);
+    expect(money(g, "A")).toBe(wallet); // no costó nada
+    expect(g.houseLeft).toBe(false);
+    expect(g.move("A", { moveTo: { x: 100, z: 120 } })).toBeNull(); // era una sola
     expect(g.phase).toBe("aiming"); // el turno sigue con el tiro
     expect(g.fire("A", SHOT)).not.toBeNull();
     g.finishShot();
 
-    // B tiene el suyo en su primer turno; lo deja pasar y tira igual.
+    // B tiene la suya en su primer turno. Tira sin usarla: se pierde con el tiro.
     expect(g.turnId).toBe("B");
-    expect(g.stepLeft).toBe(true);
+    expect(g.houseLeft).toBe(true);
+    scratch(g, "B");
     expect(g.fire("B", SHOT)).not.toBeNull();
+    expect(fuel(g)).toEqual([0, 0]);
     g.finishShot();
 
-    // Segundo turno de cada uno: ya no está, ni para el que lo usó ni para el que no (no se guarda).
+    // Segundo turno: ya no está, ni para el que la usó ni para el que no (no se guarda).
+    expect(g.turnId).toBe("A");
+    expect(g.houseLeft).toBe(false);
+    expect(fuel(g)).toEqual([0, 0]);
+    expect(g.move("A", { moveTo: { x: 100, z: 100 } })).toBeNull();
+    expect(at(g, "A")).toMatchObject({ x: 100, z: 108 });
+
+    // Y en la tienda no hay nada que vender: ninguna llegó.
+    killAndPass(g, "B");
+    expect(g.phase).toBe("shop");
+    expect(fuel(g)).toEqual([0, 0]);
     for (const id of ["A", "B"]) {
-      expect(g.turnId).toBe(id);
-      expect(g.stepLeft).toBe(false);
-      const { x, z } = at(g, id);
-      expect(g.step(id, { moveTo: { x, z: z + 5 } })).toBeNull();
-      expect(at(g, id)).toMatchObject({ x, z });
-      expect(g.fire(id, SHOT)).not.toBeNull();
-      g.finishShot();
+      const before = money(g, id);
+      expect(g.sell(id, { item: "fuel" })).toBe(false);
+      expect(money(g, id)).toBe(before);
     }
   });
 
-  it("vuelve con cada ronda, y al que se le va el reloj en su primer turno lo pierde", () => {
+  it("la comprada se suma: en el primer turno se gastan las dos, la de la casa primero; sin usar, queda la comprada", () => {
     const g = flat();
-    for (let i = 0; i < TURN_SECONDS; i++) g.tickSecond(); // A se cuelga sin usarlo
+    give(g, "A", { fuel: 3 }); // la de la casa y dos compradas
+    give(g, "B", { fuel: 2 }); // la de la casa y una comprada
+
+    expect(g.move("A", { moveTo: { x: 100, z: 120 } })).not.toBeNull();
+    expect(fuel(g)).toEqual([2, 2]);
+    expect(g.houseLeft).toBe(false); // salió la de la casa
+    expect(g.movedThisTurn).toBe(false); // y no cuenta como el movimiento del turno
+    expect(g.move("A", { moveTo: { x: 100, z: 110 } })).not.toBeNull();
+    expect(fuel(g)).toEqual([1, 2]);
+    expect(g.movedThisTurn).toBe(true);
+    expect(g.move("A", { moveTo: { x: 100, z: 100 } })).toBeNull(); // de las suyas, una por turno
+    expect(at(g, "A")).toMatchObject({ x: 100, z: 110 });
+    expect(g.fire("A", SHOT)).not.toBeNull();
+    g.finishShot();
+    expect(fuel(g)).toEqual([1, 2]);
+
+    // B no se mueve: pierde la de la casa y se queda con la que compró.
+    scratch(g, "B");
+    expect(g.fire("B", SHOT)).not.toBeNull();
+    g.finishShot();
+    expect(fuel(g)).toEqual([1, 1]);
+
+    // Esa sí llega a la tienda y se vende.
+    killAndPass(g, "B");
+    expect(g.phase).toBe("shop");
+    expect(fuel(g)).toEqual([1, 1]);
+    expect(g.sell("B", { item: "fuel" })).toBe(true);
+    expect(fuel(g)).toEqual([1, 0]);
+  });
+
+  it("vuelve con cada ronda, y al que se le va el reloj en su primer turno la pierde", () => {
+    const g = flat();
+    for (let i = 0; i < TURN_SECONDS; i++) g.tickSecond(); // A se cuelga sin usarla
+    expect(fuel(g)).toEqual([0, 1]);
+    scratch(g, "B");
     for (let i = 0; i < TURN_SECONDS; i++) g.tickSecond(); // B también
     expect(g.turnId).toBe("A");
-    expect(g.stepLeft).toBe(false);
+    expect(g.houseLeft).toBe(false);
+    expect(fuel(g)).toEqual([0, 0]);
     killAndPass(g, "B");
     g.setReady("A");
     g.setReady("B");
     expect(g.round).toBe(2);
-    expect(g.stepLeft).toBe(true);
+    expect(g.houseLeft).toBe(true);
+    expect(fuel(g)).toEqual([1, 1]);
     const t = at(g, g.turnId!);
-    expect(validateMove(g.match!, t.id, { x: t.x, z: t.z }, true).ok).toBe(true);
+    expect(validateMove(g.match!, t.id, { x: t.x, z: t.z }).ok).toBe(true);
   });
 });
 
@@ -1322,13 +1381,13 @@ describe("Nafta de la vuelta sin daño", () => {
   it("tras una vuelta sin daño cada tanque vivo tiene una, y se gasta como la de la tienda", () => {
     const g = flat();
     pass(g); // A
-    expect(fuel(g)).toEqual([0, 0]); // media vuelta todavía no es una vuelta
+    expect(fuel(g)).toEqual([0, 1]); // media vuelta todavía no es una vuelta: B tiene la de la casa, que se le va con su turno
     expect(g.takeRefuel()).toEqual([]);
     pass(g); // B
     expect(fuel(g)).toEqual([1, 1]);
     expect(g.takeRefuel().sort()).toEqual(["A", "B"]);
     expect(g.takeRefuel()).toEqual([]); // la sala lo avisa una sola vez
-    expect(g.stepLeft).toBe(false); // el paso de 15 no vuelve a mitad de ronda
+    expect(g.houseLeft).toBe(false); // la de la casa no vuelve a mitad de ronda
 
     expect(g.turnId).toBe("A");
     expect(g.move("B", { moveTo: { x: 128, z: 128 + 80 } })).toBeNull(); // no es su turno
@@ -1359,7 +1418,7 @@ describe("Nafta de la vuelta sin daño", () => {
 
   it("dos vueltas quietas no dejan dos; la que se gastó vuelve, y la que sobró no llega a la tienda", () => {
     const g = flat();
-    give(g, "B", { fuel: 1 }); // B ya tenía una comprada
+    give(g, "B", { fuel: 2 }); // B ya tenía una comprada, además de la de la casa
     for (let i = 0; i < 4; i++) pass(g);
     expect(fuel(g)).toEqual([1, 2]); // una regalada cada uno, no dos
     expect(g.takeRefuel().sort()).toEqual(["A", "B"]);
@@ -1440,7 +1499,7 @@ describe("fin de partida", () => {
     expect(g.round).toBe(1);
     for (const id of ["A", "B"]) {
       expect(money(g, id)).toBe(MONEY_START);
-      expect(inv(g, id)).toEqual(startingInventory());
+      expect(inv(g, id)).toEqual({ ...startingInventory(), fuel: 1 }); // lo del arranque y la Nafta de la casa
       expect(g.board[id]).toEqual({ points: 0, kills: 0, damage: 0 });
     }
     expect(g.match!.tanks.every((t) => t.life === 100)).toBe(true);

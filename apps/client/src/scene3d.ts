@@ -1490,7 +1490,7 @@ export class World {
     geo.setDrawRange(0, tris);
   }
 
-  /** El marcador del destino es uno solo: el de la nafta o el paso y, en la tienda, el del nacimiento (`spot`). */
+  /** El marcador del destino es uno solo: el de la nafta y, en la tienda, el del nacimiento (`spot`). */
   private drawMove(m: MoveModel | null, spot: MoveModel["hover"]): void {
     const hover = m ? m.hover : spot;
     this.moveMarker.visible = !!hover;

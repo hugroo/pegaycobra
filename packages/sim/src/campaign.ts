@@ -189,11 +189,6 @@ export interface ShopItem {
 export const FUEL_MOVE_RANGE = 20;
 /** No se puede estacionar a menos de esto de otro tanque. [wu] */
 export const FUEL_MIN_GAP = 4;
-/**
- * Alcance del paso gratis: antes de su primer tiro de la ronda, cada tanque puede correrse una vez.
- * Regla propia. No es nafta: no se compra ni se guarda. [celdas = wu]
- */
-export const FREE_STEP_RANGE = 15;
 
 /**
  * La carta del Paracaídas, en una línea (la tienda la muestra tal cual). No promete más de lo que
@@ -362,20 +357,18 @@ export type MoveCheck = { ok: true; x: number; y: number; z: number } | { ok: fa
  *   de cualquier otro tanque vivo, y sobre piso firme: al agua no se entra. El tanque queda apoyado
  *   en el suelo del destino.
  * No hay chequeo de pendiente (el original limita con MaxClimbingDistance por casillero).
- * Con `free` es el paso gratis del arranque de la ronda: no pide nafta y llega a FREE_STEP_RANGE.
  */
-export function validateMove(state: MatchState3D, playerId: string, to: { x: number; z: number }, free = false): MoveCheck {
+export function validateMove(state: MatchState3D, playerId: string, to: { x: number; z: number }): MoveCheck {
   const player = state.players.find((p) => p.id === playerId);
   const tank = state.tanks.find((t) => t.id === playerId);
   if (!player || !tank) return { ok: false, reason: "jugador desconocido" };
   if (!isAlive(tank)) return { ok: false, reason: "tanque muerto" };
-  if (!free && (player.inventory.fuel ?? 0) <= 0) return { ok: false, reason: "sin nafta" };
+  if ((player.inventory.fuel ?? 0) <= 0) return { ok: false, reason: "sin nafta" };
   if (!Number.isFinite(to.x) || !Number.isFinite(to.z)) return { ok: false, reason: "destino inválido" };
   const { width, depth } = state.terrain;
   if (to.x < 1 || to.z < 1 || to.x > width - 2 || to.z > depth - 2) return { ok: false, reason: "fuera del mapa" };
   if (isWater(state.terrain, to.x, to.z)) return { ok: false, reason: "ahí hay agua" };
-  const range = free ? FREE_STEP_RANGE : FUEL_MOVE_RANGE;
-  if (Math.hypot(to.x - tank.x, to.z - tank.z) > range) return { ok: false, reason: `más lejos de ${range}` };
+  if (Math.hypot(to.x - tank.x, to.z - tank.z) > FUEL_MOVE_RANGE) return { ok: false, reason: `más lejos de ${FUEL_MOVE_RANGE}` };
   for (const other of state.tanks) {
     if (other.id === playerId || !isAlive(other)) continue;
     if (Math.hypot(to.x - other.x, to.z - other.z) < FUEL_MIN_GAP) return { ok: false, reason: "pegado a otro tanque" };
@@ -383,12 +376,11 @@ export function validateMove(state: MatchState3D, playerId: string, to: { x: num
   return { ok: true, x: to.x, y: terrainHeightAt(state.terrain, to.x, to.z), z: to.z };
 }
 
-/** Mueve el tanque (gasta una carga de nafta; con `free`, nada). Tira error si el destino no es válido. */
-export function moveTank(state: MatchState3D, playerId: string, to: { x: number; z: number }, free = false): MatchState3D {
-  const check = validateMove(state, playerId, to, free);
+/** Mueve el tanque (gasta una carga de nafta). Tira error si el destino no es válido. */
+export function moveTank(state: MatchState3D, playerId: string, to: { x: number; z: number }): MatchState3D {
+  const check = validateMove(state, playerId, to);
   if (!check.ok) throw new Error(check.reason);
   const tanks = state.tanks.map((t) => (t.id === playerId ? { ...t, x: check.x, y: check.y, z: check.z } : t));
-  if (free) return { ...state, tanks };
   const players = state.players.map((p) =>
     p.id === playerId ? { ...p, inventory: { ...p.inventory, fuel: (p.inventory.fuel ?? 0) - 1 } } : p,
   );
