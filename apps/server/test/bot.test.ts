@@ -388,9 +388,11 @@ describe("sala con bot", () => {
     const botShots: any[] = [];
     let botMoves = 0;
     let mounds = 0;
+    let digs = 0;
     a.onMessage("shot", (m) => m.shooterId !== a.sessionId && botShots.push(m));
     a.onMessage("moved", (m) => m.id !== a.sessionId && botMoves++);
     a.onMessage("mound", () => mounds++);
+    a.onMessage("dug", () => digs++);
     await until(() => a.state.players?.size === 1);
     a.send("fillBots");
     await until(() => a.state.players.size === 2);
@@ -415,6 +417,8 @@ describe("sala con bot", () => {
     await until(() => bot.ready);
     // Plata para una Tierra tenía, pero del piso elige dónde nace y nada más: no deja loma.
     expect([mounds, bot.mound, game.mounded.size]).toEqual([0, false, 0]);
+    // Ni cava, que sale menos todavía.
+    expect([digs, bot.dug, game.dug.size]).toEqual([0, false, 0]);
     const has = (): Record<string, number> => ({
       missile: bot.missiles,
       roller: bot.rollers,

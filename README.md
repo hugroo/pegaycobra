@@ -145,7 +145,18 @@ continua, quieta y más pálida.
   uno. Va en piso firme: no en el agua ni sobre un tanque de los que quedaron en el cerro (con el
   disco a menos de 13 celdas de alguno, no). Un hoyo vale, y lo tapa. Bajo el cursor va el pie de
   la loma, verde si ahí vale y rojo si no. El que nace donde hay una loma nace arriba. La revancha
-  la borra, porque el cerro es nuevo. La plata sigue comprando solo balas: la loma es una Tierra.
+  la borra, porque el cerro es nuevo. La loma no se paga aparte: es una Tierra.
+- **Cavás un hoyo.** El gesto que saca tierra: en la tienda, el botón *Hoyo* y después un clic en el
+  cerro (un toque, en el teléfono). El piso baja ahí mismo, con su polvo, y lo ven todas las
+  pestañas antes de que empiece la ronda; es terreno, así que la ronda que viene se juega con el
+  hoyo (y las que siguen). Cuesta $800 de la plata y no gasta ningún arma. Uno por tienda cada
+  uno, aparte de la loma. El hoyo es el de un Misil (radio 6, 7 de hondo en el centro), sin
+  explosión. Si el corte llega a la altura del agua, queda agua: en la orilla (donde un tanque
+  lleva el "≈") cavar abre lago, y el cartel dice "Agua". Va en piso firme: no en el agua, ni
+  sobre un tanque de los que quedaron en el cerro, ni sobre una estaca de nacimiento, la tuya
+  tampoco (con el disco a menos de 9 celdas de alguno, no). En un hoyo vale, y queda más hondo.
+  Bajo el cursor va la boca del hoyo, verde si ahí vale y rojo si no. Donde se cavó ya no se
+  puede nacer. La revancha lo borra, porque el cerro es nuevo.
 - **El viento es parte del tiro.** Al empezar cada turno se corre un poco desde el del turno
   anterior (entre 0.25 y 1 de los 5 que puede tener): nunca queda igual y nunca pasa de golpe a un
   huracán. El cartel y la flecha cambian al empezar el turno, no con un tiro en el aire.
@@ -285,6 +296,7 @@ de la misma sala podrían caer en servidores distintos.
   | `sell { item }` | tienda | que tengas ese ítem y no sea el Escudo (`cannotSell` del sim). Devuelve la mitad |
   | `spawn { at: { x, z } }` | tienda | que el punto esté dentro del mapa (sin las dos filas del borde), en piso firme, que no sea agua ni hoyo, y a 60 celdas o más de donde nace cada uno de los demás (`validateSpawn` del sim). Si no, se ignora y queda el nacimiento que tenías |
   | `mound { at: { x, z } }` | tienda | que no hayas dejado ya una en esta tienda, que tengas una Tierra o te alcance para comprarla (`cannotBuy` del sim), y que el punto esté dentro del mapa (sin las dos filas del borde), en piso firme, que no sea agua, y con el disco a 13 celdas o más de cada tanque (`validateMound` del sim). Si no, se ignora y no gasta nada |
+  | `dig { at: { x, z } }` | tienda | que no hayas cavado ya en esta tienda, que tengas $800, y que el punto esté dentro del mapa (sin las dos filas del borde), en piso firme, que no sea agua, y con el disco a 9 celdas o más de cada tanque y de cada estaca de nacimiento (`validateDig` del sim). Si no, se ignora y no cobra nada |
   | `ready` | tienda | — |
   | `chat { text }` | siempre | que sea texto. Lo deja en una línea, sin caracteres de control, de hasta 120 caracteres; si no queda nada, se ignora |
 
@@ -314,8 +326,15 @@ de la misma sala podrían caer en servidores distintos.
   plata, si la compró ahí). Quién ya dejó la suya va en el estado (`mound`, por jugador). No mueve
   el sorteo ni los nacimientos elegidos: cada tanque nace apoyado en el piso como quedó. Como la
   ronda que viene se juega sobre ese mismo heightmap (`nextRound3D`), la loma sigue ahí.
+- El hoyo de la tienda (`Game.dig`) va por el mismo camino, para abajo: baja el heightmap en el
+  momento con `applyCraterTerrain` (el disco de un cráter, sin tiro ni daño), el server manda el
+  rectángulo que cambió (`terrain`) y un `dug { id, x, y, z }` para el polvo y el cartel, y
+  descuenta los $800 (`DIG_PRICE`); el inventario no se toca. Quién ya cavó va en el estado (`dug`,
+  por jugador). Lo que bajó hasta `WATER_LEVEL` es agua desde ese momento, para el tiro, la Nafta y
+  el nacimiento. No mueve los nacimientos: sobre una estaca no se cava, y después nadie puede
+  elegir nacer ahí, porque es hoyo (`isDug`).
 - En la tienda el bot también elige dónde nacer: la celda de piso firme más alta que cumple la
-  separación, y nada más (no mira a quién le tira desde ahí). No deja loma.
+  separación, y nada más (no mira a quién le tira desde ahí). No deja loma ni cava.
 - El bot compra en la tienda una sola cosa por ronda, si le alcanza: el escudo si le pegaron en la
   ronda anterior y no tiene uno; si no, sortea entre Misil, Rodillo, Rebote y nafta. Tira lo que
   tenga (Misil, si no Rebote, si no Rodillo, si no la Chispa) apuntando igual que siempre. La nafta
@@ -418,8 +437,8 @@ pnpm typecheck
 | `mirv.ts` | **3D.** `simulateSplitShot3D()`: el tiro del Racimo, que vuela hasta la cima y ahí se abre en cabezas (`split` en el resultado). `splitDirection()`: para qué lado sale cada una. `shotImpacts()`: los golpes de un tiro en el orden en que caen (uno, o uno por cabeza) |
 | `bounce.ts` | **3D.** `simulateBounceShot3D()`: el tiro del Rebote, que toca el piso, pica una vez y sigue hasta el segundo golpe (`bounce` en el resultado: dónde picó y en qué tick) |
 | `napalm.ts` | **3D.** `fireFromShot()`: el fuego que deja un tiro de Quema (o null). `inFire()`: si un punto del piso está adentro del disco. Lo usan el server, la fantasma del cliente y el HUD |
-| `turn3d.ts` | **3D.** `rollWind3D()` (viento con el que arranca la ronda), `driftWind3D()` (el de cada turno: el anterior, corrido a lo sumo `WIND_DRIFT_MAX`), `placeTanks3D()`, `validateSpawn()` (el nacimiento elegido en la tienda), `validateMound()` / `leaveMound()` (la loma que se deja en la tienda), `resolveTurn3D()`. `resolveTurn()` lo usa cuando el estado tiene `terrain`. Con paracaídas, la caída no daña. Con escudo, el próximo tiro que te alcanza no daña (`blocked`), salvo el Bombazo (`piercesShield`). Una Quema no toca el terreno y agrega un fuego a `state.fires`. Una Tierra sube el terreno y, con él, al tanque que quedó debajo; no saca vida ni gasta escudos. Un Racimo abierto se resuelve cabeza por cabeza, y el escudo absorbe una sola. Un Rebote explota una vez, donde termina el segundo tramo. `burnTurn3D()`: lo que pierde un tanque al empezar su turno parado en un fuego |
-| `campaign.ts` | **Partida.** `startRound3D()` (ronda 1: terreno nuevo) y `nextRound3D()` (las demás: el mismo piso, y nadie nace en un hoyo; con `spots`, cada uno donde eligió), `nextRoundSpots()` (el sorteo de la ronda que viene, para mostrarlo en la tienda), `endRoundPayouts()` (premio por sobrevivir + interés), `SHOP_ITEMS`, `buyItem()` / `cannotBuy()`, `sellItem()` / `cannotSell()`, `validateMove()` / `moveTank()` (nafta), `scoreTurn()`, `standings()`, `matchWinners()` |
+| `turn3d.ts` | **3D.** `rollWind3D()` (viento con el que arranca la ronda), `driftWind3D()` (el de cada turno: el anterior, corrido a lo sumo `WIND_DRIFT_MAX`), `placeTanks3D()`, `validateSpawn()` (el nacimiento elegido en la tienda), `validateMound()` / `leaveMound()` (la loma que se deja en la tienda), `validateDig()` / `digHole()` (el hoyo que se cava en la tienda), `resolveTurn3D()`. `resolveTurn()` lo usa cuando el estado tiene `terrain`. Con paracaídas, la caída no daña. Con escudo, el próximo tiro que te alcanza no daña (`blocked`), salvo el Bombazo (`piercesShield`). Una Quema no toca el terreno y agrega un fuego a `state.fires`. Una Tierra sube el terreno y, con él, al tanque que quedó debajo; no saca vida ni gasta escudos. Un Racimo abierto se resuelve cabeza por cabeza, y el escudo absorbe una sola. Un Rebote explota una vez, donde termina el segundo tramo. `burnTurn3D()`: lo que pierde un tanque al empezar su turno parado en un fuego |
+| `campaign.ts` | **Partida.** `startRound3D()` (ronda 1: terreno nuevo) y `nextRound3D()` (las demás: el mismo piso, y nadie nace en un hoyo; con `spots`, cada uno donde eligió), `nextRoundSpots()` (el sorteo de la ronda que viene, para mostrarlo en la tienda), `endRoundPayouts()` (premio por sobrevivir + interés), `SHOP_ITEMS`, `DIG_PRICE` (lo que cuesta cavar), `buyItem()` / `cannotBuy()`, `sellItem()` / `cannotSell()`, `validateMove()` / `moveTank()` (nafta), `scoreTurn()`, `standings()`, `matchWinners()` |
 
 Todo son funciones puras: reciben el estado y devuelven uno nuevo. En 3D el heightmap es un
 `Float32Array` de width × depth con índice `x + z * width`; la altura es y. En perfil, el
@@ -542,6 +561,10 @@ tanques son primitivas generadas.
     tira. Acá, en la tienda, cada uno puede poner una en el piso sin tirarla, una por tienda, y
     queda para la ronda que viene. Es la misma loma y cuesta la misma Tierra; lo único distinto es
     que no va sobre un tanque (la que se tira lo sube; esta se rechaza).
+  - **El hoyo se cava a mano** (`validateDig`, `digHole`): en el original el piso solo baja con un
+    tiro. Acá, en la tienda, cada uno puede cavar uno por $800, sin gastar un arma: el cráter de un
+    Misil, sin explosión, y si llega a la altura del agua queda agua. No va sobre un tanque ni
+    sobre una estaca de nacimiento.
   - **Sin paredes:** si x o z salen del mapa, el tiro se pierde ("¡Se fue!").
   - **Quemado de cráter** solo visual: el cliente oscurece las celdas que bajó un cráter (en el
     original lo hace `DeformTextures` con una textura de quemado; acá no hay texturas).

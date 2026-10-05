@@ -2,7 +2,7 @@
 // Estado sincronizado con los clientes. El server es el único que lo escribe.
 // El heightmap (257 × 257 float32) no va en el estado: viaja en mensajes binarios "terrain"
 // (completo al empezar cada ronda, solo el rectángulo que cambió después de cada tiro, un cráter
-// o una loma, y de cada loma que se deja en la tienda). Ver room.ts.
+// o una loma, y de cada loma que se deja o cada hoyo que se cava en la tienda). Ver room.ts.
 
 import { schema, t, type SchemaType } from "@colyseus/schema";
 
@@ -55,6 +55,8 @@ export const PlayerState = schema(
     spawnPicked: t.boolean().default(false),
     /** En la tienda: ya dejó su loma en el piso (una por tienda). */
     mound: t.boolean().default(false),
+    /** En la tienda: ya cavó su hoyo en el piso (uno por tienda). */
+    dug: t.boolean().default(false),
     /**
      * Marca de su último tiro (ShotMark de game.ts): el recorrido [x, y, z, ...] y dónde cayó
      * [x, z, agua, ...]. Vacías hasta que cae un tiro suyo en la ronda, y mientras vuela el siguiente.

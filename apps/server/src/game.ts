@@ -12,6 +12,8 @@ import {
   consumeAmmo,
   createRng,
   DEFAULT_MAP,
+  DIG_PRICE,
+  digHole,
   driftWind3D,
   emptyScoreboard,
   endRoundPayouts,
@@ -32,6 +34,7 @@ import {
   startingInventory,
   startRound3D,
   STEP_SECONDS,
+  validateDig,
   validateMound,
   validateMove,
   validateSpawn,
@@ -149,7 +152,7 @@ export function parseMoveMessage(raw: unknown): { x: number; z: number } | null 
   return { x, z };
 }
 
-/** { at: { x, z } } → el punto, o null. Si trae otra cosa, se ignora. Es el de "spawn" y el de "mound". */
+/** { at: { x, z } } → el punto, o null. Si trae otra cosa, se ignora. Es el de "spawn", el de "mound" y el de "dig". */
 export function parseSpawnMessage(raw: unknown): { x: number; z: number } | null {
   if (typeof raw !== "object" || raw === null) return null;
   const at = (raw as Record<string, unknown>).at;
@@ -296,6 +299,8 @@ export class Game {
   readonly spawns = new Map<string, Spawn>();
   /** En la tienda: los que ya dejaron su loma (leaveMound). Una por tienda cada uno; se vacía al abrir y al cerrar. */
   readonly mounded = new Set<string>();
+  /** En la tienda: los que ya cavaron su hoyo (dig). Uno por tienda cada uno; se vacía al abrir y al cerrar. */
+  readonly dug = new Set<string>();
   /** El del turno ya usó en este turno una Nafta suya (comprada o de una vuelta sin daño). La de la casa no cuenta. */
   movedThisTurn = false;
   /** Veces que se movió el del turno en este turno: con la de la casa, con una suya, o con las dos. */
@@ -481,6 +486,7 @@ export class Game {
     }
     this.spawns.clear();
     this.mounded.clear();
+    this.dug.clear();
     this.windRng = createRng(seed ^ 0x7f4a7c15);
     const { terrain, tanks } = this.match;
     // Cada cañón arranca mirando al centro del mapa, a 45°.
@@ -665,6 +671,28 @@ export class Game {
     const spent = { ...player, inventory: consumeAmmo(player.inventory, "dirt") };
     this.match = { ...this.match, terrain: leaveMound(terrain, tanks, to), players: this.match.players.map((p) => (p.id === byId ? spent : p)) };
     this.mounded.add(byId);
+    return { x: check.x, y: check.y, z: check.z };
+  }
+
+  /**
+   * Tienda: cava un hoyo en el piso, uno por tienda cada uno, además de la loma. Cuesta DIG_PRICE y no
+   * gasta ningún arma. El punto lo valida el sim (validateDig): firme, sin agua, y sin un tanque ni
+   * una estaca de nacimiento encima (las de los que siguen en la sala, la propia también). El piso
+   * baja ya, sobre el heightmap de la partida, así que la ronda que viene se juega con el hoyo; lo que
+   * llegó a WATER_LEVEL es agua. Devuelve el punto, con el piso de antes en `y`. null = ignorado: no cobra nada.
+   */
+  dig(byId: string, raw: unknown): { x: number; y: number; z: number } | null {
+    if (this.phase !== "shop" || !this.match || this.dug.has(byId)) return null;
+    const to = parseSpawnMessage(raw);
+    const player = this.playerOf(byId);
+    if (!to || !player || player.money < DIG_PRICE) return null;
+    const { terrain, tanks } = this.match;
+    const stakes = this.connectedSeats.flatMap((s) => this.spawns.get(s.id) ?? []);
+    const check = validateDig(terrain, tanks, stakes, to);
+    if (!check.ok) return null;
+    const paid = { ...player, money: clampMoney(player.money - DIG_PRICE) };
+    this.match = { ...this.match, terrain: digHole(terrain, tanks, stakes, to), players: this.match.players.map((p) => (p.id === byId ? paid : p)) };
+    this.dug.add(byId);
     return { x: check.x, y: check.y, z: check.z };
   }
 
@@ -856,9 +884,10 @@ export class Game {
     this.timeLeft = this.shopSeconds;
     this.ready.clear();
     this.mounded.clear();
+    this.dug.clear();
     // El sorteo de la ronda que viene se hace ya: es el nacimiento del que no elige, y lo ven todos
     // para saber de dónde tienen que quedar lejos. Una loma que se deje después (leaveMound) no lo
-    // mueve: sube el piso, y el que nace ahí nace arriba.
+    // mueve: sube el piso, y el que nace ahí nace arriba. Un hoyo (dig) tampoco: no se cava sobre una estaca.
     const spots = this.pristine ? nextRoundSpots(this.seedFor(this.round + 1), m.terrain, players.length, this.pristine, this.map) : [];
     this.spawns.clear();
     spots.forEach((spot, i) => this.spawns.set(players[i]!.id, { x: spot.x, z: spot.z, picked: false }));
@@ -872,6 +901,7 @@ export class Game {
     this.pending = null;
     this.spawns.clear();
     this.mounded.clear();
+    this.dug.clear();
     this.winners =
       reason === "forfeit"
         ? this.connectedSeats.map((s) => s.id)

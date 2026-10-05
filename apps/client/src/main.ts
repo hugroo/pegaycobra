@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Pantallas (HTML), conexión con el server, entrada y loop de Three.js.
-// El cliente manda { yaw, pitch, power, weapon }, { moveTo }, { item }, { at } (dónde nacer), "listo",
+// El cliente manda { yaw, pitch, power, weapon }, { moveTo }, { item }, { at } (dónde nacer, la loma, el hoyo), "listo",
 // "fillBots" y el texto del chat. Nada más: daño, impacto, fuego, plata y puntaje los decide el server.
 
 import "./style.css";
@@ -8,6 +8,9 @@ import { Client, type Room } from "@colyseus/sdk";
 import {
   cannotBuy,
   cannotSell,
+  DIG_PRICE,
+  DIG_RADIUS,
+  isWater,
   sellUnits,
   sellValue,
   fireFromShot,
@@ -20,6 +23,7 @@ import {
   simulateWeaponShot3D,
   TANK_MIN_SEPARATION_3D,
   terrainHeightAt,
+  validateDig,
   validateMove,
   validateMound,
   validateSpawn,
@@ -89,6 +93,7 @@ const ui = {
   shopMoney: $("shop-money"),
   shopItems: $("shop-items"),
   mound: $<HTMLButtonElement>("btn-mound"),
+  dig: $<HTMLButtonElement>("btn-dig"),
   ready: $<HTMLButtonElement>("btn-ready"),
   overlay: $("overlay"),
   endCode: $("end-code"),
@@ -148,8 +153,8 @@ let terrain: Terrain | null = null;
 let pristine: Terrain | null = null;
 /** Tienda: el punto del piso bajo el cursor, donde nacería en la ronda que viene. */
 let spawnHover: MoveModel["hover"] = null;
-/** Tienda: el próximo toque en el piso deja la loma, no elige el nacimiento. Se prende con su botón. */
-let moundMode = false;
+/** Tienda: el próximo toque en el piso deja la loma o cava el hoyo, no elige el nacimiento. Se prende con su botón. */
+let shopTool: "mound" | "dig" | null = null;
 let shotAnim: ShotModel | null = null;
 /** Dónde terminó el último tiro real (último punto del "shot" del server; con un Racimo, el de cada cabeza). Lo usa el minimapa. */
 let lastImpact: { spots: MiniModel["impacts"]; at: number } | null = null;
@@ -533,13 +538,16 @@ ui.lobbyLeave.addEventListener("click", () => void leave());
 ui.back.addEventListener("click", () => void leave());
 ui.again.addEventListener("click", () => room?.send("rematch"));
 ui.ready.addEventListener("click", () => room?.send("ready"));
-ui.mound.addEventListener("click", () => {
-  moundMode = !moundMode;
-  spawnHover = null;
-  if (moundMode) showBanner(compact.matches ? "Tocá el piso: ahí va la loma" : "Clic en el piso: ahí va la loma", 3000);
-  onState();
-  ui.mound.blur();
-});
+// Loma y Hoyo: el botón prende su modo (y apaga el otro); el piso se toca después.
+for (const [tool, btn, what] of [["mound", ui.mound, "la loma"], ["dig", ui.dig, "el hoyo"]] as const) {
+  btn.addEventListener("click", () => {
+    shopTool = shopTool === tool ? null : tool;
+    spawnHover = null;
+    if (shopTool) showBanner(`${compact.matches ? "Tocá" : "Clic en"} el piso: ahí va ${what}`, 3000);
+    onState();
+    btn.blur();
+  });
+}
 
 /** Al cargar: si esta pestaña tenía un asiento, vuelve. Si la sala murió o siguió sin vos, queda en el inicio. */
 async function rejoin(token: string): Promise<void> {
@@ -732,7 +740,7 @@ function attach(r: Room<any>): void {
   terrain = null;
   pristine = null;
   spawnHover = null;
-  moundMode = false;
+  shopTool = null;
   ghostOff = false;
   lastTurnKey = "";
   lastRoundEnd = null;
@@ -758,24 +766,34 @@ function attach(r: Room<any>): void {
   });
   // Alguien dejó una loma en la tienda. El piso ya subió (llegó antes, en un "terrain"): acá van el
   // polvo, el cartel y la cámara, con lo mismo que usa una Tierra cuando cae. Lo ven todas las pestañas.
-  r.onMessage("mound", (m: { id: string; x: number; y: number; z: number }) => {
-    if (room !== r) return;
-    const who = r.state.players.get(m.id);
+  // Con un hoyo ("dug") es igual: el piso ya bajó, y si el corte llegó al lago el cartel lo dice.
+  const puff = (m: { id: string; x: number; y: number; z: number }, radius: number, label: string) => {
     shotAnim = {
       weapon: "dirt",
       path: [m.x, m.y, m.z],
       durationMs: 0,
       start: performance.now(),
-      color: who?.color ?? 0,
+      color: r.state.players.get(m.id)?.color ?? 0,
       explodes: true,
-      radius: WEAPONS.dirt.mound!.radius,
+      radius,
       dust: true,
       impact: { x: m.x, y: m.y, z: m.z },
-      label: "Loma",
+      label,
     };
     lastImpact = null;
     play("boom");
-    showBanner(isMe(m.id) ? "Listo, ahí quedó tu loma" : `${who?.name ?? "?"} deja una loma`, 2000);
+  };
+  r.onMessage("mound", (m: { id: string; x: number; y: number; z: number }) => {
+    if (room !== r) return;
+    puff(m, WEAPONS.dirt.mound!.radius, "Loma");
+    showBanner(isMe(m.id) ? "Listo, ahí quedó tu loma" : `${r.state.players.get(m.id)?.name ?? "?"} deja una loma`, 2000);
+  });
+  r.onMessage("dug", (m: { id: string; x: number; y: number; z: number }) => {
+    if (room !== r) return;
+    const wet = !!terrain && isWater(terrain, m.x, m.z);
+    puff(m, DIG_RADIUS, wet ? "Agua" : "Hoyo");
+    const mine = wet ? "Cavaste hasta el agua" : "Listo, ahí quedó tu hoyo";
+    showBanner(isMe(m.id) ? mine : `${r.state.players.get(m.id)?.name ?? "?"} cava ${wet ? "hasta el agua" : "un hoyo"}`, 2000);
   });
   r.onMessage(
     "shot",
@@ -1271,7 +1289,7 @@ function renderShop(phase: string): void {
     ui.shop.hidden = true;
     spawnHover = null;
     spawnSeen = "";
-    moundMode = false;
+    shopTool = null;
     return;
   }
   const s = room!.state;
@@ -1323,15 +1341,20 @@ function renderShop(phase: string): void {
   // La loma: una por tienda. Sale de tu Tierra si tenés; si no, la pagás al tocar el piso (el precio de la carta).
   const dirtPrice = SHOP_ITEMS.dirt.price;
   const canMound = !mp.mound && (mp.dirts > 0 || mp.money >= dirtPrice);
-  if (!canMound) moundMode = false;
+  // El hoyo: uno por tienda, además de la loma. Se paga con plata al tocar el piso; no gasta ningún arma.
+  const canDig = !mp.dug && mp.money >= DIG_PRICE;
+  if ((shopTool === "mound" && !canMound) || (shopTool === "dig" && !canDig)) shopTool = null;
+  const tapIt = compact.matches ? "Tocá el piso" : "Clic en el piso";
+  ui.dig.disabled = !canDig;
+  ui.dig.classList.toggle("on", shopTool === "dig");
+  ui.dig.textContent = mp.dug ? "Hoyo hecho" : shopTool === "dig" ? tapIt : mp.money >= DIG_PRICE ? `Hoyo · ${fmtMoney(DIG_PRICE)}` : "Hoyo · no alcanza";
+  ui.dig.title = mp.dug ? "Uno por tienda" : "Cavá un hoyo en el piso: queda para la ronda que viene, y si llega al lago es agua. Uno por tienda.";
   ui.mound.disabled = !canMound;
-  ui.mound.classList.toggle("on", moundMode);
+  ui.mound.classList.toggle("on", shopTool === "mound");
   ui.mound.textContent = mp.mound
     ? "Loma puesta"
-    : moundMode
-      ? compact.matches
-        ? "Tocá el piso"
-        : "Clic en el piso"
+    : shopTool === "mound"
+      ? tapIt
       : mp.dirts > 0
         ? `Loma · tenés ${mp.dirts}`
         : mp.money >= dirtPrice
@@ -1719,18 +1742,29 @@ function checkMound(to: { x: number; z: number }) {
   return validateMound(terrain, playersInOrder().map((p) => ({ x: p.x, z: p.z })), to);
 }
 
-/** Tienda, con Loma elegido: un clic (o un toque) en el piso la deja ahí. Sube cuando el server la acepta. */
-function moundAt(e: PointerEvent): void {
+/**
+ * ¿Puedo cavar en `to`? La misma cuenta del server (validateDig del sim), contra los tanques que
+ * quedaron en el cerro y las estacas que están en el estado, la mía también. null: todavía no llegó el terreno.
+ */
+function checkDig(to: { x: number; z: number }) {
+  if (!terrain) return null;
+  const ps = playersInOrder();
+  const stakes = ps.filter((p) => p.spawnX >= 0).map((p) => ({ x: p.spawnX, z: p.spawnZ }));
+  return validateDig(terrain, ps.map((p) => ({ x: p.x, z: p.z })), stakes, to);
+}
+
+/** Tienda, con Loma u Hoyo elegido: un clic (o un toque) en el piso lo deja ahí. El piso cambia cuando el server lo acepta. */
+function reshapeAt(tool: "mound" | "dig", e: PointerEvent): void {
   if (!room) return;
   const to = pickGround(e);
-  const check = to && checkMound(to);
+  const check = to && (tool === "mound" ? checkMound(to) : checkDig(to));
   if (!to || !check) return;
   if (!check.ok) {
     showBanner(`No: ${check.reason}`, 1500);
     return;
   }
-  room.send("mound", { at: to });
-  moundMode = false;
+  room.send(tool, { at: to });
+  shopTool = null;
   spawnHover = null;
   onState();
 }
@@ -1748,10 +1782,10 @@ function spawnAt(e: PointerEvent): void {
   room.send("spawn", { at: to });
 }
 
-/** Clic o toque en el piso: en la tienda es el nacimiento (o la loma, si está elegida); en tu turno, el destino de la nafta. */
+/** Clic o toque en el piso: en la tienda es el nacimiento (o la loma o el hoyo, si está elegido); en tu turno, el destino de la nafta. */
 function tapGround(e: PointerEvent): void {
   if (room?.state.phase !== "shop") moveTo(e);
-  else if (moundMode) moundAt(e);
+  else if (shopTool) reshapeAt(shopTool, e);
   else spawnAt(e);
 }
 
@@ -1846,7 +1880,7 @@ ui.viewport.addEventListener("pointermove", (e) => {
   }
   if (room?.state.phase === "shop" && !drag && me()?.spawnX >= 0) {
     const to = pickGround(e);
-    const check = to && (moundMode ? checkMound(to) : checkSpawn(to));
+    const check = to && (shopTool === "mound" ? checkMound(to) : shopTool === "dig" ? checkDig(to) : checkSpawn(to));
     spawnHover = to && check && terrain ? { x: to.x, y: terrainHeightAt(terrain, to.x, to.z), z: to.z, ok: check.ok } : null;
   }
   if (!drag || !world) return;
@@ -1930,7 +1964,7 @@ window.addEventListener("keydown", (e) => {
       break;
     case "Escape":
       moveMode = false;
-      moundMode = false;
+      shopTool = null;
       onState();
       break;
     case " ":
@@ -2058,10 +2092,10 @@ function frame(now: number): void {
     shot: shotAnim,
     wind,
     fires,
-    // Con la loma elegida en la tienda, el anillo es su pie: va con el cursor, y verde si ahí vale.
+    // Con la loma o el hoyo elegido en la tienda, el anillo es su pie (o su boca): va con el cursor, y verde si ahí vale.
     move:
-      moundMode && mySpawn && spawnHover
-        ? { center: spawnHover, range: WEAPONS.dirt.mound!.radius, hover: spawnHover }
+      shopTool && mySpawn && spawnHover
+        ? { center: spawnHover, range: shopTool === "mound" ? WEAPONS.dirt.mound!.radius : DIG_RADIUS, hover: spawnHover }
         : moveMode && myTank
           ? { center: { x: myTank.x, z: myTank.z }, range: FUEL_MOVE_RANGE, hover: moveHover }
           : null,

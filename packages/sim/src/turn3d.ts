@@ -284,6 +284,64 @@ export function leaveMound(terrain: Terrain, tanks: readonly { x: number; z: num
   return applyMoundTerrain(terrain, check.x, check.y, check.z, WEAPONS.dirt.mound!.radius);
 }
 
+/**
+ * Radio del hoyo que se cava en la tienda: el del cráter de un Missile. Así lo que es orilla
+ * (onShore) es justo donde cavar llega al agua. [wu]
+ */
+export const DIG_RADIUS = WEAPONS.missile.craterRadius;
+
+/**
+ * Lo más cerca de un tanque, o de una estaca de nacimiento, que se puede cavar en la tienda, medido
+ * desde la celda donde se centra el disco: el radio entero de applyCraterTerrain y dos celdas más,
+ * así el piso donde está apoyado (o va a estar) el tanque no baja. [wu]
+ */
+export const DIG_GAP = craterIntRadius(DIG_RADIUS) + TANK_SIZE;
+
+export type DigCheck = { ok: true; x: number; y: number; z: number } | { ok: false; reason: string };
+
+/**
+ * Valida el hoyo que se cava en la tienda (regla propia): el gesto que saca tierra, sin tirar nada.
+ * Lo usan el server (autoridad) y el cliente (para pintar el destino y no mandar lo que el server va
+ * a rechazar):
+ *   dentro del mapa sin las dos filas del borde (como validateMound), piso firme, que no sea agua, y
+ *   con el disco a DIG_GAP o más de cada tanque de `tanks`, vivo o no, y de cada estaca de `stakes`
+ *   (donde nace cada uno en la ronda que viene, la propia también): a nadie se le saca el piso. El
+ *   disco se centra en la celda del punto (el trunc de applyCraterTerrain), y desde ahí se mide.
+ * Un hoyo vale: se cava más hondo. `y` es el piso de antes, la boca del hoyo.
+ */
+export function validateDig(
+  terrain: Terrain,
+  tanks: readonly { x: number; z: number }[],
+  stakes: readonly { x: number; z: number }[],
+  to: { x: number; z: number },
+): DigCheck {
+  if (!Number.isFinite(to.x) || !Number.isFinite(to.z)) return { ok: false, reason: "destino inválido" };
+  if (to.x < 2 || to.z < 2 || to.x > terrain.width - 3 || to.z > terrain.depth - 3) return { ok: false, reason: "fuera del mapa" };
+  if (isWater(terrain, to.x, to.z)) return { ok: false, reason: "ahí hay agua" };
+  const cx = Math.trunc(to.x);
+  const cz = Math.trunc(to.z);
+  const near = (p: { x: number; z: number }) => Math.hypot(p.x - cx, p.z - cz) < DIG_GAP;
+  if (tanks.some(near)) return { ok: false, reason: "ahí hay un tanque" };
+  if (stakes.some(near)) return { ok: false, reason: "ahí nace alguien" };
+  return { ok: true, x: to.x, y: terrainHeightAt(terrain, to.x, to.z), z: to.z };
+}
+
+/**
+ * El hoyo de la tienda: el cráter de un golpe en `to` (applyCraterTerrain, con DIG_RADIUS y el centro
+ * en el piso), sin explosión. Lo que baja hasta WATER_LEVEL queda agua, como con cualquier cráter.
+ * Tira error si el punto no vale (validateDig).
+ */
+export function digHole(
+  terrain: Terrain,
+  tanks: readonly { x: number; z: number }[],
+  stakes: readonly { x: number; z: number }[],
+  to: { x: number; z: number },
+): Terrain {
+  const check = validateDig(terrain, tanks, stakes, to);
+  if (!check.ok) throw new Error(check.reason);
+  return applyCraterTerrain(terrain, check.x, check.y, check.z, DIG_RADIUS);
+}
+
 export function tanks3DAt(
   terrain: Terrain,
   ids: readonly string[],

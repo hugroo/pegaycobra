@@ -26,6 +26,8 @@
 //   - El Leap Frog (bounce.ts): precio y efecto propios. Pica una vez y explota en el segundo golpe.
 //   - En la tienda se vende lo que no usaste a la mitad del precio (sellItem). En el original también
 //     se vende (<sellprice> de accessories.xml); acá la mitad es fija y el escudo no se vende.
+//   - En la tienda se cava un hoyo en el piso por plata (DIG_PRICE; validateDig en turn3d.ts): no es
+//     una carta ni gasta un arma.
 //   - La plata está ajustada para este juego (constants.ts): se arranca con menos, pegar y sobrevivir
 //     pagan menos y todos cobran un fijo por ronda. En el original sobra para comprar todo.
 
@@ -286,6 +288,12 @@ export const SHOP_ITEMS: Readonly<Record<ShopItemId, ShopItem>> = Object.freeze(
     description: `Antes de tirar, mové el tanque hasta ${FUEL_MOVE_RANGE} celdas.`,
   },
 });
+
+/**
+ * Lo que cuesta cavar un hoyo en la tienda (validateDig, turn3d.ts). Regla propia: se paga con plata
+ * en el momento, no es una carta ni va al inventario, y no gasta ningún arma. [$]
+ */
+export const DIG_PRICE = 800;
 
 /** Por qué no se puede comprar, o null si se puede. */
 export function cannotBuy(player: Player, item: ShopItemId): string | null {

@@ -301,7 +301,7 @@ kbd {
 .summary .who .gain { color: var(--muted); }
 .summary .who .ready { color: var(--turq); font-weight: 800; }
 .tray-head button { min-width: 130px; white-space: nowrap; }
-/* Loma: elegida, se pinta como la nafta elegida, y el próximo toque en el cerro es suyo. */
+/* Loma y Hoyo: elegido, se pinta como la nafta elegida, y el próximo toque en el cerro es suyo. */
 .mound.on { background: rgba(226, 164, 59, 0.18); border-color: var(--ocre); color: var(--ocre); }
 .items { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(124px, 1fr); gap: 8px; overflow-x: auto; scrollbar-width: thin; }
 .item {
@@ -514,13 +514,15 @@ kbd {
   .notices { top: 184px; width: max-content; max-width: calc(100% - 24px); }
   .banner { white-space: normal; text-align: center; border-radius: var(--radius); font-size: 16px; }
 
-  .tray-head { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px 10px; }
+  .tray-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px 10px; }
   .tray-head h2 { grid-area: 1 / 1 / 2 / 3; font-size: 17px; overflow: hidden; text-overflow: ellipsis; }
   .tray-head button { grid-area: 1 / 3; min-width: 0; }
-  /* La Loma va en el renglón de la plata, así el título se sigue leyendo entero. */
-  .tray-head .mound { grid-area: 2 / 2; min-height: 44px; padding: 4px 10px; font-size: 14px; }
-  .summary { grid-area: 2 / 1; overflow-x: auto; touch-action: pan-x; scrollbar-width: none; }
-  .tray-head .money { grid-area: 2 / 3; justify-self: end; }
+  /* La Loma y el Hoyo van en el renglón de la plata, mitad y mitad: el título se sigue leyendo entero
+     y el resumen de la ronda tiene su renglón, a todo el ancho. */
+  .summary { grid-area: 2 / 1 / 3 / 4; overflow-x: auto; touch-action: pan-x; scrollbar-width: none; }
+  .tray-head .mound { grid-area: 3 / 1; min-height: 44px; padding: 4px 10px; font-size: 14px; }
+  .tray-head .dig { grid-area: 3 / 2; }
+  .tray-head .money { grid-area: 3 / 3; justify-self: end; }
 
   /* Tienda parada: dos cartas grandes a la vista y la punta de la tercera, que avisa que la fila
      sigue; Comprá y Vendé uno abajo del otro, de 52 px. */

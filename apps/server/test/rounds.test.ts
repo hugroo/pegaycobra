@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   applyCraterTerrain,
   createFlatTerrain,
+  DIG_GAP,
+  DIG_PRICE,
+  DIG_RADIUS,
+  digHole,
   FUEL_MOVE_RANGE,
   INTEREST_RATE,
   isDug,
@@ -10,6 +14,7 @@ import {
   MONEY_PER_ROUND,
   MONEY_START,
   MOUND_TANK_GAP,
+  onShore,
   ROUND_MAX_TURNS,
   SCORE_PER_KILL,
   SHOP_ITEMS,
@@ -19,6 +24,7 @@ import {
   TANK_MIN_SEPARATION_3D,
   TANK_START_HEIGHT_MIN,
   terrainHeightAt,
+  validateDig,
   validateMound,
   validateMove,
   validateSpawn,
@@ -774,6 +780,241 @@ describe("loma dejada en la tienda", () => {
     expect(g.mounded.size).toBe(0);
     expect(g.match!.terrain.heights).toEqual(started(SEED + 1).match!.terrain.heights); // el de una partida recién arrancada
     expect(g.pristine).toBe(g.match!.terrain);
+  });
+});
+
+describe("hoyo cavado en la tienda", () => {
+  const SEED = 34;
+  /** Lo que baja el centro: el radio entero del disco, trunc(radius) + 1. */
+  const R = Math.trunc(DIG_RADIUS) + 1;
+  const tank = (g: Game, id: string) => g.match!.tanks.find((t) => t.id === id)!;
+  const setMoney = (g: Game, id: string, cash: number) => {
+    g.match = { ...g.match!, players: g.match!.players.map((p) => (p.id === id ? { ...p, money: cash } : p)) };
+  };
+  const stakes = (g: Game) => [...g.spawns.values()];
+
+  /** Una partida en la tienda de la ronda 1: B murió, A sobrevivió y nadie tocó el piso. */
+  function inShop(opts: { map?: string; rounds?: number } = {}) {
+    const g = new Game(TURN_SECONDS, SHOP_SECONDS);
+    g.addPlayer("A", "A");
+    g.addPlayer("B", "B");
+    if (opts.map) g.setMap("A", opts.map);
+    if (opts.rounds) g.setClock("A", { turn: TURN_SECONDS, shop: SHOP_SECONDS, rounds: opts.rounds });
+    g.start("A", SEED);
+    killAndPass(g, "B");
+    expect(g.phase).toBe("shop");
+    return g;
+  }
+  const toNextRound = (g: Game) => {
+    g.setReady("A");
+    g.setReady("B");
+  };
+  /** Un punto donde vale cavar y `fits` dice que sí: lejos de los tanques, de las estacas y de `avoid`. */
+  function digSpot(g: Game, fits: (x: number, z: number) => boolean, avoid: { x: number; z: number }[] = [], step = 9): { x: number; z: number } {
+    const { terrain, tanks } = g.match!;
+    for (let z = 20; z < terrain.depth - 20; z += step) {
+      for (let x = 20; x < terrain.width - 20; x += step) {
+        if (!fits(x, z) || avoid.some((p) => Math.hypot(p.x - x, p.z - z) < 30)) continue;
+        if (validateDig(terrain, tanks, stakes(g), { x, z }).ok) return { x, z };
+      }
+    }
+    throw new Error("no hay dónde");
+  }
+  /** Piso alto: el hoyo queda seco. */
+  const drySpot = (g: Game, avoid: { x: number; z: number }[] = []) => digSpot(g, (x, z) => terrainHeightAt(g.match!.terrain, x, z) > WATER_LEVEL + R + 4, avoid);
+
+  it("A cava: paga $800, no gasta ningún arma, el piso baja ya, y la ronda 2 se juega con ese hoyo", () => {
+    const untouched = inShop();
+    toNextRound(untouched);
+
+    const g = inShop();
+    expect(g.buy("A", { item: "missile" })).toBe(true);
+    const before = g.match!.terrain;
+    const pristine = g.pristine!.heights.slice();
+    const spawns = [...g.spawns];
+    const cash = money(g, "A");
+    const arms = { ...inv(g, "A") };
+    const at = drySpot(g);
+    const floor = terrainHeightAt(before, at.x, at.z);
+
+    expect(DIG_PRICE).toBe(800);
+    expect(g.dig("A", { at })).toEqual({ ...at, y: floor });
+    // Ya, con la tienda abierta: el heightmap de la partida es otro, y lo único que cambió es el disco del hoyo.
+    expect(g.phase).toBe("shop");
+    const after = g.match!.terrain;
+    expect(after.heights).toEqual(digHole(before, g.match!.tanks, stakes(g), at).heights);
+    const rect = changedRect(before, after)!;
+    expect(rect.x0).toBeGreaterThanOrEqual(at.x - R + 1);
+    expect(rect.z0).toBeGreaterThanOrEqual(at.z - R + 1);
+    expect(rect.x0 + rect.w).toBeLessThanOrEqual(at.x + R);
+    expect(rect.z0 + rect.d).toBeLessThanOrEqual(at.z + R);
+    expect(after.heights.every((h, i) => h <= before.heights[i]!)).toBe(true);
+    expect(terrainHeightAt(after, at.x, at.z)).toBeCloseTo(floor - R, 4);
+    expect(terrainHeightAt(after, at.x, at.z)).toBeGreaterThan(WATER_LEVEL); // piso alto: quedó seco
+    // Sale de la plata y de ningún otro lado: el inventario es el mismo, con sus Misiles. El terreno
+    // de la ronda 1, los nacimientos y los tanques que quedaron en el cerro no se tocan.
+    expect(money(g, "A")).toBe(cash - DIG_PRICE);
+    expect(inv(g, "A")).toEqual(arms);
+    expect(money(g, "B")).toBe(afterRound(MONEY_START));
+    expect(g.pristine!.heights).toEqual(pristine);
+    expect([...g.spawns]).toEqual(spawns);
+    for (const t of g.match!.tanks) expect(terrainHeightAt(after, t.x, t.z)).toBe(terrainHeightAt(before, t.x, t.z));
+
+    toNextRound(g);
+    expect([g.round, g.phase]).toEqual([2, "aiming"]);
+    // La ronda 2 se juega sobre ese mismo heightmap: el hoyo sigue ahí, y lo demás es la ronda de siempre.
+    expect(g.match!.terrain).toBe(after);
+    expect(isDug(g.match!.terrain, g.pristine!, at.x, at.z)).toBe(true);
+    expect(g.match!.wind).toEqual(untouched.match!.wind);
+    expect(g.match!.tanks.map(({ x, z }) => ({ x, z }))).toEqual(untouched.match!.tanks.map(({ x, z }) => ({ x, z })));
+    for (const t of g.match!.tanks) expect(t.y).toBe(terrainHeightAt(after, t.x, t.z));
+    // La Nafta de la casa es la de siempre: una para cada uno, encima de lo que tenía.
+    expect(inv(g, "A").fuel).toBe((arms.fuel ?? 0) + 1);
+    expect(g.hasHouseFuel("A") && g.hasHouseFuel("B")).toBe(true);
+    // Y sigue en la ronda 3: es terreno, como cualquier hoyo. Ahí ya no se puede nacer.
+    killAndPass(g, "B");
+    expect(g.phase).toBe("shop");
+    expect(g.chooseSpawn("A", { at })).toBe(false);
+    toNextRound(g);
+    expect(g.round).toBe(3);
+    expect(g.match!.terrain).toBe(after);
+  });
+
+  it("un corte que llega a la altura del agua queda agua: en la ronda 2 eso es lago y nadie nace ahí", () => {
+    const g = inShop({ map: "island" });
+    const before = g.match!.terrain;
+    // En la orilla (onShore): a un hoyo del lago.
+    const at = digSpot(g, (x, z) => onShore(before, x, z), [], 1);
+    expect(terrainHeightAt(before, at.x, at.z)).toBeGreaterThan(WATER_LEVEL);
+    expect(g.dig("A", { at })).not.toBeNull();
+    const after = g.match!.terrain;
+    const lake = (t: typeof after) => t.heights.filter((h) => h <= WATER_LEVEL).length;
+    expect(terrainHeightAt(after, at.x, at.z)).toBeLessThanOrEqual(WATER_LEVEL);
+    expect(lake(after)).toBeGreaterThan(lake(before));
+    // Con la tienda abierta ya es agua para todo: ni nacer, ni loma, ni cavar de nuevo ahí.
+    expect(validateSpawn(after, g.pristine!, at, [])).toEqual({ ok: false, reason: "ahí hay agua" });
+    expect(g.chooseSpawn("B", { at })).toBe(false);
+    expect(g.leaveMound("B", { at })).toBeNull();
+    expect(g.dig("B", { at })).toBeNull();
+    expect(money(g, "B")).toBe(afterRound(MONEY_START));
+
+    toNextRound(g);
+    expect([g.round, g.phase]).toEqual([2, "aiming"]);
+    expect(g.match!.terrain).toBe(after);
+    expect(terrainHeightAt(g.match!.terrain, at.x, at.z)).toBeLessThanOrEqual(WATER_LEVEL);
+    for (const t of g.match!.tanks) {
+      expect(t.y).toBeGreaterThan(WATER_LEVEL);
+      expect(t.life).toBe(100);
+    }
+    // Es lago como cualquier otro: con el tanque al lado, la Nafta no deja entrar.
+    g.match = { ...g.match!, tanks: g.match!.tanks.map((t) => (t.id === "A" ? { ...t, x: at.x + R + 2, z: at.z } : t)) };
+    expect(validateMove(g.match!, "A", at)).toEqual({ ok: false, reason: "ahí hay agua" });
+  });
+
+  it("si no le alcanza, nada; uno por tienda cada uno, aparte de la loma, y en la tienda siguiente vuelve", () => {
+    const g = inShop();
+    const at = drySpot(g);
+    setMoney(g, "A", DIG_PRICE - 1);
+    const before = g.match!.terrain;
+    expect(g.dig("A", { at })).toBeNull();
+    expect(g.match!.terrain).toBe(before);
+    expect(money(g, "A")).toBe(DIG_PRICE - 1);
+    expect(g.dug.size).toBe(0);
+    setMoney(g, "A", DIG_PRICE);
+    expect(g.dig("A", { at })).not.toBeNull();
+    expect(money(g, "A")).toBe(0);
+    expect([...g.dug]).toEqual(["A"]);
+
+    // Con plata de sobra, el segundo se ignora: ni en otro lado ni en el mismo.
+    setMoney(g, "A", 5000);
+    const once = g.match!.terrain;
+    const other = digSpot(g, (x, z) => terrainHeightAt(once, x, z) > WATER_LEVEL + R + 4 && validateMound(once, g.match!.tanks, { x, z }).ok, [at]);
+    expect(g.dig("A", { at: other })).toBeNull();
+    expect(g.dig("A", { at })).toBeNull();
+    expect(g.match!.terrain).toBe(once);
+    expect(money(g, "A")).toBe(5000);
+    // La loma es otra cuenta: el que cavó la deja igual, al precio de la Tierra, y no le gasta el hoyo al otro.
+    expect(g.mounded.size).toBe(0);
+    expect(g.leaveMound("A", { at: other })).not.toBeNull();
+    expect(money(g, "A")).toBe(5000 - SHOP_ITEMS.dirt.price);
+    expect([[...g.mounded], [...g.dug]]).toEqual([["A"], ["A"]]);
+    // El listo de A no lo cierra para B: cava hasta que la tienda cierre.
+    g.setReady("A");
+    const third = drySpot(g, [at, other]);
+    expect(g.dig("B", { at: third })).not.toBeNull();
+    expect(money(g, "B")).toBe(afterRound(MONEY_START) - DIG_PRICE);
+
+    toNextRound(g);
+    expect(g.round).toBe(2);
+    expect(g.dug.size).toBe(0);
+    killAndPass(g, "B");
+    expect(g.phase).toBe("shop");
+    expect(g.dig("A", { at: drySpot(g, [at, other, third]) })).not.toBeNull();
+  });
+
+  it("el server rechaza el agua, el borde, la basura, un tanque y una estaca de nacimiento: no baja nada y no cobra", () => {
+    const g = inShop({ map: "island" });
+    const before = g.match!.terrain;
+    const cash = money(g, "A");
+    const water = { x: 6, z: 128 };
+    expect(terrainHeightAt(before, water.x, water.z)).toBeLessThanOrEqual(WATER_LEVEL);
+    expect(g.dig("A", { at: water })).toBeNull();
+    expect(g.dig("A", { at: { x: 1, z: 128 } })).toBeNull();
+    expect(g.dig("A", { at: { x: 128, z: 400 } })).toBeNull();
+    for (const bad of [null, {}, { at: null }, { at: { x: "128", z: 128 } }, { at: { x: NaN, z: 128 } }, { moveTo: { x: 128, z: 128 } }, "128,128"]) {
+      expect(g.dig("A", bad), JSON.stringify(bad)).toBeNull();
+    }
+    // Sobre un tanque, esté vivo (A, que sobrevivió) o no (B): ni encima ni con el disco tocándolo.
+    for (const id of ["A", "B"]) {
+      const t = tank(g, id);
+      expect(g.dig("A", { at: { x: t.x, z: t.z } }), id).toBeNull();
+      expect(g.dig("A", { at: { x: Math.trunc(t.x) + DIG_GAP - 2, z: Math.trunc(t.z) } }), id).toBeNull();
+    }
+    // Sobre una estaca: la del otro, la propia, la del sorteo o una elegida recién.
+    for (const id of ["A", "B"]) {
+      const s = g.spawns.get(id)!;
+      expect(validateDig(before, [], [s], s)).toEqual({ ok: false, reason: "ahí nace alguien" });
+      expect(g.dig("A", { at: { x: s.x, z: s.z } }), id).toBeNull();
+      expect(g.dig("A", { at: { x: Math.trunc(s.x) + DIG_GAP - 2, z: Math.trunc(s.z) } }), id).toBeNull();
+    }
+    const at = drySpot(g);
+    const picked = digSpot(g, (x, z) => validateSpawn(before, g.pristine!, { x, z }, g.spawnRivals("B")).ok, [at]);
+    expect(g.chooseSpawn("B", { at: picked })).toBe(true);
+    expect(g.dig("A", { at: picked })).toBeNull();
+    expect(g.dig("nadie", { at })).toBeNull();
+    expect(g.match!.terrain).toBe(before);
+    expect(money(g, "A")).toBe(cash);
+    expect(g.dug.size).toBe(0);
+    // Nada de eso le gastó el de esta tienda: un punto que vale, entra.
+    expect(g.dig("A", { at })).not.toBeNull();
+    expect(money(g, "A")).toBe(cash - DIG_PRICE);
+  });
+
+  it("solo en la tienda: jugando o con la partida terminada se ignora, y la revancha arranca en un cerro nuevo, sin el hoyo", () => {
+    const first = started(SEED);
+    const ground = first.match!.terrain;
+    const cash = money(first, "A");
+    expect(first.dig("A", { at: { x: 128, z: 128 } })).toBeNull(); // la ronda 1 no tiene tienda antes
+    expect(first.match!.terrain).toBe(ground);
+    expect(money(first, "A")).toBe(cash);
+
+    const g = inShop({ rounds: 2 });
+    const at = drySpot(g);
+    expect(g.dig("A", { at })).not.toBeNull();
+    const holed = g.match!.terrain;
+    toNextRound(g);
+    const other = { x: at.x + 30, z: at.z };
+    expect(g.dig("B", { at: other })).toBeNull(); // jugando, tampoco
+    killAndPass(g, "B");
+    expect(g.phase).toBe("ended"); // la última ronda no tiene tienda
+    expect(g.dig("B", { at: other })).toBeNull();
+    expect(g.match!.terrain).toBe(holed);
+
+    expect(g.rematch("A", SEED + 1)).toBe(true);
+    expect(g.dug.size).toBe(0);
+    expect(g.match!.terrain.heights).toEqual(started(SEED + 1).match!.terrain.heights); // el de una partida recién arrancada
+    expect(g.pristine).toBe(g.match!.terrain);
+    expect(isDug(g.match!.terrain, g.pristine!, at.x, at.z)).toBe(false);
   });
 });
 
