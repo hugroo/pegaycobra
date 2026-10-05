@@ -62,6 +62,16 @@ const SHOT = "#fff4c2";
 const BALL_RADIUS = 0.7;
 /** Cada cabeza de un Racimo, contra la bola de la Chispa. */
 const HEAD_SIZE = 0.65;
+/** Lo que el punto que mira la cámara queda por encima de la barra de tiro o de la tienda, mientras entre. [px] */
+const FOCUS_CLEARANCE = 90;
+/** Si no entra (franja libre angosta, teléfono acostado): a qué altura de la franja queda, de arriba (0) a abajo (1). */
+const FOCUS_IN_BAND = 0.62;
+/**
+ * Lo que una flecha de rival se aparta de los bordes y de las cajas del HUD: de costado, la mitad de
+ * su ancho (se mide: depende del nombre) más este aire; de alto, la mitad de lo que mide con su texto. [px]
+ */
+const EDGE_GAP = 8;
+const EDGE_PAD_Y = 26;
 
 /**
  * Lado del mapa de sombras según el ancho de la vista [px CSS]. El celular no puede con el de
@@ -93,6 +103,27 @@ function reservePoints(geo: THREE.BufferGeometry, n: number): THREE.BufferAttrib
 /** Copia un recorrido (tríos x/y/z) a la línea, reusando su buffer. */
 function setPath(geo: THREE.BufferGeometry, path: ArrayLike<number>): void {
   (reservePoints(geo, path.length / 3).array as Float32Array).set(path);
+}
+
+/**
+ * Una flecha de rival va desde (ox, oy) hacia (dx, dy) y quedó a `k` del camino. Si ahí pisa la caja
+ * (agrandada en lo que mide la flecha: `padX` de costado), devuelve dónde entra el camino a la caja;
+ * si no, `k` tal cual.
+ */
+function stopAtBox(ox: number, oy: number, dx: number, dy: number, k: number, b: HudBox, padX: number): number {
+  let enter = 0;
+  let leave = Infinity;
+  for (const [o, d, lo, hi] of [[ox, dx, b.left - padX, b.right + padX], [oy, dy, b.top - EDGE_PAD_Y, b.bottom + EDGE_PAD_Y]] as const) {
+    if (Math.abs(d) < 1e-6) {
+      if (o < lo || o > hi) return k;
+      continue;
+    }
+    const t0 = (lo - o) / d;
+    const t1 = (hi - o) / d;
+    enter = Math.max(enter, Math.min(t0, t1));
+    leave = Math.min(leave, Math.max(t0, t1));
+  }
+  return enter > 0 && enter < k && k < leave ? enter : k;
 }
 
 /**
@@ -221,6 +252,14 @@ export interface SpawnModel {
   isMe: boolean;
 }
 
+/** Una caja del HUD, en px del viewport. */
+export interface HudBox {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
 export interface FrameModel {
   tanks: TankModel[];
   ghost: GhostModel | null;
@@ -254,7 +293,10 @@ interface TankView {
   /** Flecha en el borde de la pantalla, para cuando el tanque queda fuera de cámara. */
   edgeEl: HTMLDivElement;
   edgeArrow: HTMLElement;
-  edgeText: HTMLElement;
+  edgeName: HTMLElement;
+  edgeDist: Text;
+  /** Medio ancho de la flecha con su texto, medido la última vez que cambió (0: hay que medirlo). [px] */
+  edgeHalf: number;
   marker: THREE.Mesh;
   /** Burbuja del escudo. */
   shield: THREE.Mesh;
@@ -394,8 +436,15 @@ export class World {
   private viewDist = 75;
   private viewPhi = rad(32);
   private thetaGoal: number | null = null;
-  /** Alto de lo que el HUD tapa abajo (barra de tiro o tienda): las flechas de rivales quedan por encima. [px] */
-  edgeBottomInset = 0;
+  /**
+   * Lo que el HUD tapa arriba (el turno) y abajo (barra de tiro o tienda). Si lo de abajo taparía lo
+   * que mira la cámara, la vista se corre hacia arriba; y las flechas de rivales quedan por encima. [px]
+   */
+  readonly inset = { top: 0, bottom: 0 };
+  /** Lo que flota sobre el cerro (el turno, la lista, el minimapa): las flechas de rivales lo esquivan. [px del viewport] */
+  hudBoxes: readonly HudBox[] = [];
+  /** Cuánto está corrida la vista hacia arriba ahora mismo (llega suave). [px] */
+  private viewShift = 0;
 
   constructor(private readonly host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -588,6 +637,8 @@ export class World {
     this.labels.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    // En pantalla chica las flechas de rivales no llevan el nombre: su ancho se mide de nuevo.
+    for (const v of this.tanks.values()) v.edgeHalf = 0;
     const size = shadowSize(w);
     const shadow = this.sun.shadow;
     if (shadow.mapSize.x !== size) {
@@ -857,6 +908,16 @@ export class World {
     return new THREE.Vector3(-v.z, 0, v.x).normalize();
   }
 
+  /**
+   * Hacia dónde apunta en la pantalla una dirección del piso: 0 a la derecha, y crece en sentido
+   * horario, como el `rotate()` de CSS. [rad]
+   */
+  screenAngle(x: number, z: number): number {
+    const v = this.camera.getWorldDirection(new THREE.Vector3());
+    // En el piso, la derecha de la pantalla es (-v.z, v.x) y el fondo (v.x, v.z).
+    return Math.atan2(-(x * v.x + z * v.z), z * v.x - x * v.z);
+  }
+
   private dirFor(theta: number, phi: number): THREE.Vector3 {
     const cp = Math.cos(phi);
     return new THREE.Vector3(Math.cos(theta) * cp, Math.sin(phi), Math.sin(theta) * cp);
@@ -906,6 +967,23 @@ export class World {
       if (this.camera.position.y < ground + 3) this.camera.position.y = ground + 3;
     }
     this.camera.lookAt(this.target);
+    const w = Math.max(1, this.host.clientWidth);
+    const h = Math.max(1, this.host.clientHeight);
+    this.viewShift += (h / 2 - this.focusY() - this.viewShift) * k;
+    this.camera.setViewOffset(w, h, 0, this.viewShift, w, h);
+  }
+
+  /**
+   * A qué altura del canvas va lo que mira la cámara. En el medio, salvo que ahí lo tape la barra de
+   * tiro o la tienda (en un teléfono ocupan media pantalla): entonces la vista se corre hacia arriba y
+   * queda un poco por encima de lo que tapa o, si la franja libre es angosta, algo más abajo de su
+   * medio (lo que hay que ver de un tanque está arriba suyo: el cartel, la flecha de turno, el tiro).
+   * [px desde arriba]
+   */
+  focusY(): number {
+    const h = Math.max(1, this.host.clientHeight);
+    const free = h - this.inset.bottom;
+    return Math.min(h / 2, Math.max(this.inset.top + (free - this.inset.top) * FOCUS_IN_BAND, free - FOCUS_CLEARANCE));
   }
 
   // -------------------------------------------------------------------------
@@ -975,13 +1053,17 @@ export class World {
     edgeEl.className = "edge-marker";
     edgeEl.style.color = TANK_COLORS[m.color] ?? "#ccc";
     const edgeArrow = document.createElement("i");
+    // El nombre va aparte de la distancia: en pantalla chica no se muestra (style.css), la flecha ya es de su color.
     const edgeText = document.createElement("span");
+    const edgeName = document.createElement("b");
+    const edgeDist = document.createTextNode("");
+    edgeText.append(edgeName, edgeDist);
     edgeEl.append(edgeArrow, edgeText);
     edgeEl.hidden = true;
     this.edgeLayer.appendChild(edgeEl);
 
     this.scene.add(root);
-    v = { root, yawG, pitchG, deckG, bodyMat, label, labelEl, nameEl, shoreEl, distEl, barEl, edgeEl, edgeArrow, edgeText, marker, shield, color: m.color, hull: m.hull, markerY };
+    v = { root, yawG, pitchG, deckG, bodyMat, label, labelEl, nameEl, shoreEl, distEl, barEl, edgeEl, edgeArrow, edgeName, edgeDist, edgeHalf: 0, marker, shield, color: m.color, hull: m.hull, markerY };
     this.tanks.set(m.id, v);
     return v;
   }
@@ -1022,19 +1104,33 @@ export class World {
 
   /**
    * Marcador de rivales: si el tanque está en cuadro, su cartel muestra nombre y distancia; si
-   * quedó fuera de cámara, una flecha pegada al borde de la pantalla apunta hacia él.
+   * quedó fuera de cámara o debajo del HUD, una flecha pegada al borde de lo que se ve apunta hacia él.
    * Se llama después de mover la cámara.
    */
   private syncRivalMarkers(models: TankModel[]): void {
     const me = models.find((t) => t.isMe);
     const w = this.host.clientWidth;
     const h = this.host.clientHeight;
+    // Lo que se ve del cerro termina donde empieza la barra de tiro o la tienda.
+    const floor = h - this.inset.bottom;
+    // Las flechas salen del punto que mira la cámara, que no siempre es el medio del canvas (viewShift).
+    const cx = w / 2;
+    const cy = h / 2 - this.viewShift;
     this.camera.updateMatrixWorld();
     const view = this.camera.matrixWorldInverse.copy(this.camera.matrixWorld).invert();
     const p = new THREE.Vector3();
     for (const m of models) {
       const v = this.tanks.get(m.id);
       if (!v) continue;
+      // Se mide a la altura del cartel: si el cartel no entra entero en cuadro, va la flecha.
+      p.set(m.x, m.y + 5, m.z).applyMatrix4(view);
+      const behind = p.z > -this.camera.near;
+      p.applyMatrix4(this.camera.projectionMatrix);
+      const sx = ((p.x + 1) / 2) * w;
+      const sy = ((1 - p.y) / 2) * h;
+      // Con una caja del HUD encima el cartel no se dibuja: asomaría por los huecos de la lista, pisando lo escrito.
+      const covered = !behind && this.hudBoxes.some((b) => sx > b.left && sx < b.right && sy > b.top && sy < b.bottom);
+      v.label.visible = !covered;
       const rival = !m.isMe && m.life > 0;
       const dist = me ? `${Math.round(Math.hypot(m.x - me.x, m.y - me.y, m.z - me.z))} m` : "";
       v.distEl.textContent = rival ? dist : "";
@@ -1042,26 +1138,38 @@ export class World {
         v.edgeEl.hidden = true;
         continue;
       }
-      // Se mide a la altura del cartel: si el cartel no entra entero en cuadro, va la flecha.
-      p.set(m.x, m.y + 5, m.z).applyMatrix4(view);
-      const behind = p.z > -this.camera.near;
-      p.applyMatrix4(this.camera.projectionMatrix);
-      // Detrás de la cámara la proyección sale espejada: se da vuelta para que la flecha apunte bien.
-      const nx = behind ? -p.x : p.x;
-      let ny = behind ? -p.y : p.y;
-      if (!behind && Math.abs(nx) < 0.92 && ny > -0.96 && ny < 0.84) {
+      // En cuadro, por encima de lo que está abierto abajo y sin una caja del HUD encima: alcanza con el cartel.
+      if (!behind && !covered && sx > w * 0.04 && sx < w * 0.96 && sy > h * 0.08 && sy < floor - h * 0.02) {
         v.edgeEl.hidden = true;
         continue;
       }
-      if (Math.abs(nx) < 1e-3 && Math.abs(ny) < 1e-3) ny = -1;
-      const dx = nx * (w / 2);
-      const dy = -ny * (h / 2);
-      const room = h / 2 - 38 - (dy > 0 ? this.edgeBottomInset : 0);
-      const k = Math.min((w / 2 - 70) / Math.max(1e-3, Math.abs(dx)), Math.max(1, room) / Math.max(1e-3, Math.abs(dy)));
-      v.edgeEl.style.transform = `translate(${w / 2 + dx * k}px, ${h / 2 + dy * k}px) translate(-50%, -50%)`;
-      v.edgeArrow.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
-      v.edgeText.textContent = dist ? `${m.name} · ${dist}` : m.name;
+      // El texto primero: de su ancho sale cuánto se aparta la flecha de los costados y de las cajas.
+      // Se mide solo cuando cambia (o cuando la flecha recién aparece), no en cada frame.
+      const who = dist ? `${m.name} · ` : m.name;
+      let stale = v.edgeEl.hidden || v.edgeHalf === 0;
+      if (v.edgeName.textContent !== who) {
+        v.edgeName.textContent = who;
+        stale = true;
+      }
+      if (v.edgeDist.data !== dist) {
+        v.edgeDist.data = dist;
+        stale = true;
+      }
       v.edgeEl.hidden = false;
+      if (stale) v.edgeHalf = v.edgeEl.offsetWidth / 2;
+      const pad = v.edgeHalf + EDGE_GAP;
+      // Detrás de la cámara la proyección sale espejada: se da vuelta para que la flecha apunte bien.
+      const dx = behind ? cx - sx : sx - cx;
+      let dy = behind ? cy - sy : sy - cy;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) dy = 1;
+      const room = dy > 0 ? floor - 38 - cy : cy - 38;
+      let k = Math.min(Math.max(1, w / 2 - pad) / Math.max(1e-3, Math.abs(dx)), Math.max(1, room) / Math.max(1e-3, Math.abs(dy)));
+      // El que está en cuadro pero tapado por el HUD: la flecha no lo pasa de largo.
+      if (!behind) k = Math.min(k, 1);
+      // Dos pasadas: al frenar en una caja puede haber quedado sobre la de al lado.
+      for (let pass = 0; pass < 2; pass++) for (const b of this.hudBoxes) k = stopAtBox(cx, cy, dx, dy, k, b, pad);
+      v.edgeEl.style.transform = `translate(${cx + dx * k}px, ${cy + dy * k}px) translate(-50%, -50%)`;
+      v.edgeArrow.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
     }
   }
 

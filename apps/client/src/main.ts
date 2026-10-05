@@ -77,6 +77,7 @@ const ui = {
   hudTurnDot: $("hud-turn-dot"),
   hudTime: $("hud-time"),
   hudWind: $("hud-wind"),
+  hudWindDir: $("hud-wind-dir"),
   hudMoney: $("hud-money"),
   hudInv: $("hud-inv"),
   hudCode: $("hud-code"),
@@ -613,7 +614,11 @@ function showBanner(text: string, ms: number): void {
   ui.banner.textContent = text;
   ui.banner.hidden = false;
   clearTimeout(bannerTimer);
-  bannerTimer = window.setTimeout(() => (ui.banner.hidden = true), ms);
+  bannerTimer = window.setTimeout(() => {
+    ui.banner.hidden = true;
+    placeNotices();
+  }, ms);
+  placeNotices();
 }
 
 // La línea del mapa: una sola vez por sala, en el primer turno de la partida. Sale del mapa del
@@ -632,6 +637,7 @@ let tipTimer = 0;
 function hideTip(): void {
   clearTimeout(tipTimer);
   ui.tip.hidden = true;
+  placeNotices();
 }
 
 function mapTip(phase: string): void {
@@ -650,6 +656,7 @@ function mapTip(phase: string): void {
   ui.tip.hidden = false;
   clearTimeout(tipTimer);
   tipTimer = window.setTimeout(hideTip, 4000);
+  placeNotices();
 }
 
 // La cuenta de la ronda: al abrir la tienda, de dónde salió la plata de cada uno, en un renglón
@@ -663,7 +670,7 @@ let payoutTimer = 0;
 function hidePayout(): void {
   clearTimeout(payoutTimer);
   ui.payout.hidden = true;
-  placePayout();
+  placeNotices();
 }
 
 /** La cuenta de uno, una parte por `span`: una parte no se corta al medio, y el punto que las separa lo pone el CSS. */
@@ -675,25 +682,73 @@ function payoutNodes(parts: string[]): (Node | string)[] {
   });
 }
 
+/** El hueco entre la lista y el minimapa en el que un aviso se corre de costado; con menos (teléfono parado), baja. [px] */
+const NOTICE_GAP_MIN = 220;
+
 /**
- * Acomoda la cuenta sobre el cerro. Donde salen los avisos pueden estar la lista de jugadores (en la
- * tienda es más alta: trae el detalle de cada uno) o el minimapa: si la cuenta cae encima de alguno,
- * baja hasta pasarlo. Y si no entró en un renglón, se achica ("small").
+ * Acomoda los avisos sobre el cerro: la línea del mapa, el cartel de siempre y la cuenta de la ronda.
+ * Donde salen pueden estar la lista de jugadores (en un teléfono llega más abajo que el renglón de
+ * los avisos, y con el detalle de cada uno más todavía) o el minimapa. Si un aviso cae encima de
+ * alguno, se corren todos: de costado, al hueco entre la lista y el minimapa (y si no entran de
+ * ancho, bajan de renglón: "tight"); con un hueco chico, hacia abajo hasta pasar lo que pisan.
+ * Y si la cuenta no entró en un renglón, se achica ("small").
  */
-function placePayout(): void {
+function placeNotices(): void {
   const notices = ui.payout.parentElement!;
   notices.style.removeProperty("top");
+  notices.style.removeProperty("--nx");
+  notices.style.removeProperty("max-width");
+  notices.classList.remove("tight");
   ui.payout.classList.remove("small");
-  if (ui.payout.hidden) return;
   const parts = ui.payout.children;
-  if (parts.length > 1 && (parts[0] as HTMLElement).offsetTop !== (parts[parts.length - 1] as HTMLElement).offsetTop) ui.payout.classList.add("small");
-  const box = ui.payout.getBoundingClientRect();
+  if (!ui.payout.hidden && parts.length > 1 && (parts[0] as HTMLElement).offsetTop !== (parts[parts.length - 1] as HTMLElement).offsetTop) {
+    ui.payout.classList.add("small");
+  }
+  let box = notices.getBoundingClientRect();
+  if (box.height === 0) return; // no hay ningún aviso a la vista
+  const field = ui.viewport.getBoundingClientRect();
+  const list = ui.corner.getBoundingClientRect();
+  const map = ui.minimap.getBoundingClientRect();
+  const level = (r: DOMRect) => r.width > 0 && r.bottom + 8 > box.top && r.top < box.bottom;
+  const left = level(list) ? list.right + 8 : field.left + 12;
+  const right = level(map) ? map.left - 8 : field.right - 12;
+  if (box.left >= left && box.right <= right) return; // no pisan nada
+  if (right - left >= NOTICE_GAP_MIN) {
+    if (box.width > right - left) {
+      notices.classList.add("tight");
+      notices.style.maxWidth = `${Math.floor(right - left)}px`;
+      box = notices.getBoundingClientRect();
+    }
+    notices.style.setProperty("--nx", `${Math.round(Math.min(Math.max(box.left, left), right - box.width) - box.left)}px`);
+    return;
+  }
   let top = box.top;
-  for (const el of [ui.corner, ui.minimap]) {
-    const r = el.getBoundingClientRect();
+  for (const r of [list, map]) {
     if (r.width > 0 && r.left < box.right && r.right > box.left) top = Math.max(top, r.bottom + 8);
   }
   if (top > box.top) notices.style.top = `${Math.round(notices.offsetTop + top - box.top)}px`;
+}
+
+/**
+ * El turno va centrado arriba. Si ahí pisa la lista o el minimapa (un nombre largo en un teléfono
+ * acostado o en una ventana angosta), se centra en el hueco entre los dos y lo que no entre del
+ * nombre se corta con "…" (style.css).
+ */
+function placeTop(): void {
+  const top = ui.turnPill.parentElement!;
+  top.style.removeProperty("--top-left");
+  top.style.removeProperty("--top-right");
+  const box = top.getBoundingClientRect();
+  if (box.width === 0) return;
+  const field = ui.viewport.getBoundingClientRect();
+  const list = ui.corner.getBoundingClientRect();
+  const map = ui.minimap.getBoundingClientRect();
+  const level = (r: DOMRect) => r.width > 0 && r.bottom > box.top && r.top < box.bottom;
+  const left = level(list) ? list.right - field.left + 8 : 12;
+  const right = level(map) ? field.right - map.left + 8 : 12;
+  if (box.left - field.left >= left && field.right - box.right >= right) return; // centrado no pisa nada
+  top.style.setProperty("--top-left", `${Math.round(left)}px`);
+  top.style.setProperty("--top-right", `${Math.round(right)}px`);
 }
 
 /** Las partes de la cuenta de uno, en orden, sin las que dieron cero. Un monto negativo es plata que pagó por pegarse. */
@@ -727,7 +782,7 @@ function payoutLine(phase: string): void {
   ui.payout.hidden = false;
   clearTimeout(payoutTimer);
   payoutTimer = window.setTimeout(hidePayout, PAYOUT_MS);
-  placePayout();
+  placeNotices();
 }
 
 function attach(r: Room<any>): void {
@@ -993,12 +1048,33 @@ function onState(): void {
   renderHud(phase);
   renderShop(phase);
   renderEnd(phase);
-  // Las flechas de rivales fuera de cámara no se meten debajo de lo que esté abierto abajo.
+  layoutHud(); // la lista, la barra de tiro y la tienda ya tienen el alto de esta fase
+}
+
+/**
+ * Acomoda lo que depende de lo que el HUD ocupa: el chat sube arriba de la barra de tiro o de la
+ * tienda, la lista le deja lugar, el turno y los avisos no caen sobre la lista ni el minimapa, y la
+ * escena se entera de qué queda tapado (ahí no pone lo que mira la cámara ni las flechas de rivales).
+ * Va después de pintar el HUD y cada vez que cambia el tamaño de la ventana.
+ */
+function layoutHud(): void {
   const open = !ui.dock.hidden ? ui.dock : !ui.shop.hidden ? ui.shop : null;
-  if (world) world.edgeBottomInset = open ? open.offsetHeight + 12 : 0;
   liftChat(open ? open.offsetHeight + 8 : 0);
-  fitPlayers();
-  placePayout(); // la lista ya tiene el alto de esta fase
+  const top = ui.turnPill.parentElement!;
+  if (world) {
+    world.inset.top = top.offsetTop + top.offsetHeight;
+    world.inset.bottom = open ? open.offsetHeight + 12 : 0;
+  }
+  fitPlayers(); // con lo de arriba ya puesto: mira dónde queda lo que mira la cámara
+  placeTop();
+  placeNotices();
+  if (!world) return;
+  const field = ui.viewport.getBoundingClientRect();
+  const box = (el: Element) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left - field.left, top: r.top - field.top, right: r.right - field.left, bottom: r.bottom - field.top };
+  };
+  world.hudBoxes = [box(top), box(ui.corner), box(ui.minimap)];
 }
 
 // ---------------------------------------------------------------------------
@@ -1598,7 +1674,8 @@ ui.fire.addEventListener("click", () => {
 ui.power.addEventListener("input", () => setAim({ power: Number(ui.power.value) }));
 
 // Pantalla chica (teléfono): giro y elevación van en el control de la izquierda, la potencia en el
-// de la derecha, y en el cerro un dedo solo toca; la cámara es de dos dedos. Misma consulta que el CSS.
+// de la derecha, y en el cerro un dedo toca o, si arrastra, gira la cámara; con dos, además, el zoom.
+// Misma consulta que el CSS.
 const compact = window.matchMedia("(max-width: 760px), (pointer: coarse) and (max-height: 520px)");
 
 // Lista de jugadores: la flecha la guarda y la vuelve a abrir. En pantalla chica el estado se
@@ -1608,31 +1685,42 @@ function setPlayersOpen(open: boolean): void {
   ui.corner.classList.toggle("closed", !open);
   ui.playersToggle.setAttribute("aria-expanded", String(open));
   ui.playersToggle.setAttribute("aria-label", open ? "Guardar la lista de jugadores" : "Abrir la lista de jugadores");
-  fitPlayers();
-  placePayout();
+  layoutHud();
 }
-/** Con el teléfono acostado el botón de Chat queda a la altura de la lista. Si la pisa, la lista cede
- *  el renglón de detalle ("snug"), después se afina ("slim") y, si ni así entra, el botón se corre al
- *  costado de la lista (--dodge). Nada de esto pesa fuera del CSS de teléfono acostado. */
+/** Lo que hay que ver alrededor del punto que mira la cámara: medio cartel de ancho y, hacia arriba, la estaca con el suyo. [px] */
+const FOCUS_LABEL_HALF = 50;
+const FOCUS_LABEL_UP = 75;
+/** En un teléfono la lista le deja lugar a lo que taparía. Acostado, el botón de Chat queda a su altura;
+ *  parado y con la sala llena, llega hasta donde la cámara muestra tu tanque o, en la tienda, tu estaca.
+ *  Si pisa alguno, cede el renglón de detalle ("snug") y después se afina ("slim"). Si ni así deja
+ *  libre el botón de Chat, el botón se corre al costado de la lista (--dodge, solo acostado).
+ *  Nada de esto pesa fuera del CSS de pantalla chica. */
 function fitPlayers(): void {
   if (chatOpen()) return; // abierto el chat sube arriba de todo: la lista queda como estaba
   const c = ui.corner.classList;
   c.remove("snug", "slim");
   ui.chat.style.removeProperty("--dodge");
   if (c.contains("closed")) return;
-  const hit = () => {
+  const onChat = () => {
     const chat = ui.chatToggle.getBoundingClientRect();
     return chat.height > 0 && ui.corner.getBoundingClientRect().bottom + 6 > chat.top;
   };
+  // Lo que mira la cámara va en el medio del ancho: la lista lo tapa si llega hasta ahí y baja hasta su cartel.
+  const onFocus = () => {
+    if (!world) return false;
+    const list = ui.corner.getBoundingClientRect();
+    const field = ui.viewport.getBoundingClientRect();
+    return list.right > field.left + field.width / 2 - FOCUS_LABEL_HALF && list.bottom > field.top + world.focusY() - FOCUS_LABEL_UP;
+  };
   for (const step of ["snug", "slim"]) {
-    if (!hit()) return;
+    if (!onChat() && !onFocus()) return;
     c.add(step);
   }
-  if (!hit()) return;
+  if (!onChat()) return;
   ui.chat.style.setProperty("--dodge", `${Math.round(ui.corner.getBoundingClientRect().right)}px`);
 }
-window.addEventListener("resize", fitPlayers);
-window.addEventListener("resize", placePayout);
+// Al girar el teléfono cambia el alto de todo: el chat, los avisos y la vista se acomodan ahí mismo.
+window.addEventListener("resize", layoutHud);
 function restorePlayersOpen(): void {
   let saved: string | null = null;
   try {
@@ -1798,11 +1886,14 @@ function pickGround(e: PointerEvent): { x: number; z: number } | null {
 
 // Mouse: izquierdo arrastra el cañón (horizontal = giro, vertical = elevación); en modo nafta,
 // un clic en el piso elige el destino, y en la tienda, dónde nacés. Derecho orbita la cámara. Rueda = potencia en tu turno.
-// Dedo en pantalla chica: uno solo toca (destino de la nafta, o el nacimiento en la tienda); dos orbitan y, al separarse, hacen zoom.
+// Dedo en pantalla chica: uno solo toca (destino de la nafta, o el nacimiento en la tienda) y, si arrastra, orbita la cámara;
+// dos orbitan y, al separarse, hacen zoom.
 let drag: { button: number; x: number; y: number; moved: number } | null = null;
 const fingers = new Map<number, { x: number; y: number }>();
 /** El toque de un solo dedo, mientras no se le sume otro. */
 let tap: { id: number; moved: number } | null = null;
+/** Lo que un dedo puede correrse y seguir siendo un toque; pasado eso, arrastra la cámara. [px] */
+const TAP_SLOP = 12;
 const byFinger = (e: PointerEvent) => compact.matches && e.pointerType !== "mouse";
 
 /** Clic (o toque) en el piso con la Nafta elegida: mueve el tanque si el sim lo deja. */
@@ -1834,7 +1925,7 @@ ui.viewport.addEventListener("pointerdown", (e) => {
 });
 ui.viewport.addEventListener("pointerup", (e) => {
   if (fingers.delete(e.pointerId)) {
-    const wasTap = tap?.id === e.pointerId && tap.moved < 12;
+    const wasTap = tap?.id === e.pointerId && tap.moved < TAP_SLOP;
     tap = null;
     if (wasTap) tapGround(e);
     return;
@@ -1863,7 +1954,12 @@ ui.viewport.addEventListener("pointermove", (e) => {
     finger.x = e.clientX;
     finger.y = e.clientY;
     if (tap) tap.moved += Math.abs(dx) + Math.abs(dy);
-    if (!a || !b || !world) return;
+    if (!world) return;
+    if (!a || !b) {
+      // Un dedo solo: mientras no pase de un toque no mueve nada; después arrastra la cámara, como el mouse.
+      if (tap && tap.moved >= TAP_SLOP) world.orbit(dx * 0.006, dy * 0.005);
+      return;
+    }
     // La cámara sigue al punto medio entre los dos dedos; la distancia entre ellos es el zoom.
     world.orbit((dx / 2) * 0.006, (dy / 2) * 0.005);
     const after = Math.hypot(a.x - b.x, a.y - b.y);
@@ -1912,6 +2008,16 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "+" || e.key === "=") return world?.zoom(1 / 1.15);
   if (e.key === "-") return world?.zoom(1.15);
   if (e.key === "m" || e.key === "M") return showBanner(toggleMute() ? "Sonido cortado (M)" : "Sonido activado (M)", 1200);
+  // Escape suelta lo que estaba por tocar el piso: la Nafta en tu turno y, en la tienda, la Loma o el Hoyo.
+  if (e.key === "Escape") {
+    if (!moveMode && !shopTool) return;
+    moveMode = false;
+    moveHover = null;
+    shopTool = null;
+    spawnHover = null;
+    onState();
+    return e.preventDefault();
+  }
   if (!myTurn()) return;
   if (e.target instanceof HTMLButtonElement) e.target.blur();
   const step = e.shiftKey ? 5 : 1;
@@ -1961,11 +2067,6 @@ window.addEventListener("keydown", (e) => {
     case "n":
     case "N":
       toggleMoveMode();
-      break;
-    case "Escape":
-      moveMode = false;
-      shopTool = null;
-      onState();
       break;
     case " ":
     case "Enter":
@@ -2030,6 +2131,9 @@ function computeGhost(mine: TankModel | undefined, tanks: TankModel[], wind: { x
   if (ghostCache) ghostCache.shooter = mine;
   return ghostCache;
 }
+
+/** El giro que ya tiene puesto la flecha del viento de la pastilla ("": calma, no se ve). */
+let windDirShown = "";
 
 function frame(now: number): void {
   requestAnimationFrame(frame);
@@ -2103,6 +2207,14 @@ function frame(now: number): void {
     spawnHover: mySpawn ? spawnHover : null,
     now,
   });
+
+  // El viento en la pastilla de arriba: la flecha apunta hacia donde sopla, visto desde esta cámara.
+  const windDir = Math.hypot(wind.x, wind.z) < 0.05 ? "" : `rotate(${Math.round((world.screenAngle(wind.x, wind.z) * 180) / Math.PI)}deg)`;
+  if (windDir !== windDirShown) {
+    windDirShown = windDir;
+    ui.hudWindDir.hidden = windDir === "";
+    ui.hudWindDir.style.transform = windDir;
+  }
 
   // Minimapa: mismo terreno, mismos tanques y el mismo "shot" que la vista 3D.
   const balls: MiniModel["balls"] = [];

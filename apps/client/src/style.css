@@ -142,7 +142,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
    --------------------------------------------------------------------------- */
 .screen.game { display: block; place-items: stretch; padding: 0; height: 100%; }
 .field { position: relative; height: 100%; background: #0f1c2e; overflow: hidden; }
-.viewport { position: absolute; inset: 0; touch-action: none; cursor: crosshair; }
+/* Los carteles del mundo traen cada uno su z-index (el de más cerca, más alto): se quedan adentro del
+   cerro (isolation) y el HUD va siempre encima, también de "Nacés acá" y del nombre de un tanque. */
+.viewport { position: absolute; inset: 0; touch-action: none; cursor: crosshair; isolation: isolate; }
 .viewport canvas { display: block; }
 .viewport.dragging { cursor: grabbing; }
 
@@ -160,8 +162,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .tank-label.turn { font-size: 16px; font-weight: 800; }
 .tank-label.dead { color: #8d8576; }
 .tank-label.dead i { display: none; }
-/* Rival fuera de cámara: flecha pegada al borde de la vista, con nombre y distancia. */
-.edge-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+/* Rival fuera de cámara: flecha pegada al borde de la vista, con nombre y distancia. Va encima de los
+   carteles del mundo, y el texto sobre su fondo: si cae sobre el cartel de un tanque, se lee igual. */
+.edge-layer { position: absolute; inset: 0; z-index: 100; pointer-events: none; overflow: hidden; }
 .edge-marker {
   position: absolute; top: 0; left: 0; display: grid; gap: 2px; justify-items: center;
   font-size: 13px; font-weight: 700; white-space: nowrap; text-shadow: 0 1px 2px #000, 0 0 4px #000;
@@ -170,7 +173,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   width: 0; height: 0; border-style: solid; border-width: 9px 0 9px 18px;
   border-color: transparent transparent transparent currentColor; filter: drop-shadow(0 1px 2px #000);
 }
-.edge-marker span { color: #f4eee3; }
+.edge-marker span { color: #f4eee3; background: var(--glass); border-radius: 8px; padding: 0 6px; }
+.edge-marker b { font-weight: inherit; }
 .ghost-gone {
   font-size: 13px; font-weight: 700; color: #fff; background: var(--glass);
   border: 1px dashed rgba(255, 255, 255, 0.6); border-radius: 8px; padding: 1px 8px; white-space: nowrap;
@@ -185,11 +189,15 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   text-shadow: 0 0 4px #000, 0 2px 6px rgba(0, 0, 0, 0.9);
 }
 
-/* Arriba, siempre: quién juega, cuánto le queda, y el viento. */
+/* Arriba, siempre: quién juega, cuánto le queda, y el viento. Centrado en la pantalla; si ahí pisara la
+   lista o el minimapa (nombre largo, teléfono acostado), main.ts le pone los costados (placeTop):
+   queda centrado en el hueco entre los dos y el nombre se corta con "…". */
 .top {
-  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2;
-  display: flex; gap: 8px; align-items: stretch; pointer-events: none; max-width: calc(100% - 24px);
+  position: absolute; top: 12px; left: var(--top-left, 12px); right: var(--top-right, 12px); z-index: 2;
+  width: fit-content; max-width: calc(100% - var(--top-left, 12px) - var(--top-right, 12px)); margin-inline: auto;
+  display: flex; gap: 8px; align-items: stretch; pointer-events: none;
 }
+.turn-pill { min-width: 0; }
 .pill {
   display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-radius: 999px;
   background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(8px);
@@ -197,13 +205,18 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .turn-dot { width: 16px; height: 16px; border-radius: 50%; flex: none; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35); }
 .hud-turn { font-weight: 800; font-size: clamp(20px, 2.4vw, 28px); line-height: 1.1; overflow: hidden; text-overflow: ellipsis; }
-.hud-time { font-size: clamp(20px, 2.4vw, 28px); font-weight: 800; min-width: 2.2em; text-align: right; opacity: 0.85; }
+.hud-time { flex: none; font-size: clamp(20px, 2.4vw, 28px); font-weight: 800; min-width: 2.2em; text-align: right; opacity: 0.85; }
 .hud-time small { margin-left: 1px; font-size: 14px; font-weight: 700; }
 .hud-time.low { color: var(--danger); opacity: 1; }
 .turn-pill.mine { background: var(--ocre); color: var(--ocre-ink); border-color: transparent; }
 .turn-pill.mine .turn-dot { box-shadow: 0 0 0 2px var(--ocre-ink); }
 .turn-pill.mine .hud-time.low { color: #9c1c0c; }
-.hud-wind { font-size: clamp(18px, 2vw, 24px); font-weight: 800; color: var(--turq); gap: 8px; }
+.hud-wind { flex: none; font-size: clamp(18px, 2vw, 24px); font-weight: 800; color: var(--turq); gap: 8px; }
+/* Hacia dónde sopla, como se ve en pantalla: gira con el viento y con la cámara (main.ts). */
+.wind-dir {
+  flex: none; width: 0; height: 0; border-style: solid; border-width: 6px 0 6px 13px;
+  border-color: transparent transparent transparent currentColor;
+}
 
 /* Esquinas: jugadores a la izquierda, minimapa a la derecha. */
 .corner { position: absolute; top: 12px; left: 12px; z-index: 2; display: grid; gap: 6px; pointer-events: none; }
@@ -240,11 +253,14 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   border: 1px solid var(--line); background: #0b0f16; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 }
 
-/* Avisos cortos ("¡Se fue!", "usó nafta"): debajo del turno, lejos del cartel de daño del mundo. */
+/* Avisos cortos ("¡Se fue!", "usó nafta"): debajo del turno, lejos del cartel de daño del mundo.
+   Si ahí pisan la lista o el minimapa, main.ts los corre (placeNotices): de costado al hueco entre
+   los dos (--nx; "tight" si hay que bajar de renglón para entrar) o, en un teléfono parado, más abajo. */
 .notices {
-  position: absolute; top: 76px; left: 50%; transform: translateX(-50%); z-index: 2;
+  position: absolute; top: 76px; left: 50%; transform: translateX(calc(-50% + var(--nx, 0px))); z-index: 2;
   display: grid; gap: 6px; justify-items: center; pointer-events: none;
 }
+.notices.tight .banner { white-space: normal; text-align: center; border-radius: var(--radius); }
 .banner {
   padding: 6px 16px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line);
   font-size: 18px; font-weight: 700; color: var(--ink); white-space: nowrap;
@@ -289,7 +305,9 @@ kbd {
 .power input { flex: 1; min-height: 0; height: 28px; padding: 0; background: none; border: 0; accent-color: var(--ocre); }
 .fire { min-width: 150px; min-height: 56px; font-size: 20px; letter-spacing: 0.3px; }
 
-/* Tienda: una fila de cartas abajo. El cerro queda a la vista. */
+/* Tienda: una fila de cartas abajo. El cerro queda a la vista. Es más ancha que la barra de tiro:
+   en una pantalla de escritorio las diez cartas entran sin deslizar la fila. */
+.tray { width: min(1360px, calc(100% - 24px)); }
 .tray-head { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .tray-head h2 { font-size: 20px; text-align: left; white-space: nowrap; }
 .summary { display: flex; gap: 6px; flex: 1; min-width: 0; overflow: hidden; font-size: 13px; }
@@ -303,7 +321,7 @@ kbd {
 .tray-head button { min-width: 130px; white-space: nowrap; }
 /* Loma y Hoyo: elegido, se pinta como la nafta elegida, y el próximo toque en el cerro es suyo. */
 .mound.on { background: rgba(226, 164, 59, 0.18); border-color: var(--ocre); color: var(--ocre); }
-.items { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(124px, 1fr); gap: 8px; overflow-x: auto; scrollbar-width: thin; }
+.items { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(112px, 1fr); gap: 8px; overflow-x: auto; scrollbar-width: thin; }
 .item {
   display: grid; gap: 4px; align-content: start; justify-items: start; text-align: left;
   padding: 10px 12px; min-height: 0; min-width: 0; overflow: hidden; font-weight: 500;
@@ -312,9 +330,11 @@ kbd {
 .item .name small { color: var(--muted); font-weight: 700; margin-left: 4px; }
 /* La línea de la carta se lee entera: si no entra, baja a un segundo renglón (no se corta con "…"). */
 .item .desc { font-size: 12px; color: var(--muted); max-width: 100%; }
-.item .foot { min-width: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; width: 100%; }
+/* El precio y, abajo, su renglón ("tenés 3", "no alcanza"): al lado no entra en una carta de escritorio.
+   El renglón está siempre, así la fila no cambia de alto cuando comprás. */
+.item .foot { min-width: 0; display: grid; width: 100%; }
 .item .price { font-weight: 800; font-size: 17px; color: var(--ocre); }
-.item .have { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.item .have { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; min-height: 1.4em; }
 .item .buy { display: none; }
 .item:hover:not(:disabled) { border-color: var(--ocre); }
 /* Cada carta con su renglón de venta abajo: una línea, finita, para que la tienda no crezca sobre el cerro. */
@@ -399,6 +419,15 @@ kbd {
   .screen.game { user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
   .screen.game button { touch-action: manipulation; }
   .dock kbd { display: none; }
+  /* Flechas de rivales: acá va solo la distancia. La flecha ya es del color del tanque, y con el nombre
+     tres flechas no entran una al lado de la otra. */
+  .edge-marker b { display: none; }
+  /* La lista le deja lugar a lo que taparía (fitPlayers, main.ts): primero cede el renglón de detalle
+     de cada uno ("snug") y después se afina ("slim"). */
+  .screen.game .corner.snug .hud-players .extra { display: none; }
+  .corner.slim { gap: 4px; }
+  .corner.slim .hud-players { gap: 2px; }
+  .corner.slim .hud-players li { padding: 2px 10px; }
 
   .dock {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 10px; padding: 10px;
@@ -480,10 +509,6 @@ kbd {
   :not(#screen-lobby) > .chat:not(.open) { grid-template-columns: auto minmax(0, 1fr); align-items: end; }
   :not(#screen-lobby) > .chat:not(.open) .chat-toggle { grid-area: 1 / 1; }
   :not(#screen-lobby) > .chat:not(.open) .chat-log { grid-area: 1 / 2; }
-  .screen.game .corner.snug .hud-players .extra { display: none; }
-  .corner.slim { gap: 4px; }
-  .corner.slim .hud-players { gap: 2px; }
-  .corner.slim .hud-players li { padding: 2px 10px; }
 
   /* Tienda acostada: dos cartas y la punta de la tercera, pero bajas, para que el cerro se siga
      viendo: el texto a la izquierda y Comprá y Vendé apilados a la derecha, de 48 px cada uno.
@@ -503,7 +528,6 @@ kbd {
 
 /* Angosto: el turno arriba a todo el ancho; jugadores y minimapa en la fila de abajo. */
 @media (max-width: 760px) {
-  .top { left: 12px; right: 12px; transform: none; justify-content: center; }
   .pill { padding: 8px 14px; gap: 10px; min-width: 0; }
   .corner { top: 66px; max-width: calc(100% - 24px - 116px); }
   .players-toggle { width: 36px; height: 36px; }
