@@ -175,6 +175,11 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   font-size: 13px; font-weight: 700; color: #fff; background: var(--glass);
   border: 1px dashed rgba(255, 255, 255, 0.6); border-radius: 8px; padding: 1px 8px; white-space: nowrap;
 }
+/* Tienda: el cartel de la estaca donde nacés en la ronda que viene. */
+.spawn-label {
+  font-size: 13px; font-weight: 800; color: #fff; background: var(--glass);
+  border: 1px solid var(--line); border-radius: 8px; padding: 1px 8px; white-space: nowrap;
+}
 .impact-label {
   font-size: 28px; font-weight: 800; color: #ffd76a; white-space: nowrap;
   text-shadow: 0 0 4px #000, 0 2px 6px rgba(0, 0, 0, 0.9);

@@ -78,6 +78,9 @@ export function startRound3D(
  * inventario tal cual, y tanques reubicados sobre el anillo. `pristine` es el terreno de la ronda 1,
  * sin tocar: con él se sabe qué es hoyo, y nadie nace en uno ni en el agua (placeTanks3D). El fuego
  * de la ronda anterior no pasa: el estado nuevo no tiene `fires`.
+ * Con `spots` (uno por jugador, en el orden de `prev.players`) cada tanque nace ahí y no donde lo dejó
+ * el sorteo: es lo que quedó de la tienda, el sorteo (nextRoundSpots) con lo que cada uno eligió
+ * encima (validateSpawn). El viento es el mismo con o sin `spots`.
  */
 export function nextRound3D(
   seed: number,
@@ -85,8 +88,33 @@ export function nextRound3D(
   pristine: Terrain,
   gone: ReadonlySet<string> = new Set(),
   map: MapId = DEFAULT_MAP,
+  spots?: readonly { x: number; z: number }[],
 ): MatchState3D {
-  return roundOn(prev.terrain, seed, prev.players, gone, map, pristine);
+  return roundOn(prev.terrain, seed, prev.players, gone, map, pristine, spots);
+}
+
+/**
+ * Dónde deja el sorteo a cada uno de los `count` tanques en la ronda siguiente, sobre `terrain` (el
+ * piso como quedó): los mismos puntos que usa nextRound3D sin `spots`. Sirve para mostrarlos en la
+ * tienda, antes de que la ronda empiece.
+ */
+export function nextRoundSpots(
+  seed: number,
+  terrain: Terrain,
+  count: number,
+  pristine: Terrain,
+  map: MapId = DEFAULT_MAP,
+): { x: number; z: number }[] {
+  return drawRound(terrain, seed, count, map, pristine).spots;
+}
+
+/** El sorteo de una ronda: el viento y, después, dónde cae cada tanque. En ese orden salen del rng. */
+function drawRound(terrain: Terrain, seed: number, count: number, map: MapId, pristine?: Terrain) {
+  const rng = createRng(seed ^ 0x2545f491);
+  // En float32, como viaja por la red: el server tira con el mismo número que ve el cliente.
+  const rolled = rollWind3D(rng);
+  const wind = { x: Math.fround(rolled.x), z: Math.fround(rolled.z) };
+  return { wind, spots: placeTanks3D(terrain, count, rng, MAPS[map].startRing, pristine) };
 }
 
 function roundOn(
@@ -96,15 +124,12 @@ function roundOn(
   gone: ReadonlySet<string>,
   map: MapId,
   pristine?: Terrain,
+  spots?: readonly { x: number; z: number }[],
 ): MatchState3D {
-  const rng = createRng(seed ^ 0x2545f491);
-  // En float32, como viaja por la red: el server tira con el mismo número que ve el cliente.
-  const rolled = rollWind3D(rng);
-  const wind = { x: Math.fround(rolled.x), z: Math.fround(rolled.z) };
   const ids = players.map((p) => p.id);
-  const spots = placeTanks3D(terrain, ids.length, rng, MAPS[map].startRing, pristine);
-  const tanks = tanks3DAt(terrain, ids, spots, TANK_MAX_LIFE).map((t) => (gone.has(t.id) ? { ...t, life: 0 } : t));
-  return { terrain, wind, tanks, players: players.slice() };
+  const draw = drawRound(terrain, seed, ids.length, map, pristine);
+  const tanks = tanks3DAt(terrain, ids, spots ?? draw.spots, TANK_MAX_LIFE).map((t) => (gone.has(t.id) ? { ...t, life: 0 } : t));
+  return { terrain, wind: draw.wind, tanks, players: players.slice() };
 }
 
 /** La ronda termina cuando queda uno vivo (o ninguno). */

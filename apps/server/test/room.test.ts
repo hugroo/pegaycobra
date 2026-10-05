@@ -12,7 +12,9 @@ import {
   SHOP_ITEMS,
   simulateWeaponShot3D,
   SURVIVOR_BONUS,
+  TANK_MIN_SEPARATION_3D,
   terrainHeightAt,
+  validateSpawn,
   WATER_LEVEL,
   WEAPONS,
   WIND_DRIFT_MAX,
@@ -1177,6 +1179,92 @@ describe("partida de 5 rondas por red", () => {
     await until(() => b.state.phase === "aiming" && b.state.round === 1 && ta.fulls === 2 && tb.fulls === 2);
     expect([a.state.map, b.state.map]).toEqual(["island", "island"]);
     expectIsland(2);
+    await a.leave();
+    await b.leave();
+  });
+
+  it("nacimiento: en la tienda de la ronda 1 Ana elige un punto, Beto lo ve, y en la ronda 2 Ana nace ahí; un punto en el agua se rechaza", async () => {
+    const url = `ws://localhost:${PORT}`;
+    const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
+    const b: Room<any> = await new Client(url).joinById(a.roomId, { name: "Beto" });
+    const ta = trackTerrain(a);
+    const tb = trackTerrain(b);
+    for (const r of [a, b]) for (const type of ["shot", "skip", "moved", "roundEnd", "burn", "refuel"]) r.onMessage(type, () => {});
+    await until(() => a.state.players?.size === 2 && b.state.players?.size === 2);
+    a.send("map", { map: "island" }); // con lago alrededor: hay agua donde tocar
+    await until(() => b.state.map === "island");
+    a.send("start");
+    await until(() => a.state.phase === "aiming" && b.state.phase === "aiming" && ta.fulls === 1 && tb.fulls === 1);
+    const seenBy = (r: Room<any>, id: string) => r.state.players.get(id);
+    const spawnOf = (r: Room<any>, id: string) => [seenBy(r, id).spawnX, seenBy(r, id).spawnZ, seenBy(r, id).spawnPicked];
+    // Ronda 1: se sortea, y nadie tiene nacimiento pendiente. Lo que se mande ahora se ignora.
+    for (const r of [a, b]) for (const id of [a.sessionId, b.sessionId]) expect(spawnOf(r, id)).toEqual([-1, -1, false]);
+    a.send("spawn", { at: { x: 128, z: 128 } });
+
+    // A la tienda sin depender de la puntería: Beto muere a mano y Ana tira lejos de todo.
+    const game = (matchMaker.getLocalRoomById(a.roomId) as any).game as Game;
+    game.match = { ...game.match!, tanks: game.match!.tanks.map((t) => (t.id === b.sessionId ? { ...t, life: 0 } : t)) };
+    expect(a.state.turnId).toBe(a.sessionId);
+    a.send("fire", { yaw: seenBy(a, a.sessionId).yaw + 180, pitch: 60, power: 250 });
+    await until(() => a.state.phase === "shop" && b.state.phase === "shop");
+
+    // Al abrir, cada uno tiene el del sorteo, y las dos pestañas ven los dos.
+    await until(() => seenBy(b, a.sessionId).spawnX >= 0 && seenBy(a, b.sessionId).spawnX >= 0);
+    const drawnA = spawnOf(a, a.sessionId);
+    const drawnB = spawnOf(a, b.sessionId);
+    expect(drawnA[2]).toBe(false);
+    expect(spawnOf(b, a.sessionId)).toEqual(drawnA);
+    expect(spawnOf(b, b.sessionId)).toEqual(drawnB);
+
+    // Ana busca un punto que valga, con la misma cuenta del server, lejos de donde la dejó el sorteo.
+    const terrain = tb.terrain!;
+    expect(terrain.heights).toEqual(game.match!.terrain.heights);
+    const rival = [{ x: drawnB[0], z: drawnB[1] }];
+    let at: { x: number; z: number } | null = null;
+    for (let z = 20; z < terrain.depth - 20 && !at; z += 5) {
+      for (let x = 20; x < terrain.width - 20 && !at; x += 5) {
+        if (Math.hypot(x - drawnA[0], z - drawnA[1]) > 30 && validateSpawn(terrain, game.pristine!, { x, z }, rival).ok) at = { x, z };
+      }
+    }
+    expect(at).not.toBeNull();
+    a.send("spawn", { at });
+    await until(() => seenBy(b, a.sessionId).spawnPicked === true);
+    // Beto ve la marca de Ana en el punto que eligió; la suya sigue siendo la del sorteo.
+    expect(spawnOf(b, a.sessionId)).toEqual([at!.x, at!.z, true]);
+    expect(spawnOf(b, b.sessionId)).toEqual(drawnB);
+    await until(() => seenBy(a, a.sessionId).spawnPicked === true);
+    expect(spawnOf(a, a.sessionId)).toEqual([at!.x, at!.z, true]);
+
+    // Un punto en el agua se rechaza. Y uno de Beto pegado al de Ana, también. Las marcas no se mueven.
+    const water = { x: 6, z: 128 };
+    expect(terrainHeightAt(terrain, water.x, water.z)).toBeLessThanOrEqual(WATER_LEVEL);
+    a.send("spawn", { at: water });
+    b.send("spawn", { at: water });
+    b.send("spawn", { at: { x: at!.x + 4, z: at!.z } });
+    b.send("spawn", "cualquiera");
+    await sleep(150);
+    for (const r of [a, b]) {
+      expect(spawnOf(r, a.sessionId)).toEqual([at!.x, at!.z, true]);
+      expect(spawnOf(r, b.sessionId)).toEqual(drawnB);
+    }
+
+    // La ronda 2 abre ahí: Ana donde eligió, apoyada en el piso; Beto donde lo dejó el sorteo. Las marcas se van.
+    a.send("ready");
+    b.send("ready");
+    await until(() => a.state.round === 2 && b.state.round === 2 && b.state.phase === "aiming" && ta.fulls === 2 && tb.fulls === 2);
+    for (const r of [a, b]) {
+      const ana = seenBy(r, a.sessionId);
+      const beto = seenBy(r, b.sessionId);
+      expect([ana.x, ana.z]).toEqual([at!.x, at!.z]);
+      expect(ana.y).toBe(Math.fround(terrainHeightAt(terrain, at!.x, at!.z)));
+      expect(ana.y).toBeGreaterThan(WATER_LEVEL);
+      expect([ana.life, beto.life]).toEqual([100, 100]);
+      expect([beto.x, beto.z]).toEqual([drawnB[0], drawnB[1]]);
+      expect(Math.hypot(ana.x - beto.x, ana.z - beto.z)).toBeGreaterThanOrEqual(TANK_MIN_SEPARATION_3D);
+      expect(spawnOf(r, a.sessionId)).toEqual([-1, -1, false]);
+      expect(spawnOf(r, b.sessionId)).toEqual([-1, -1, false]);
+    }
+    expect(tb.terrain!.heights).toEqual(ta.terrain!.heights);
     await a.leave();
     await b.leave();
   });

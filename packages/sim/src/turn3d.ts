@@ -219,6 +219,32 @@ function nearestStart(
   return best[0] ?? best[1] ?? best[2] ?? null;
 }
 
+export type SpawnCheck = { ok: true; x: number; y: number; z: number } | { ok: false; reason: string };
+
+/**
+ * Valida un nacimiento elegido en la tienda (regla propia: en el original nadie elige). Lo usan el
+ * server (autoridad) y el cliente (para pintar el destino y no mandar lo que el server va a rechazar):
+ *   dentro del mapa sin las dos filas del borde (como nearestStart), piso firme, que no sea agua ni
+ *   hoyo (isDug contra `pristine`), y a TANK_MIN_SEPARATION_3D o más de donde va a nacer cada uno de
+ *   `others`. El tanque queda apoyado en el piso de ese punto.
+ * No hay tope de altura: la cima vale.
+ */
+export function validateSpawn(
+  terrain: Terrain,
+  pristine: Terrain,
+  to: { x: number; z: number },
+  others: readonly { x: number; z: number }[],
+): SpawnCheck {
+  if (!Number.isFinite(to.x) || !Number.isFinite(to.z)) return { ok: false, reason: "destino inválido" };
+  if (to.x < 2 || to.z < 2 || to.x > terrain.width - 3 || to.z > terrain.depth - 3) return { ok: false, reason: "fuera del mapa" };
+  if (isWater(terrain, to.x, to.z)) return { ok: false, reason: "ahí hay agua" };
+  if (isDug(terrain, pristine, to.x, to.z)) return { ok: false, reason: "ahí hay un hoyo" };
+  if (others.some((o) => Math.hypot(o.x - to.x, o.z - to.z) < TANK_MIN_SEPARATION_3D)) {
+    return { ok: false, reason: `a menos de ${TANK_MIN_SEPARATION_3D} de otro` };
+  }
+  return { ok: true, x: to.x, y: terrainHeightAt(terrain, to.x, to.z), z: to.z };
+}
+
 export function tanks3DAt(
   terrain: Terrain,
   ids: readonly string[],

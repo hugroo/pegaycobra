@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Pantallas (HTML), conexión con el server, entrada y loop de Three.js.
-// El cliente manda { yaw, pitch, power, weapon }, { moveTo }, { item }, "listo", "fillBots" y el texto
-// del chat. Nada más: daño, impacto, fuego, plata y puntaje los decide el server.
+// El cliente manda { yaw, pitch, power, weapon }, { moveTo }, { item }, { at } (dónde nacer), "listo",
+// "fillBots" y el texto del chat. Nada más: daño, impacto, fuego, plata y puntaje los decide el server.
 
 import "./style.css";
 import { Client, type Room } from "@colyseus/sdk";
@@ -19,8 +19,10 @@ import {
   POWER_MAX,
   SHOP_ITEMS,
   simulateWeaponShot3D,
+  TANK_MIN_SEPARATION_3D,
   terrainHeightAt,
   validateMove,
+  validateSpawn,
   WEAPONS,
   type MapId,
   type MatchState3D,
@@ -29,7 +31,7 @@ import {
 } from "@pegaycobra/sim";
 import { fireSfx, play, toggleMute } from "./audio";
 import { Minimap, type MiniModel } from "./minimap";
-import { LINGER_MS, TANK_COLORS, World, type GhostModel, type Hull, type MarkModel, type MoveModel, type ShotModel, type TankModel } from "./scene3d";
+import { LINGER_MS, TANK_COLORS, World, type GhostModel, type Hull, type MarkModel, type MoveModel, type ShotModel, type SpawnModel, type TankModel } from "./scene3d";
 
 const ROOM_NAME = "pegaycobra";
 // En el build de producción el server sirve esta web, así que el WebSocket va al mismo dominio.
@@ -147,6 +149,10 @@ let moveKind: "fuel" | "step" = "fuel";
 let stepDest: { x: number; z: number } | null = null;
 let moveHover: MoveModel["hover"] = null;
 let terrain: Terrain | null = null;
+/** El terreno de la ronda 1 de la partida en curso, sin tocar: contra él se ve qué es hoyo (validateSpawn). */
+let pristine: Terrain | null = null;
+/** Tienda: el punto del piso bajo el cursor, donde nacería en la ronda que viene. */
+let spawnHover: MoveModel["hover"] = null;
 let shotAnim: ShotModel | null = null;
 /** Dónde terminó el último tiro real (último punto del "shot" del server; con un Racimo, el de cada cabeza). Lo usa el minimapa. */
 let lastImpact: { spots: MiniModel["impacts"]; at: number } | null = null;
@@ -585,6 +591,7 @@ function onTerrain(m: TerrainMessage): void {
     heights.set(src.subarray(z * m.w, (z + 1) * m.w), (m.z0 + z) * m.width + m.x0);
   }
   terrainVersion++;
+  if (newGround) pristine = { width: m.width, depth: m.depth, heights: heights.slice() };
   if (full) lastImpact = null; // ronda nueva
   world ??= new World(ui.viewport);
   world.setTerrain(terrain, full ? undefined : { x0: m.x0, z0: m.z0, w: m.w, d: m.d }, newGround);
@@ -719,6 +726,8 @@ function attach(r: Room<any>): void {
   shotAnim = null;
   lastImpact = null;
   terrain = null;
+  pristine = null;
+  spawnHover = null;
   ghostOff = false;
   lastTurnKey = "";
   lastRoundEnd = null;
@@ -737,6 +746,10 @@ function attach(r: Room<any>): void {
   });
   r.onMessage("terrain", (m: TerrainMessage) => {
     if (room === r) onTerrain(m);
+  });
+  // Solo al que vuelve a una partida en curso (recargó la página): el terreno de la ronda 1, que acá ya no está.
+  r.onMessage("pristine", (m: TerrainMessage) => {
+    if (room === r) pristine = { width: m.width, depth: m.depth, heights: new Float32Array(m.data.slice().buffer) };
   });
   r.onMessage(
     "shot",
@@ -1232,10 +1245,17 @@ const SHOP_LINE: Record<ShopItemId, string> = {
 function renderShop(phase: string): void {
   if (phase !== "shop") {
     ui.shop.hidden = true;
+    spawnHover = null;
+    spawnSeen = "";
     return;
   }
   const s = room!.state;
   const mp = me();
+  // Al abrir, lo que la fila de cartas no dice: el cerro también se toca. Y cuando el server acepta un punto, la confirmación.
+  const spawn = mp && mp.spawnX >= 0 ? `${mp.spawnPicked}|${mp.spawnX}|${mp.spawnZ}` : "";
+  if (spawn && ui.shop.hidden) showBanner(compact.matches ? "Tocá el piso: ahí nacés" : "Clic en el piso: ahí nacés", 4000);
+  else if (spawn && spawn !== spawnSeen && mp.spawnPicked) showBanner("Dale, nacés ahí", 1500);
+  spawnSeen = spawn;
   ui.shop.hidden = false;
   ui.shopTitle.textContent = `Antes de la ronda ${s.round + 1}/${s.rounds}`;
 
@@ -1303,6 +1323,9 @@ function renderShop(phase: string): void {
         : "";
   }
 }
+
+/** Mi nacimiento de la ronda que viene como estaba en el último estado: cuando cambia, es que el server aceptó el punto. */
+let spawnSeen = "";
 
 /** Lo que cambia en una carta de la tienda: la carta (comprar), el "tenés N" y el renglón de venta. */
 interface ShopSlot {
@@ -1648,6 +1671,35 @@ function simView(): MatchState3D | null {
   };
 }
 
+/**
+ * ¿Puedo nacer en `to` en la ronda que viene? La misma cuenta del server (validateSpawn del sim),
+ * contra los nacimientos de los demás que están en el estado. null: todavía no llegó el terreno.
+ */
+function checkSpawn(to: { x: number; z: number }) {
+  if (!terrain || !pristine) return null;
+  const rivals = playersInOrder().filter((p) => !isMe(p.id) && p.spawnX >= 0);
+  return validateSpawn(terrain, pristine, to, rivals.map((p) => ({ x: p.spawnX, z: p.spawnZ })));
+}
+
+/** Tienda: un clic (o un toque) en el piso elige dónde nacés. La estaca se corre cuando el server lo acepta. */
+function spawnAt(e: PointerEvent): void {
+  if (!room || !(me()?.spawnX >= 0)) return;
+  const to = pickGround(e);
+  const check = to && checkSpawn(to);
+  if (!to || !check) return;
+  if (!check.ok) {
+    showBanner(`No: ${check.reason}`, 1500);
+    return;
+  }
+  room.send("spawn", { at: to });
+}
+
+/** Clic o toque en el piso: en la tienda es el nacimiento; en tu turno, el destino de la nafta o del paso. */
+function tapGround(e: PointerEvent): void {
+  if (room?.state.phase === "shop") spawnAt(e);
+  else moveTo(e);
+}
+
 function pickGround(e: PointerEvent): { x: number; z: number } | null {
   if (!world) return null;
   const rect = ui.viewport.getBoundingClientRect();
@@ -1656,8 +1708,8 @@ function pickGround(e: PointerEvent): { x: number; z: number } | null {
 }
 
 // Mouse: izquierdo arrastra el cañón (horizontal = giro, vertical = elevación); en modo nafta,
-// un clic en el piso elige el destino. Derecho orbita la cámara. Rueda = potencia en tu turno.
-// Dedo en pantalla chica: uno solo toca (destino de la nafta); dos orbitan y, al separarse, hacen zoom.
+// un clic en el piso elige el destino, y en la tienda, dónde nacés. Derecho orbita la cámara. Rueda = potencia en tu turno.
+// Dedo en pantalla chica: uno solo toca (destino de la nafta, o el nacimiento en la tienda); dos orbitan y, al separarse, hacen zoom.
 let drag: { button: number; x: number; y: number; moved: number } | null = null;
 const fingers = new Map<number, { x: number; y: number }>();
 /** El toque de un solo dedo, mientras no se le sume otro. */
@@ -1708,13 +1760,13 @@ ui.viewport.addEventListener("pointerup", (e) => {
   if (fingers.delete(e.pointerId)) {
     const wasTap = tap?.id === e.pointerId && tap.moved < 12;
     tap = null;
-    if (wasTap) moveTo(e);
+    if (wasTap) tapGround(e);
     return;
   }
   const wasClick = drag && drag.button === 0 && drag.moved < 5;
   drag = null;
   ui.viewport.classList.remove("dragging");
-  if (wasClick) moveTo(e);
+  if (wasClick) tapGround(e);
 });
 ui.viewport.addEventListener("pointercancel", (e) => {
   if (fingers.delete(e.pointerId)) {
@@ -1724,6 +1776,7 @@ ui.viewport.addEventListener("pointercancel", (e) => {
   drag = null;
   ui.viewport.classList.remove("dragging");
 });
+ui.viewport.addEventListener("pointerleave", () => (spawnHover = null));
 ui.viewport.addEventListener("pointermove", (e) => {
   const finger = fingers.get(e.pointerId);
   if (finger) {
@@ -1748,6 +1801,11 @@ ui.viewport.addEventListener("pointermove", (e) => {
       const ok = validateMove(view, room.sessionId, to, moveKind === "step").ok;
       moveHover = { x: to.x, y: terrainHeightAt(view.terrain, to.x, to.z), z: to.z, ok };
     } else moveHover = null;
+  }
+  if (room?.state.phase === "shop" && !drag && me()?.spawnX >= 0) {
+    const to = pickGround(e);
+    const check = to && checkSpawn(to);
+    spawnHover = to && check && terrain ? { x: to.x, y: terrainHeightAt(terrain, to.x, to.z), z: to.z, ok: check.ok } : null;
   }
   if (!drag || !world) return;
   const dx = e.clientX - drag.x;
@@ -1948,6 +2006,15 @@ function frame(now: number): void {
   // El destino marcado del paso se queda dibujado hasta que se confirma o se marca otro.
   const marked = stepping && stepDest ? { x: stepDest.x, y: terrainHeightAt(terrain, stepDest.x, stepDest.z), z: stepDest.z, ok: true } : null;
   const fires = firesOf(s);
+  // Tienda: las estacas de la ronda que viene, y la cámara en la mía (cada punto que elijo la lleva ahí).
+  const spawns: SpawnModel[] =
+    s.phase === "shop"
+      ? playersInOrder()
+          .filter((p) => p.spawnX >= 0)
+          .map((p) => ({ id: p.id, color: p.color, x: p.spawnX, z: p.spawnZ, picked: !!p.spawnPicked, isMe: isMe(p.id) }))
+      : [];
+  const mySpawn = spawns.find((sp) => sp.isMe);
+  if (mySpawn) world.focus(mySpawn.x, terrainHeightAt(terrain, mySpawn.x, mySpawn.z) + 3, mySpawn.z);
   world.render({
     tanks,
     ghost,
@@ -1956,6 +2023,8 @@ function frame(now: number): void {
     wind,
     fires,
     move: moveMode && myTank ? { center: { x: myTank.x, z: myTank.z }, range: stepping ? FREE_STEP_RANGE : FUEL_MOVE_RANGE, hover: marked ?? moveHover } : null,
+    spawns,
+    spawnHover: mySpawn ? spawnHover : null,
     now,
   });
 
@@ -1990,6 +2059,8 @@ function frame(now: number): void {
     balls,
     impacts: lastImpact && now >= lastImpact.at ? lastImpact.spots : [],
     marks,
+    spawns,
+    gap: TANK_MIN_SEPARATION_3D,
   });
 }
 requestAnimationFrame(frame);

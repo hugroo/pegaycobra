@@ -1,4 +1,4 @@
-// El bot: cómo elige el tiro, la compra y la nafta (sin red) y una sala real con un solo cliente humano.
+// El bot: cómo elige el tiro, la compra, la nafta y dónde nacer (sin red) y una sala real con un solo cliente humano.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
 import { matchMaker, type Server } from "@colyseus/core";
@@ -11,10 +11,12 @@ import {
   onShore,
   resolveTurn3D,
   SHOP_ITEMS,
+  TANK_MIN_SEPARATION_3D,
   terrainHeightAt,
+  validateSpawn,
   type MatchState3D,
 } from "@pegaycobra/sim";
-import { BOT_NAME, BOT_SAMPLES, botCandidates, botMovePick, botShopPick, pickBotShot } from "../src/bot";
+import { BOT_NAME, BOT_SAMPLES, botCandidates, botMovePick, botShopPick, botSpawnPick, pickBotShot } from "../src/bot";
 import { Game } from "../src/game";
 import { createServer, ROOM_NAME } from "../src/server";
 import { GameRoom } from "../src/room";
@@ -260,6 +262,47 @@ describe("decisiones del bot", () => {
     expect(botMovePick(g.match!, "B")).toBeNull();
     expect(g.fire("B", pickBotShot(g.match!, "B", createRng(1))!)).not.toBeNull();
   });
+
+  it("nacimiento: el piso firme más alto que queda a 60 de los demás; ni un hoyo ni el agua, aunque sean más altos o no haya otra cosa", () => {
+    // Piso plano a 10 con tres cimas: 50, 40 y 30.
+    const pristine = createFlatTerrain(257, 257, 10);
+    const peak = (t: { heights: Float32Array }, x: number, z: number, h: number) => (t.heights[x + z * 257] = h);
+    peak(pristine, 100, 100, 50);
+    peak(pristine, 200, 200, 40);
+    peak(pristine, 60, 200, 30);
+    expect(botSpawnPick(pristine, pristine, [])).toEqual({ x: 100, z: 100 });
+    // Otro nace a 20 celdas de la más alta: va a la segunda. Con los dos cerca de las dos primeras, a la tercera.
+    expect(botSpawnPick(pristine, pristine, [{ x: 120, z: 100 }])).toEqual({ x: 200, z: 200 });
+    expect(botSpawnPick(pristine, pristine, [{ x: 120, z: 100 }, { x: 200, z: 240 }])).toEqual({ x: 60, z: 200 });
+    // A la más alta le volaron la punta: sigue siendo la más alta, pero es un hoyo.
+    const dug = { ...pristine, heights: pristine.heights.slice() };
+    peak(dug, 100, 100, 45);
+    expect(botSpawnPick(dug, pristine, [])).toEqual({ x: 200, z: 200 });
+    // Todo agua: no elige, y le queda el del sorteo.
+    expect(botSpawnPick(createFlatTerrain(257, 257, 0), createFlatTerrain(257, 257, 0), [])).toBeNull();
+
+    // En una partida, Game.chooseSpawn lo acepta como el de cualquier jugador y en la ronda 2 nace ahí:
+    // no hay piso que valga y sea más alto.
+    const g = started();
+    g.match = { ...g.match!, tanks: g.match!.tanks.map((t) => (t.id === "B" ? { ...t, life: 0 } : t)) };
+    while (g.phase === "aiming") g.tickSecond();
+    expect(g.phase).toBe("shop");
+    const { terrain } = g.match!;
+    const at = botSpawnPick(terrain, g.pristine!, g.spawnRivals("B"))!;
+    expect(g.chooseSpawn("B", { at })).toBe(true);
+    let top = -Infinity;
+    for (let z = 0; z < terrain.depth; z++) {
+      for (let x = 0; x < terrain.width; x++) {
+        const check = validateSpawn(terrain, g.pristine!, { x, z }, g.spawnRivals("B"));
+        if (check.ok) top = Math.max(top, check.y);
+      }
+    }
+    g.setReady("A");
+    g.setReady("B");
+    expect(g.round).toBe(2);
+    expect(g.match!.tanks.find((t) => t.id === "B")).toMatchObject({ ...at, y: top });
+    expect(Math.hypot(at.x - g.match!.tanks[0]!.x, at.z - g.match!.tanks[0]!.z)).toBeGreaterThanOrEqual(TANK_MIN_SEPARATION_3D);
+  });
 });
 
 describe("sala con bot", () => {
@@ -339,11 +382,13 @@ describe("sala con bot", () => {
     await a.leave();
   }, 20_000);
 
-  it("en la tienda compra una sola cosa, da el listo y, si es un arma, la gasta en la ronda siguiente", async () => {
+  it("en la tienda compra una sola cosa, elige dónde nacer, da el listo y, si es un arma, la gasta en la ronda siguiente", async () => {
     const a: Room<any> = await new Client(url).create(ROOM_NAME, { name: "Ana" });
     quiet(a);
     const botShots: any[] = [];
+    let botMoves = 0;
     a.onMessage("shot", (m) => m.shooterId !== a.sessionId && botShots.push(m));
+    a.onMessage("moved", (m) => m.id !== a.sessionId && botMoves++);
     await until(() => a.state.players?.size === 1);
     a.send("fillBots");
     await until(() => a.state.players.size === 2);
@@ -378,8 +423,23 @@ describe("sala con bot", () => {
     expect(bot.money).toBe(money - SHOP_ITEMS[bought].price);
     expect(bot.napalms + bot.nukes + bot.dirts + bot.mirvs + bot.parachute).toBe(0);
 
+    // Antes del listo eligió dónde nacer: el firme más alto que le deja Ana. Ana lo ve marcado, y ella sigue con el del sorteo.
+    const game = (matchMaker.getLocalRoomById(a.roomId) as any).game as Game;
+    const born = botSpawnPick(game.match!.terrain, game.pristine!, game.spawnRivals(bot.id))!;
+    expect([bot.spawnX, bot.spawnZ, bot.spawnPicked]).toEqual([born.x, born.z, true]);
+    const ana = a.state.players.get(a.sessionId);
+    expect(ana.spawnPicked).toBe(false);
+    expect(Math.hypot(born.x - ana.spawnX, born.z - ana.spawnZ)).toBeGreaterThanOrEqual(TANK_MIN_SEPARATION_3D);
+    const drawn = { x: ana.spawnX, z: ana.spawnZ };
+
+    botMoves = 0;
     a.send("ready");
     await until(() => a.state.round === 2 && a.state.phase !== "shop");
+    // La ronda 2 abre con cada uno donde estaba su marca, y las marcas se van. (Si al bot le tocó
+    // primero y ya dio el paso, se corrió de ahí: el aviso "moved" llega antes que el estado.)
+    if (botMoves === 0) expect([bot.x, bot.z]).toEqual([born.x, born.z]);
+    expect([ana.x, ana.z]).toEqual([drawn.x, drawn.z]);
+    expect([bot.spawnX, ana.spawnX]).toEqual([-1, -1]);
     if (bought !== "shield" && bought !== "fuel") {
       // Si el bot tira primero puede cerrar la ronda de un tiro: Ana solo tira si le toca.
       while (!botShots.some((s) => s.weapon === bought)) {

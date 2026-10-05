@@ -45,6 +45,13 @@ export const PlayerState = schema(
     /** Tocó "listo" en la tienda. */
     ready: t.boolean().default(false),
     /**
+     * En la tienda: dónde nace en la ronda que viene (XZ). -1 = no hay (fuera de la tienda, o se fue).
+     * `spawnPicked`: lo eligió él; si no, es el del sorteo. [wu]
+     */
+    spawnX: t.float32().default(-1),
+    spawnZ: t.float32().default(-1),
+    spawnPicked: t.boolean().default(false),
+    /**
      * Marca de su último tiro (ShotMark de game.ts): el recorrido [x, y, z, ...] y dónde cayó
      * [x, z, agua, ...]. Vacías hasta que cae un tiro suyo en la ronda, y mientras vuela el siguiente.
      */

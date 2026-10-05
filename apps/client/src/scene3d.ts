@@ -206,6 +206,21 @@ export interface MoveModel {
   hover: { x: number; y: number; z: number; ok: boolean } | null;
 }
 
+/**
+ * Nacimiento de un tanque en la ronda que viene, mientras está abierta la tienda: una estaca de su
+ * color clavada en el piso. Viene del estado del server, así que todas las pestañas ven las mismas.
+ */
+export interface SpawnModel {
+  id: string;
+  color: number;
+  x: number;
+  z: number;
+  /** Lo eligió él: la estaca va llena. La del sorteo, pálida. */
+  picked: boolean;
+  /** La mía lleva el cartel. */
+  isMe: boolean;
+}
+
 export interface FrameModel {
   tanks: TankModel[];
   ghost: GhostModel | null;
@@ -215,6 +230,10 @@ export interface FrameModel {
   wind: { x: number; z: number };
   fires: FireModel[];
   move: MoveModel | null;
+  /** Tienda: dónde nace cada uno en la ronda que viene. Fuera de la tienda, vacío. */
+  spawns: SpawnModel[];
+  /** Tienda: el punto del piso bajo el cursor, donde nacería, y si vale. */
+  spawnHover: MoveModel["hover"];
   now: number;
 }
 
@@ -318,6 +337,14 @@ export class World {
   private readonly ghostGone: CSS2DObject;
   private readonly moveRing: THREE.Mesh;
   private readonly moveMarker: THREE.Mesh;
+  /** Estacas de nacimiento de la tienda, por tanque: aro en el piso, palo y punta. Se crean al usarse. */
+  private readonly spawns = new Map<string, { root: THREE.Group; mat: THREE.MeshBasicMaterial }>();
+  private readonly spawnGeos = [
+    new THREE.RingGeometry(1.5, 2.2, 32).rotateX(-Math.PI / 2),
+    new THREE.CylinderGeometry(0.18, 0.18, 7, 8).translate(0, 3.5, 0),
+    new THREE.OctahedronGeometry(1.1).translate(0, 7.6, 0),
+  ];
+  private readonly spawnLabel: CSS2DObject;
   /** Racimo en la fantasma: la marca donde se abre y, por cabeza, su línea y su anillo. Se crean al usarse. */
   private readonly ghostOpen: THREE.Mesh;
   private readonly ghostHeads: { line: THREE.Line; ring: THREE.Mesh }[] = [];
@@ -468,6 +495,13 @@ export class World {
     );
     this.moveMarker.renderOrder = 12;
     this.scene.add(this.moveMarker);
+
+    const spawnEl = document.createElement("div");
+    spawnEl.className = "spawn-label";
+    spawnEl.textContent = "Nacés acá";
+    this.spawnLabel = new CSS2DObject(spawnEl);
+    this.spawnLabel.visible = false;
+    this.scene.add(this.spawnLabel);
 
     this.shotLine = new THREE.Line(
       new THREE.BufferGeometry(),
@@ -1456,22 +1490,54 @@ export class World {
     geo.setDrawRange(0, tris);
   }
 
-  private drawMove(m: MoveModel | null): void {
+  /** El marcador del destino es uno solo: el de la nafta o el paso y, en la tienda, el del nacimiento (`spot`). */
+  private drawMove(m: MoveModel | null, spot: MoveModel["hover"]): void {
+    const hover = m ? m.hover : spot;
+    this.moveMarker.visible = !!hover;
+    if (hover) {
+      this.moveMarker.position.set(hover.x, hover.y + 0.3, hover.z);
+      (this.moveMarker.material as THREE.MeshBasicMaterial).color.set(hover.ok ? "#69db7c" : "#ff6b6b");
+    }
     if (!m || !this.terrain) {
       this.moveRing.visible = false;
-      this.moveMarker.visible = false;
       return;
     }
     // El anillo flota a la altura del tanque; con depthTest apagado se ve aunque lo tape el cerro.
     this.moveRing.position.set(m.center.x, terrainHeightAt(this.terrain, m.center.x, m.center.z) + 0.4, m.center.z);
     this.moveRing.scale.setScalar(m.range);
     this.moveRing.visible = true;
-    if (m.hover) {
-      this.moveMarker.position.set(m.hover.x, m.hover.y + 0.3, m.hover.z);
-      (this.moveMarker.material as THREE.MeshBasicMaterial).color.set(m.hover.ok ? "#69db7c" : "#ff6b6b");
-      this.moveMarker.visible = true;
-    } else {
-      this.moveMarker.visible = false;
+  }
+
+  /**
+   * Las estacas de la tienda: una por tanque, de su color, apoyada en el piso de ahora. Con depthTest
+   * apagado se ven aunque las tape un cerro: hay que saber dónde nacen los demás para quedar lejos.
+   */
+  private drawSpawns(list: SpawnModel[]): void {
+    for (const [id, v] of this.spawns) if (!list.some((s) => s.id === id)) v.root.visible = false;
+    this.spawnLabel.visible = false;
+    for (const s of list) {
+      let v = this.spawns.get(s.id);
+      if (!v) {
+        const mat = new THREE.MeshBasicMaterial({ transparent: true, depthTest: false });
+        const root = new THREE.Group();
+        for (const geo of this.spawnGeos) {
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.renderOrder = 11;
+          root.add(mesh);
+        }
+        this.scene.add(root);
+        v = { root, mat };
+        this.spawns.set(s.id, v);
+      }
+      const y = this.aboveGround(s.x, -Infinity, s.z);
+      v.root.position.set(s.x, y + 0.2, s.z);
+      v.root.visible = true;
+      v.mat.color.set(TANK_COLORS[s.color] ?? "#fff");
+      v.mat.opacity = s.picked ? 0.95 : 0.6;
+      if (s.isMe) {
+        this.spawnLabel.position.set(s.x, y + 10, s.z);
+        this.spawnLabel.visible = true;
+      }
     }
   }
 
@@ -1489,7 +1555,8 @@ export class World {
     const turn = f.tanks.find((t) => t.isTurn);
     this.drawWind(f.wind, turn);
     this.drawFires(f.fires, f.now);
-    this.drawMove(f.move);
+    this.drawMove(f.move, f.spawnHover);
+    this.drawSpawns(f.spawns);
     const drowning = this.drawSplashes(f.now);
 
     // Cámara: sigue al proyectil, se queda un momento en el impacto (para ver el cráter) y

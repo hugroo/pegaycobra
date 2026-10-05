@@ -18,6 +18,7 @@ import {
   MONEY_START,
   moveTank,
   nextRound3D,
+  nextRoundSpots,
   parseMap,
   resolveTurn,
   ROUND_MAX_TURNS,
@@ -30,6 +31,7 @@ import {
   startRound3D,
   STEP_SECONDS,
   validateMove,
+  validateSpawn,
   type BurnEvent,
   type DamageEvent,
   type MapId,
@@ -144,6 +146,16 @@ export function parseMoveMessage(raw: unknown): { x: number; z: number } | null 
   return { x, z };
 }
 
+/** { at: { x, z } } → el punto, o null. Si trae otra cosa, se ignora. */
+export function parseSpawnMessage(raw: unknown): { x: number; z: number } | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const at = (raw as Record<string, unknown>).at;
+  if (typeof at !== "object" || at === null) return null;
+  const { x, z } = at as Record<string, unknown>;
+  if (typeof x !== "number" || typeof z !== "number" || !Number.isFinite(x) || !Number.isFinite(z)) return null;
+  return { x, z };
+}
+
 export function parseBuyMessage(raw: unknown): ShopItemId | null {
   if (typeof raw !== "object" || raw === null) return null;
   const item = (raw as Record<string, unknown>).item;
@@ -223,6 +235,14 @@ export interface RoundEarnings {
   water: number;
 }
 
+/** Dónde va a nacer un tanque en la ronda que viene. Solo existe mientras está abierta la tienda. */
+export interface Spawn {
+  x: number;
+  z: number;
+  /** Lo eligió él (chooseSpawn). false: es el del sorteo, que vale si no elige. */
+  picked: boolean;
+}
+
 export interface RoundSummary {
   round: number;
   survivors: string[];
@@ -261,6 +281,12 @@ export class Game {
   roundSerial = 0;
   /** Jugadores que tocaron "listo" en la tienda. */
   readonly ready = new Set<string>();
+  /**
+   * En la tienda: el nacimiento de cada uno en la ronda que viene. Al abrir es el del sorteo; el que
+   * toca el piso lo cambia (chooseSpawn). Cada cambio se valida contra los demás, así que siempre
+   * quedan a TANK_MIN_SEPARATION_3D o más entre sí. Fuera de la tienda está vacío.
+   */
+  readonly spawns = new Map<string, Spawn>();
   /** El del turno ya usó nafta en este turno. */
   movedThisTurn = false;
   /** El del turno ya dio el paso gratis en este turno. */
@@ -285,7 +311,7 @@ export class Game {
   private refueled: string[] = [];
   private baseSeed = 0;
   /** El terreno como nació en la ronda 1 de la partida en curso: contra él se ve qué es hoyo al reubicar los tanques. */
-  private pristine: Terrain | null = null;
+  pristine: Terrain | null = null;
   /** De acá sale cuánto se corre el viento en cada turno. Se rearma con la semilla de cada ronda. */
   private windRng: () => number = Math.random;
 
@@ -433,8 +459,12 @@ export class Game {
       this.match = startRound3D(seed, players, gone, this.map);
       this.pristine = this.match.terrain;
     } else {
-      this.match = nextRound3D(seed, { ...this.match, players }, this.pristine, gone, this.map);
+      // Viene de la tienda: cada uno nace donde quedó su nacimiento, el del sorteo o el que eligió.
+      const spots = players.map((p) => this.spawns.get(p.id));
+      const all = spots.every((s) => s !== undefined) ? (spots as Spawn[]) : undefined;
+      this.match = nextRound3D(seed, { ...this.match, players }, this.pristine, gone, this.map, all);
     }
+    this.spawns.clear();
     this.windRng = createRng(seed ^ 0x7f4a7c15);
     const { terrain, tanks } = this.match;
     // Cada cañón arranca mirando al centro del mapa, a 45°.
@@ -561,6 +591,27 @@ export class Game {
     if (!item || !player || cannotSell(player, item)) return false;
     const sold = sellItem(player, item);
     this.match = { ...this.match, players: this.match.players.map((p) => (p.id === byId ? sold : p)) };
+    return true;
+  }
+
+  /**
+   * Los nacimientos de los demás que siguen en la sala: de cada uno hay que quedar a
+   * TANK_MIN_SEPARATION_3D o más. El del que se fue no cuenta: su tanque nace muerto.
+   */
+  spawnRivals(id: string): Spawn[] {
+    return this.connectedSeats.flatMap((s) => (s.id === id ? [] : (this.spawns.get(s.id) ?? [])));
+  }
+
+  /**
+   * Tienda: elige dónde nace en la ronda que viene, las veces que quiera hasta que cierre. El punto
+   * lo valida el sim (validateSpawn): firme, ni agua ni hoyo, y lejos de donde nacen los demás.
+   * false = ignorado, y queda el que tenía.
+   */
+  chooseSpawn(byId: string, raw: unknown): boolean {
+    if (this.phase !== "shop" || !this.match || !this.pristine || !this.spawns.has(byId)) return false;
+    const to = parseSpawnMessage(raw);
+    if (!to || !validateSpawn(this.match.terrain, this.pristine, to, this.spawnRivals(byId)).ok) return false;
+    this.spawns.set(byId, { x: to.x, z: to.z, picked: true });
     return true;
   }
 
@@ -747,6 +798,11 @@ export class Game {
     this.phase = "shop";
     this.timeLeft = this.shopSeconds;
     this.ready.clear();
+    // El sorteo de la ronda que viene se hace ya (el piso no cambia en la tienda): es el nacimiento
+    // del que no elige, y lo ven todos para saber de dónde tienen que quedar lejos.
+    const spots = this.pristine ? nextRoundSpots(this.seedFor(this.round + 1), m.terrain, players.length, this.pristine, this.map) : [];
+    this.spawns.clear();
+    spots.forEach((spot, i) => this.spawns.set(players[i]!.id, { x: spot.x, z: spot.z, picked: false }));
   }
 
   private finish(reason: "rounds" | "forfeit"): void {
@@ -755,6 +811,7 @@ export class Game {
     this.turnId = null;
     this.timeLeft = 0;
     this.pending = null;
+    this.spawns.clear();
     this.winners =
       reason === "forfeit"
         ? this.connectedSeats.map((s) => s.id)

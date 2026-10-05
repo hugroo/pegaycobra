@@ -2,11 +2,12 @@
 // Minimapa: vista cenital fija (x a la derecha, z hacia abajo) en un canvas 2D. Solo dibuja lo
 // que le pasa main.ts: el terreno con la misma escala de color que la vista 3D, los fuegos de Napalm, los tanques, dónde cae
 // la fantasma, hasta dónde llega el arma elegida, dónde cayó el último tiro real (el del mensaje
-// "shot", igual en todas las pestañas) y la marca del último tiro de cada tanque (la del estado).
+// "shot", igual en todas las pestañas), la marca del último tiro de cada tanque (la del estado) y,
+// en la tienda, dónde nace cada uno en la ronda que viene.
 
 import type { Terrain } from "@pegaycobra/sim";
 import { hillshade, LAKE, landColor, type RGB } from "./landscape";
-import { TANK_COLORS, type MarkModel } from "./scene3d";
+import { TANK_COLORS, type MarkModel, type SpawnModel } from "./scene3d";
 
 export interface MiniTank {
   x: number;
@@ -46,6 +47,12 @@ export interface MiniModel {
   impacts: { x: number; z: number; lands: boolean }[];
   /** Marca del último tiro de cada tanque: el recorrido, fino y quieto, y un punto donde cayó. */
   marks: MarkModel[];
+  /**
+   * Tienda: dónde nace cada uno en la ronda que viene, un rombo de su color (lleno si lo eligió).
+   * Alrededor del de cada rival, el aro de `gap` celdas adentro del cual no puedo nacer. [wu]
+   */
+  spawns: SpawnModel[];
+  gap: number;
 }
 
 /** El punto de un tanque mide 4 px: el fuego se dibuja al menos así de grande, para que asome por debajo. [px] */
@@ -313,6 +320,36 @@ export class Minimap {
         wave();
         ctx.lineCap = "butt";
       }
+    }
+
+    // Nacimientos de la ronda que viene: arriba de los tanques, que en la tienda ya no dicen dónde se juega.
+    for (const s of m.spawns) {
+      const color = TANK_COLORS[s.color] ?? "#fff";
+      const [x, y] = at(s.x, s.z);
+      if (!s.isMe) {
+        ctx.setLineDash([3, 3]);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        ctx.arc(s.x * kx, s.z * kz, m.gap * kx, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      const r = s.isMe ? 6.5 : 5;
+      ctx.beginPath();
+      ctx.moveTo(x, y - r);
+      ctx.lineTo(x + r, y);
+      ctx.lineTo(x, y + r);
+      ctx.lineTo(x - r, y);
+      ctx.closePath();
+      ctx.fillStyle = s.picked ? color : "rgba(0, 0, 0, 0.55)";
+      ctx.fill();
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = s.isMe ? "#fff" : "#000";
+      ctx.stroke();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = color;
+      ctx.stroke();
     }
 
     for (const ball of m.balls) {

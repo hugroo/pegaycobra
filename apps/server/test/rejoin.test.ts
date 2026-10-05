@@ -1,9 +1,11 @@
 // Integración: a uno se le cae la conexión (un refresco) y vuelve con el token de reconexión.
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
-import type { Server } from "@colyseus/core";
+import { matchMaker, type Server } from "@colyseus/core";
+import type { Game } from "../src/game";
 import { createServer, ROOM_NAME } from "../src/server";
 import { GameRoom } from "../src/room";
+import { applyTerrainMessage, type TerrainMessage } from "../src/terrain-net";
 
 const PORT = 28670 + Math.floor(Math.random() * 1000);
 const url = `ws://localhost:${PORT}`;
@@ -91,7 +93,9 @@ describe("volver a la sala después de un refresco", () => {
 
     const b2: Room<any> = await new Client(url).reconnect(token);
     let fullTerrains = 0;
+    const pristines: TerrainMessage[] = [];
     b2.onMessage("terrain", (m: { w: number; width: number }) => m.w === m.width && fullTerrains++);
+    b2.onMessage("pristine", (m: TerrainMessage) => pristines.push(m));
     b2.onMessage("*", () => {});
     expect(b2.sessionId).toBe(id);
     expect(b2.roomId).toBe(a.roomId);
@@ -104,6 +108,13 @@ describe("volver a la sala después de un refresco", () => {
     expect(seat(b2.state.players.get(id))).toEqual(before);
     // El terreno no está en el estado: le llega entero de nuevo.
     await until(() => fullTerrains === 1);
+    // Y el de la ronda 1, sin el hoyo que dejó Ana: lo necesita para saber qué es hoyo cuando elija dónde nacer.
+    await until(() => pristines.length === 1);
+    const game = (matchMaker.getLocalRoomById(a.roomId) as any).game as Game;
+    const got = new Float32Array(game.pristine!.heights.length);
+    applyTerrainMessage(got, pristines[0]!.width, pristines[0]!);
+    expect(got).toEqual(game.pristine!.heights);
+    expect(game.match!.terrain.heights).not.toEqual(game.pristine!.heights);
 
     // Sigue siendo su turno y tira él.
     expect(a.state.turnId).toBe(id);

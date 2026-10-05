@@ -17,6 +17,7 @@ import {
   MONEY_START,
   moveTank,
   nextRound3D,
+  nextRoundSpots,
   placeTanks3D,
   resolveTurn,
   ROUNDS_PER_MATCH,
@@ -36,6 +37,7 @@ import {
   tanks3DAt,
   terrainHeightAt,
   validateMove,
+  validateSpawn,
   WATER_LEVEL,
   WEAPONS,
   type MatchState3D,
@@ -191,6 +193,81 @@ describe("ronda siguiente: nadie nace en un hoyo", () => {
       }
     }
   }, 30_000);
+});
+
+describe("nacimiento elegido en la tienda", () => {
+  const GROUND = 10;
+  /** Piso plano a 10 con un lago (x < 40) y un hoyo de 3 de hondo alrededor de (128, 128), radio 10. */
+  function played(): { terrain: Terrain; pristine: Terrain } {
+    const pristine = createFlatTerrain(257, 257, GROUND);
+    for (let z = 0; z < 257; z++) for (let x = 0; x < 40; x++) pristine.heights[x + z * 257] = WATER_LEVEL - 2;
+    const terrain = { ...pristine, heights: pristine.heights.slice() };
+    for (let z = 118; z <= 138; z++) {
+      for (let x = 118; x <= 138; x++) if (Math.hypot(x - 128, z - 128) <= 10) terrain.heights[x + z * 257] = GROUND - 3;
+    }
+    return { terrain, pristine };
+  }
+
+  it("vale el piso firme: queda apoyado ahí, a la altura que sea", () => {
+    const { terrain, pristine } = played();
+    terrain.heights[200 + 60 * 257] = 180; // una cima más alta que la altura de arranque del sorteo
+    expect(validateSpawn(terrain, pristine, { x: 90.5, z: 200.25 }, [])).toEqual({ ok: true, x: 90.5, y: GROUND, z: 200.25 });
+    expect(validateSpawn(terrain, pristine, { x: 200, z: 60 }, [])).toEqual({ ok: true, x: 200, y: 180, z: 60 });
+  });
+
+  it("no vale el agua, ni un hoyo, ni el borde, ni un punto que no es un punto", () => {
+    const { terrain, pristine } = played();
+    const no = (to: { x: number; z: number }) => {
+      const check = validateSpawn(terrain, pristine, to, []);
+      return check.ok ? "vale" : check.reason;
+    };
+    expect(no({ x: 20, z: 128 })).toBe("ahí hay agua");
+    expect(no({ x: 128, z: 128 })).toBe("ahí hay un hoyo");
+    expect(no({ x: 137.5, z: 128 })).toBe("ahí hay un hoyo"); // la pared del hoyo también
+    expect(no({ x: 139, z: 128 })).toBe("vale"); // un paso afuera, piso sano
+    expect(no({ x: 1, z: 128 })).toBe("fuera del mapa");
+    expect(no({ x: 128, z: 255 })).toBe("fuera del mapa");
+    expect(no({ x: 128, z: 254 })).toBe("vale");
+    expect(no({ x: NaN, z: 128 })).toBe("destino inválido");
+    expect(no({ x: 128, z: Infinity })).toBe("destino inválido");
+    // Una loma arriba del piso original no es hoyo, aunque esté en el medio de uno.
+    terrain.heights[128 + 128 * 257] = GROUND + 4;
+    expect(no({ x: 128, z: 128 })).toBe("vale");
+  });
+
+  it(`no vale a menos de ${TANK_MIN_SEPARATION_3D} celdas de donde nace otro; a ${TANK_MIN_SEPARATION_3D} justas, sí`, () => {
+    const { terrain, pristine } = played();
+    const others = [{ x: 100, z: 60 }, { x: 200, z: 200 }];
+    const at = (x: number, z: number) => validateSpawn(terrain, pristine, { x, z }, others).ok;
+    expect(at(100 + TANK_MIN_SEPARATION_3D - 0.5, 60)).toBe(false);
+    expect(at(100 + TANK_MIN_SEPARATION_3D, 60)).toBe(true);
+    expect(at(200, 200 - TANK_MIN_SEPARATION_3D + 0.5)).toBe(false); // lejos del primero, cerca del segundo
+    expect(at(100, 60)).toBe(false);
+    expect(validateSpawn(terrain, pristine, { x: 100, z: 60 }, []).ok).toBe(true); // sin nadie más, ahí mismo vale
+  });
+
+  it("el sorteo que se muestra en la tienda es el de la ronda: mismos puntos, y con otros elegidos el viento no cambia", () => {
+    for (const map of MAP_IDS) {
+      for (const n of [2, 3, 4]) {
+        const players = Array.from({ length: n }, (_, i) => fresh(`P${i}`));
+        const first = startRound3D(50 + n, players, new Set(), map);
+        const terrain = applyCraterTerrain(first.terrain, first.tanks[0]!.x, first.tanks[0]!.y, first.tanks[0]!.z, WEAPONS.nuke.craterRadius);
+        const prev = { ...first, terrain };
+        const drawn = nextRound3D(90 + n, prev, first.terrain, new Set(), map);
+        const spots = nextRoundSpots(90 + n, terrain, n, first.terrain, map);
+        expect(spots).toEqual(drawn.tanks.map(({ x, z }) => ({ x, z })));
+
+        // El primero eligió otro punto: nace ahí, apoyado, y los demás donde los dejó el sorteo.
+        const mine = { x: spots[1]!.x, z: spots[1]!.z + TANK_MIN_SEPARATION_3D };
+        const chosen = nextRound3D(90 + n, prev, first.terrain, new Set(["P1"]), map, [mine, ...spots.slice(1)]);
+        expect(chosen.tanks[0]).toMatchObject({ ...mine, y: terrainHeightAt(terrain, mine.x, mine.z), life: TANK_MAX_LIFE });
+        expect(chosen.tanks.slice(1).map(({ x, z }) => ({ x, z }))).toEqual(spots.slice(1));
+        expect(chosen.tanks[1]!.life).toBe(0); // el que se fue nace muerto igual
+        expect(chosen.wind).toEqual(drawn.wind);
+        expect(chosen.terrain).toBe(terrain);
+      }
+    }
+  });
 });
 
 describe("plata de fin de ronda", () => {

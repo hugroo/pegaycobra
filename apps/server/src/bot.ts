@@ -4,6 +4,7 @@
 // Acá solo se decide qué manda: el tiro sale de probar unas pocas punterías con el sim, descartar
 // las que se quedan en un cerro antes del rival y quedarse con la que cae más cerca; no busca hasta pegar.
 // Si el rival está en la orilla (onShore) y alguna de esas punterías lo deja en el agua, tira esa.
+// En la tienda además elige dónde nacer (Game.chooseSpawn): el piso firme más alto que le dejan.
 
 import {
   canFire,
@@ -20,6 +21,7 @@ import {
   TANK_RADIUS,
   terrainHeightAt,
   validateMove,
+  validateSpawn,
   WEAPONS,
   type MatchState3D,
   type Player,
@@ -160,6 +162,26 @@ export function botMovePick(match: MatchState3D, botId: string, free = false): {
         top = check.y;
         best = to;
       }
+    }
+  }
+  return best;
+}
+
+/**
+ * Dónde nace en la ronda que viene: la celda de piso firme más alta que acepta validateSpawn, o sea
+ * que no es agua ni hoyo y queda a la separación de siempre de donde nacen los demás (`others`).
+ * Nada más: no mira a quién le tira desde ahí. null = no hay dónde, y se queda con el del sorteo.
+ */
+export function botSpawnPick(terrain: Terrain, pristine: Terrain, others: readonly { x: number; z: number }[]): { x: number; z: number } | null {
+  let best: { x: number; z: number } | null = null;
+  let top = -Infinity;
+  for (let z = 0; z < terrain.depth; z++) {
+    for (let x = 0; x < terrain.width; x++) {
+      if (!(terrain.heights[x + z * terrain.width]! > top)) continue;
+      const check = validateSpawn(terrain, pristine, { x, z }, others);
+      if (!check.ok) continue;
+      top = check.y;
+      best = { x, z };
     }
   }
   return best;

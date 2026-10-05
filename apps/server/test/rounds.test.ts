@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyCraterTerrain,
   createFlatTerrain,
   FREE_STEP_RANGE,
   FUEL_MOVE_RANGE,
@@ -18,11 +19,12 @@ import {
   TANK_START_HEIGHT_MIN,
   terrainHeightAt,
   validateMove,
+  validateSpawn,
   WATER_LEVEL,
   WEAPONS,
   type WeaponId,
 } from "@pegaycobra/sim";
-import { Game, parseBuyMessage, parseMoveMessage, SHOP_SECONDS, shotDurationMs, TURN_SECONDS } from "../src/game";
+import { Game, parseBuyMessage, parseMoveMessage, parseSpawnMessage, SHOP_SECONDS, shotDurationMs, TURN_SECONDS } from "../src/game";
 import { changedRect } from "../src/terrain-net";
 
 function started(seed = 11, ids = ["A", "B"]) {
@@ -367,6 +369,182 @@ describe("tienda", () => {
     expect(g.phase).toBe("shop");
     g.setReady("B");
     expect(g.phase).toBe("aiming");
+  });
+});
+
+describe("nacimiento elegido en la tienda", () => {
+  const tank = (g: Game, id: string) => g.match!.tanks.find((t) => t.id === id)!;
+  const spot = (p: { x: number; z: number }) => ({ x: p.x, z: p.z });
+  const far = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
+
+  /** Una partida en la tienda de la ronda 1. `dig` cava un hoyo antes de que termine la ronda. */
+  function inShop(opts: { map?: string; ids?: string[]; rounds?: number; dig?: { x: number; z: number } } = {}) {
+    const g = new Game(TURN_SECONDS, SHOP_SECONDS);
+    const ids = opts.ids ?? ["A", "B"];
+    for (const id of ids) g.addPlayer(id, id);
+    if (opts.map) g.setMap("A", opts.map);
+    if (opts.rounds) g.setClock("A", { turn: TURN_SECONDS, shop: SHOP_SECONDS, rounds: opts.rounds });
+    g.start("A", 34);
+    if (opts.dig) {
+      const t = g.match!.terrain;
+      g.match = { ...g.match!, terrain: applyCraterTerrain(t, opts.dig.x, terrainHeightAt(t, opts.dig.x, opts.dig.z), opts.dig.z, WEAPONS.missile.craterRadius) };
+    }
+    for (const id of ids.slice(1)) g.match = { ...g.match!, tanks: g.match!.tanks.map((t) => (t.id === id ? { ...t, life: 0 } : t)) };
+    killAndPass(g, ids[1]!);
+    expect(g.phase).toBe("shop");
+    return g;
+  }
+  const toNextRound = (g: Game) => {
+    for (const s of g.connectedSeats) g.setReady(s.id);
+  };
+  /**
+   * Un punto donde `id` puede nacer, a más de 30 celdas de donde lo dejó el sorteo: no es el mismo por
+   * casualidad. Con `floor`, a esa altura o más (un hoyo ahí no llega al agua).
+   */
+  function freeSpot(g: Game, id: string, floor = 0): { x: number; z: number } {
+    const { terrain } = g.match!;
+    for (let z = 20.5; z < terrain.depth - 20; z += 7) {
+      for (let x = 20.5; x < terrain.width - 20; x += 7) {
+        if (terrainHeightAt(terrain, x, z) < floor || far({ x, z }, g.spawns.get(id)!) <= 30) continue;
+        if (validateSpawn(terrain, g.pristine!, { x, z }, g.spawnRivals(id)).ok) return { x, z };
+      }
+    }
+    throw new Error("no hay dónde");
+  }
+
+  it("al abrir la tienda cada uno tiene el nacimiento del sorteo; si nadie elige, la ronda 2 abre ahí, como siempre", () => {
+    const g = inShop();
+    const drawn = { A: { ...g.spawns.get("A")! }, B: { ...g.spawns.get("B")! } };
+    expect([drawn.A.picked, drawn.B.picked]).toEqual([false, false]);
+    expect(far(drawn.A, drawn.B)).toBeGreaterThanOrEqual(TANK_MIN_SEPARATION_3D);
+    toNextRound(g);
+    expect([g.round, g.phase]).toEqual([2, "aiming"]);
+    expect(spot(tank(g, "A"))).toEqual(spot(drawn.A));
+    expect(spot(tank(g, "B"))).toEqual(spot(drawn.B));
+    expect(g.spawns.size).toBe(0); // fuera de la tienda no hay nacimientos pendientes
+  });
+
+  it("A elige un punto: queda marcado como suyo, y en la ronda 2 nace ahí, apoyado; B, donde lo dejó el sorteo, con el mismo viento", () => {
+    const untouched = inShop();
+    toNextRound(untouched);
+
+    const g = inShop();
+    const drawnB = spot(g.spawns.get("B")!);
+    const at = freeSpot(g, "A");
+    expect(g.chooseSpawn("A", { at })).toBe(true);
+    expect(g.spawns.get("A")).toEqual({ ...at, picked: true });
+    expect(g.spawns.get("B")).toEqual({ ...drawnB, picked: false });
+    // Se puede cambiar hasta que cierre la tienda, también después de dar el listo.
+    g.setReady("A");
+    const again = { x: at.x + 2, z: at.z };
+    expect(g.chooseSpawn("A", { at: again })).toBe(true);
+    expect(g.chooseSpawn("A", { at })).toBe(true);
+
+    const heights = g.match!.terrain.heights.slice();
+    g.setReady("B");
+    expect([g.round, g.phase]).toEqual([2, "aiming"]);
+    expect(tank(g, "A")).toMatchObject({ ...at, y: terrainHeightAt(g.match!.terrain, at.x, at.z), life: 100 });
+    expect(spot(tank(g, "B"))).toEqual(drawnB);
+    expect(spot(tank(g, "B"))).toEqual(spot(tank(untouched, "B")));
+    expect(g.match!.wind).toEqual(untouched.match!.wind);
+    expect(g.match!.terrain.heights).toEqual(heights); // elegir no toca el piso
+    // El cañón arranca mirando al centro desde donde nació.
+    const yaw = ((Math.atan2(128 - at.z, 128 - at.x) * 180) / Math.PI + 360) % 360;
+    expect(g.aims.get("A")!.yaw).toBeCloseTo(yaw, 6);
+  });
+
+  it("el server rechaza el agua, el borde y la basura, y queda el nacimiento que tenía", () => {
+    const g = inShop({ map: "island" });
+    const before = { ...g.spawns.get("A")! };
+    const water = { x: 6, z: 128 };
+    expect(terrainHeightAt(g.match!.terrain, water.x, water.z)).toBeLessThanOrEqual(WATER_LEVEL);
+    expect(g.chooseSpawn("A", { at: water })).toBe(false);
+    expect(g.chooseSpawn("A", { at: { x: 1, z: 128 } })).toBe(false);
+    expect(g.chooseSpawn("A", { at: { x: 128, z: 400 } })).toBe(false);
+    for (const bad of [null, {}, { at: null }, { at: { x: "128", z: 128 } }, { at: { x: NaN, z: 128 } }, { moveTo: { x: 128, z: 128 } }, "128,128"]) {
+      expect(g.chooseSpawn("A", bad), JSON.stringify(bad)).toBe(false);
+    }
+    expect(g.chooseSpawn("nadie", { at: freeSpot(g, "A") })).toBe(false);
+    expect(g.spawns.get("A")).toEqual(before);
+    expect(parseSpawnMessage({ at: { x: 3, z: 4, y: 99 }, damage: 1 })).toEqual({ x: 3, z: 4 });
+    toNextRound(g);
+    expect(spot(tank(g, "A"))).toEqual(spot(before));
+  });
+
+  it("el server rechaza un hoyo: el mismo punto valía con el piso sano", () => {
+    // Un punto firme cualquiera de la partida, lejos de donde el sorteo deja a los dos.
+    const probe = inShop();
+    const hole = freeSpot(probe, "A", 25);
+    expect(probe.chooseSpawn("A", { at: hole })).toBe(true);
+
+    const g = inShop({ dig: hole });
+    expect(g.spawns.get("B")).toEqual(probe.spawns.get("B")); // el hoyo no movió el sorteo
+    expect(isDug(g.match!.terrain, g.pristine!, hole.x, hole.z)).toBe(true);
+    expect(terrainHeightAt(g.match!.terrain, hole.x, hole.z)).toBeGreaterThan(WATER_LEVEL); // hoyo seco: no es por el agua
+    const before = { ...g.spawns.get("A")! };
+    expect(g.chooseSpawn("A", { at: hole })).toBe(false);
+    expect(g.spawns.get("A")).toEqual(before);
+    // Afuera del hoyo, a un paso del borde, vale.
+    expect(g.chooseSpawn("A", { at: { x: hole.x + WEAPONS.missile.craterRadius + 2, z: hole.z } })).toBe(true);
+  });
+
+  it(`el server rechaza un punto a menos de ${TANK_MIN_SEPARATION_3D} celdas de donde nace el otro, sea del sorteo o elegido`, () => {
+    const g = inShop();
+    const b = spot(g.spawns.get("B")!);
+    // Alrededor de B, el primer rumbo donde el piso vale a 59 y a 61 celdas: lo único que cambia es la distancia.
+    const ok = (p: { x: number; z: number }) => validateSpawn(g.match!.terrain, g.pristine!, p, []).ok;
+    const ring = (deg: number, r: number) => ({ x: b.x + Math.cos((deg * Math.PI) / 180) * r, z: b.z + Math.sin((deg * Math.PI) / 180) * r });
+    const deg = Array.from({ length: 72 }, (_, i) => i * 5).find((d) => ok(ring(d, TANK_MIN_SEPARATION_3D - 1)) && ok(ring(d, TANK_MIN_SEPARATION_3D + 1)))!;
+    expect(deg).toBeDefined();
+    const before = { ...g.spawns.get("A")! };
+    expect(g.chooseSpawn("A", { at: ring(deg, TANK_MIN_SEPARATION_3D - 1) })).toBe(false);
+    expect(g.chooseSpawn("A", { at: b })).toBe(false);
+    expect(g.spawns.get("A")).toEqual(before);
+    const near = ring(deg, TANK_MIN_SEPARATION_3D + 1);
+    expect(g.chooseSpawn("A", { at: near })).toBe(true);
+
+    // Ahora el que tiene que quedar lejos es B, del punto que eligió A. Y su propio lugar viejo no le estorba.
+    expect(g.chooseSpawn("B", { at: { x: near.x + 3, z: near.z } })).toBe(false);
+    expect(g.spawns.get("B")).toEqual({ ...b, picked: false });
+    const back = ring(deg, -2); // dos celdas para el otro lado: pegado a donde estaba, lejos de A
+    expect(g.chooseSpawn("B", { at: back })).toBe(ok(back));
+    toNextRound(g);
+    expect(far(tank(g, "A"), tank(g, "B"))).toBeGreaterThanOrEqual(TANK_MIN_SEPARATION_3D);
+  });
+
+  it("solo en la tienda: en la ronda 1 no se elige, y la revancha sortea de nuevo en su terreno", () => {
+    const first = started(34);
+    expect(first.spawns.size).toBe(0);
+    expect(first.chooseSpawn("A", { at: spot(tank(first, "A")) })).toBe(false); // la ronda 1 se sortea
+
+    const g = inShop({ rounds: 2 });
+    const at = freeSpot(g, "A");
+    expect(g.chooseSpawn("A", { at })).toBe(true);
+    toNextRound(g);
+    expect(spot(tank(g, "A"))).toEqual(at);
+    expect(g.chooseSpawn("A", { at: freeSpot(inShop(), "A") })).toBe(false); // jugando, tampoco
+    killAndPass(g, "B");
+    expect(g.phase).toBe("ended"); // la última ronda no tiene tienda: no hay nada que elegir
+    expect(g.spawns.size).toBe(0);
+    expect(g.chooseSpawn("A", { at })).toBe(false);
+
+    expect(g.rematch("A", 35)).toBe(true);
+    expect(g.spawns.size).toBe(0);
+    expect(g.match!.tanks.map(spot)).toEqual(started(35).match!.tanks.map(spot)); // lo elegido en la partida anterior no pasa
+  });
+
+  it("el que se fue no cuenta: su nacimiento no le saca lugar a nadie, y nace muerto donde lo dejó el sorteo", () => {
+    const g = inShop({ ids: ["A", "B", "C"] });
+    const c = spot(g.spawns.get("C")!);
+    expect(g.chooseSpawn("A", { at: c })).toBe(false); // mientras está, a 60 de él
+    g.removePlayer("C");
+    expect(g.phase).toBe("shop");
+    expect(g.spawnRivals("A")).toEqual([g.spawns.get("B")]);
+    expect(g.chooseSpawn("A", { at: c })).toBe(true);
+    toNextRound(g);
+    expect(g.round).toBe(2);
+    expect(tank(g, "C")).toMatchObject({ ...c, life: 0 });
+    expect(tank(g, "A")).toMatchObject({ ...c, life: 100 });
   });
 });
 

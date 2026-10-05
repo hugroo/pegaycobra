@@ -3,9 +3,9 @@
 //
 // Mensajes del cliente:  start · rematch · fillBots · lobbyStep { step } · map { map } · clock { turn, shop, rounds }
 //                        fire { yaw, pitch, power, weapon }
-//                        move { moveTo: { x, z } } · step { moveTo: { x, z } } · buy { item } · sell { item } · ready · chat { text }
+//                        move { moveTo: { x, z } } · step { moveTo: { x, z } } · buy { item } · sell { item } · spawn { at: { x, z } } · ready · chat { text }
 // Los bots (bot.ts) no tienen conexión: la sala les pasa sus mensajes por los mismos métodos.
-// Mensajes del server:   terrain (binario) · shot · moved · skip · burn · refuel · roundEnd · chat
+// Mensajes del server:   terrain (binario) · pristine (binario, solo al que vuelve) · shot · moved · skip · burn · refuel · roundEnd · chat
 
 //
 // Si a uno se le cae la conexión sin avisar (refrescó la página), el asiento se le guarda
@@ -13,7 +13,7 @@
 
 import { Room, type Client, type Delayed } from "@colyseus/core";
 import { createRng, MAPS, MONEY_PER_ROUND, type TurnResult3D } from "@pegaycobra/sim";
-import { BOT_NAME, botMovePick, botShopPick, pickBotShot } from "./bot";
+import { BOT_NAME, botMovePick, botShopPick, botSpawnPick, pickBotShot } from "./bot";
 import { Game, MAX_PLAYERS, MIN_PLAYERS, SHOP_SECONDS, TURN_SECONDS, type RoundSummary, type ShotMark } from "./game";
 import { generateCode } from "./codes";
 import { FireState, GameState, PlayerState } from "./schema";
@@ -205,6 +205,8 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.log(`${this.nameOf(client.sessionId)} vende ${(message as { item?: string }).item}`);
       this.flush();
     });
+    // Nacimiento de la ronda que viene: { at: { x, z } }, solo en la tienda. La marca va en el estado.
+    this.onMessage("spawn", (client, message: unknown) => this.onSpawn(client.sessionId, message));
     this.onMessage("ready", (client) => this.onReady(client.sessionId));
     // Silueta: { hull: "box" | "flat" | "tower" }, solo en la espera.
     this.onMessage("hull", (client, message: unknown) => {
@@ -336,6 +338,13 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.flush();
   }
 
+  private onSpawn(id: string, message: unknown): void {
+    if (!this.game.chooseSpawn(id, message)) return; // ignorado
+    const at = this.game.spawns.get(id)!;
+    this.log(`${this.nameOf(id)} elige nacer en (${at.x.toFixed(1)}, ${at.z.toFixed(1)})`);
+    this.flush();
+  }
+
   private onReady(id: string): void {
     this.game.setReady(id);
     this.flush();
@@ -372,6 +381,8 @@ export class GameRoom extends Room<{ state: GameState }> {
         const player = g.playerOf(id);
         const item = player && botShopPick(player, this.botRng, this.botsHit.has(id));
         if (item) this.onBuy(id, { item });
+        const at = g.match && g.pristine && botSpawnPick(g.match.terrain, g.pristine, g.spawnRivals(id));
+        if (at) this.onSpawn(id, { at });
         this.onReady(id);
       }
     }
@@ -405,11 +416,16 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.flush();
   }
 
-  /** Volvió el mismo id. El terreno y el resumen de la ronda no están en el estado: se le mandan de nuevo. */
+  /**
+   * Volvió el mismo id. El terreno y el resumen de la ronda no están en el estado: se le mandan de
+   * nuevo. Y el terreno de la ronda 1 ("pristine"), que el que recargó la página ya no tiene: sin él
+   * no sabe qué es hoyo cuando elige dónde nacer.
+   */
   onReconnect(client: Client): void {
     this.away.delete(client.sessionId);
     const g = this.game;
     if (g.match) client.send("terrain", fullTerrain(g.match.terrain));
+    if (g.pristine && g.phase !== "ended") client.send("pristine", fullTerrain(g.pristine));
     if (g.lastRound) client.send("roundEnd", this.roundEndMsg(g.lastRound));
     this.log(`vuelve ${this.nameOf(client.sessionId)}`);
     this.flush();
@@ -556,6 +572,11 @@ export class GameRoom extends Room<{ state: GameState }> {
       p.hull = seat.hull;
       p.connected = seat.connected && !this.away.has(seat.id);
       p.ready = g.ready.has(seat.id);
+      // El nacimiento del que se fue no se muestra ni cuenta para la separación (Game.spawnRivals).
+      const spawn = seat.connected ? g.spawns.get(seat.id) : undefined;
+      p.spawnX = spawn?.x ?? -1;
+      p.spawnZ = spawn?.z ?? -1;
+      p.spawnPicked = spawn?.picked ?? false;
       const aim = g.aims.get(seat.id);
       if (aim) {
         p.yaw = aim.yaw;
